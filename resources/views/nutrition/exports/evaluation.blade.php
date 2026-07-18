@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="id"><head><meta charset="utf-8"><style>
+body{font-family:DejaVu Sans,sans-serif;font-size:10px;color:#111827}h1{font-size:17px}.grid{width:100%;border-collapse:collapse;margin-bottom:12px}.grid td{border:1px solid #d1d5db;padding:6px}.label{background:#f3f4f6;font-weight:bold;width:22%}table.score{width:100%;border-collapse:collapse}table.score th,table.score td{border:1px solid #9ca3af;padding:6px;text-align:center}table.score th{background:#e5e7eb}.notes{margin-top:12px;border:1px solid #d1d5db;padding:8px}
+</style></head><body>
+<h1>Evaluasi Penerimaan Menu</h1>
+<table class="grid"><tr><td class="label">Unit</td><td>{{ $evaluation->sppgUnit?->name }}</td><td class="label">Tanggal</td><td>{{ $evaluation->evaluation_date?->format('d-m-Y') }}</td></tr><tr><td class="label">Menu</td><td>{{ $evaluation->menu?->name }}</td><td class="label">Lokasi</td><td>{{ $evaluation->location_name_snapshot }}</td></tr><tr><td class="label">Porsi Disajikan</td><td>{{ $evaluation->served_portions }}</td><td class="label">Penerimaan</td><td>{{ $evaluation->acceptance_percent }}%</td></tr><tr><td class="label">Porsi Tersisa</td><td>{{ $evaluation->leftover_portions }}</td><td class="label">Sisa</td><td>{{ $evaluation->waste_percent }}%</td></tr></table>
+<table class="score"><thead><tr><th>Warna</th><th>Aroma</th><th>Rasa</th><th>Tekstur</th><th>Porsi</th><th>Suhu</th><th>Rata-rata</th></tr></thead><tbody><tr><td>{{ $evaluation->color_score }}</td><td>{{ $evaluation->aroma_score }}</td><td>{{ $evaluation->taste_score }}</td><td>{{ $evaluation->texture_score }}</td><td>{{ $evaluation->portion_score }}</td><td>{{ $evaluation->temperature_score }}</td><td>{{ $evaluation->overall_score }}</td></tr></tbody></table>
+<div class="notes"><strong>Keluhan/Masukan:</strong><br>{{ $evaluation->complaints ?: '-' }}</div><div class="notes"><strong>Tindakan Koreksi:</strong><br>{{ $evaluation->corrective_actions ?: '-' }}</div>
+</body></html>

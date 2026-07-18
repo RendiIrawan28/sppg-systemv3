@@ -1,0 +1,306 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+
+@theme {
+    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+[x-cloak] {
+    display: none !important;
+}
+
+html {
+    scroll-behavior: smooth;
+    color-scheme: light;
+}
+
+html.dark {
+    color-scheme: dark;
+}
+
+button,
+a,
+input,
+select {
+    -webkit-tap-highlight-color: transparent;
+}
+
+.theme-icon-dark {
+    display: none;
+}
+
+.dark .theme-icon-light {
+    display: none;
+}
+
+.dark .theme-icon-dark {
+    display: block;
+}
+
+.v3-theme {
+    transition: background-color 180ms ease, color 180ms ease;
+}
+
+/*
+ * V3 uses a deliberately small palette. These scoped mappings give every
+ * application surface a consistent dark counterpart, including classes
+ * produced dynamically by Blade.
+ */
+.dark .v3-theme {
+    background-color: #07111f !important;
+    color: #e7eef8;
+}
+
+.dark .v3-theme [class~="bg-[#f4f7fb]"],
+.dark .v3-theme [class~="bg-[#f6f8fc]"] {
+    background-color: #07111f !important;
+}
+
+.dark .v3-theme [class~="bg-white"] {
+    background-color: #0d1b2d !important;
+}
+
+.dark .v3-theme [class~="bg-white/90"] {
+    background-color: rgb(13 27 45 / 92%) !important;
+}
+
+.dark .v3-theme [class~="bg-white/70"] {
+    background-color: rgb(13 27 45 / 76%) !important;
+}
+
+.dark .v3-theme .v3-brand-mark {
+    background-color: #fff !important;
+}
+
+.dark .v3-theme [class~="bg-slate-50"],
+.dark .v3-theme [class~="bg-slate-50/50"],
+.dark .v3-theme [class~="bg-slate-50/60"],
+.dark .v3-theme [class~="bg-slate-50/70"] {
+    background-color: #101f32 !important;
+}
+
+.dark .v3-theme [class~="bg-slate-100"] {
+    background-color: #16283c !important;
+}
+
+.dark .v3-theme [class~="bg-slate-200"] {
+    background-color: #25384d !important;
+}
+
+.dark .v3-theme [class~="text-slate-950"],
+.dark .v3-theme [class~="text-slate-900"],
+.dark .v3-theme [class~="text-slate-800"] {
+    color: #f1f6fc !important;
+}
+
+.dark .v3-theme [class~="text-slate-700"],
+.dark .v3-theme [class~="text-slate-600"] {
+    color: #c7d4e3 !important;
+}
+
+.dark .v3-theme [class~="text-slate-500"] {
+    color: #9eb0c4 !important;
+}
+
+.dark .v3-theme [class~="text-slate-400"] {
+    color: #91a5bc !important;
+}
+
+.dark .v3-theme [class~="border-slate-100"],
+.dark .v3-theme [class~="border-slate-200"],
+.dark .v3-theme [class~="border-slate-200/80"] {
+    border-color: #20354d !important;
+}
+
+.dark .v3-theme [class~="border-slate-300"] {
+    border-color: #36506a !important;
+}
+
+.dark .v3-theme [class~="divide-slate-100"] > :not(:last-child) {
+    border-color: #20354d !important;
+}
+
+.dark .v3-theme [class~="ring-slate-200"] {
+    --tw-ring-color: #2a4159 !important;
+}
+
+.dark .v3-theme input:not([type="checkbox"]):not([type="radio"]),
+.dark .v3-theme select,
+.dark .v3-theme textarea {
+    border-color: #2b425b;
+    background-color: #0d1b2d !important;
+    color: #edf4fc !important;
+    caret-color: #7dd3fc;
+    color-scheme: dark;
+}
+
+.dark .v3-theme input::placeholder,
+.dark .v3-theme textarea::placeholder {
+    color: #7f94ab !important;
+}
+
+.dark .v3-theme input:not([type="checkbox"]):not([type="radio"]):focus,
+.dark .v3-theme select:focus,
+.dark .v3-theme textarea:focus {
+    border-color: #38bdf8 !important;
+    background-color: #10243a !important;
+    --tw-ring-color: rgb(56 189 248 / 18%) !important;
+}
+
+.dark .v3-theme [class~="bg-sky-50"],
+.dark .v3-theme [class~="bg-sky-100"] {
+    background-color: rgb(14 165 233 / 14%) !important;
+}
+
+/*
+ * Warna indigo untuk mode gelap.
+ * Digunakan pada kartu porsi besar di Editor Resep.
+ */
+.dark .v3-theme [class~="bg-indigo-50"],
+.dark .v3-theme [class~="bg-indigo-100"] {
+    background-color: rgb(99 102 241 / 15%) !important;
+}
+
+.dark .v3-theme [class~="text-indigo-600"],
+.dark .v3-theme [class~="text-indigo-700"],
+.dark .v3-theme [class~="text-indigo-800"],
+.dark .v3-theme [class~="text-indigo-900"] {
+    color: #a5b4fc !important;
+}
+
+.dark .v3-theme [class~="border-indigo-100"],
+.dark .v3-theme [class~="border-indigo-200"] {
+    border-color: rgb(129 140 248 / 28%) !important;
+}
+
+.dark .v3-theme [class~="ring-indigo-100"],
+.dark .v3-theme [class~="ring-indigo-200"] {
+    --tw-ring-color: rgb(129 140 248 / 24%) !important;
+}
+.dark .v3-theme [class~="bg-emerald-50/40"] {
+    background-color: rgb(16 185 129 / 10%) !important;
+}
+
+.dark .v3-theme [class~="bg-amber-50/40"] {
+    background-color: rgb(245 158 11 / 10%) !important;
+}
+
+.dark .v3-theme [class~="from-cyan-100"] {
+    --tw-gradient-from: rgb(6 182 212 / 17%) var(--tw-gradient-from-position) !important;
+    --tw-gradient-to: rgb(6 182 212 / 0%) var(--tw-gradient-to-position) !important;
+}
+
+.dark .v3-theme [class~="to-sky-50"] {
+    --tw-gradient-to: rgb(14 165 233 / 8%) var(--tw-gradient-to-position) !important;
+}
+
+.dark .v3-theme [class~="text-sky-700"],
+.dark .v3-theme [class~="text-sky-800"],
+.dark .v3-theme [class~="text-sky-900"] {
+    color: #7dd3fc !important;
+}
+
+.dark .v3-theme [class~="ring-sky-100"] {
+    --tw-ring-color: rgb(56 189 248 / 22%) !important;
+}
+
+.dark .v3-theme [class~="border-sky-100"] {
+    border-color: rgb(56 189 248 / 25%) !important;
+}
+
+.dark .v3-theme [class~="border-emerald-100"],
+.dark .v3-theme [class~="border-emerald-200"] {
+    border-color: rgb(52 211 153 / 26%) !important;
+}
+
+.dark .v3-theme [class~="border-amber-100"],
+.dark .v3-theme [class~="border-amber-200"] {
+    border-color: rgb(251 191 36 / 26%) !important;
+}
+
+.dark .v3-theme [class~="border-rose-100"],
+.dark .v3-theme [class~="border-rose-200"] {
+    border-color: rgb(251 113 133 / 26%) !important;
+}
+
+.dark .v3-theme [class~="bg-emerald-50"],
+.dark .v3-theme [class~="bg-emerald-100"] {
+    background-color: rgb(16 185 129 / 15%) !important;
+}
+
+.dark .v3-theme [class~="text-emerald-600"],
+.dark .v3-theme [class~="text-emerald-700"],
+.dark .v3-theme [class~="text-emerald-800"] {
+    color: #6ee7b7 !important;
+}
+
+.dark .v3-theme [class~="ring-emerald-100"] {
+    --tw-ring-color: rgb(52 211 153 / 22%) !important;
+}
+
+.dark .v3-theme [class~="bg-amber-50"] {
+    background-color: rgb(245 158 11 / 15%) !important;
+}
+
+.dark .v3-theme [class~="text-amber-700"] {
+    color: #fcd34d !important;
+}
+
+.dark .v3-theme [class~="ring-amber-100"] {
+    --tw-ring-color: rgb(251 191 36 / 22%) !important;
+}
+
+.dark .v3-theme [class~="bg-rose-50"],
+.dark .v3-theme [class~="bg-rose-100"] {
+    background-color: rgb(244 63 94 / 14%) !important;
+}
+
+.dark .v3-theme [class~="text-rose-600"],
+.dark .v3-theme [class~="text-rose-700"],
+.dark .v3-theme [class~="text-rose-800"] {
+    color: #fda4af !important;
+}
+
+.dark .v3-theme [class~="ring-rose-100"] {
+    --tw-ring-color: rgb(251 113 133 / 22%) !important;
+}
+
+.dark .v3-theme [class~="bg-violet-50"],
+.dark .v3-theme [class~="bg-violet-100"] {
+    background-color: rgb(139 92 246 / 15%) !important;
+}
+
+.dark .v3-theme [class~="text-violet-700"] {
+    color: #c4b5fd !important;
+}
+
+.dark .v3-theme [class~="ring-violet-100"] {
+    --tw-ring-color: rgb(167 139 250 / 22%) !important;
+}
+
+.dark .v3-theme [class~="hover:bg-slate-50"]:hover,
+.dark .v3-theme [class~="hover:bg-slate-100"]:hover,
+.dark .v3-theme [class~="hover:bg-sky-50/30"]:hover {
+    background-color: #14273d !important;
+}
+
+.dark .v3-theme [class~="hover:bg-rose-50"]:hover {
+    background-color: rgb(244 63 94 / 14%) !important;
+}
+
+.dark .v3-theme .theme-toggle {
+    border-color: #2c435c !important;
+    background-color: #13253b !important;
+    color: #dbe8f5 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .v3-theme {
+        transition: none;
+    }
+}

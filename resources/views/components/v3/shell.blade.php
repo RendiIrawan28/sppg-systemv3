@@ -1,0 +1,122 @@
+@props([
+    'unit',
+    'navigation',
+    'roleLabel',
+    'title',
+    'eyebrow' => 'Ruang kerja unit',
+])
+
+<div x-data="{ sidebarOpen: false, profileOpen: false }" class="min-h-screen">
+    <div
+        x-cloak
+        x-show="sidebarOpen"
+        x-transition.opacity
+        class="fixed inset-0 z-40 bg-slate-950/50 backdrop-blur-sm lg:hidden"
+        x-on:click="sidebarOpen = false"
+    ></div>
+
+    <aside
+        class="fixed inset-y-0 left-0 z-50 flex w-[286px] -translate-x-full flex-col overflow-hidden bg-[#081d3a] text-white shadow-2xl transition-transform duration-300 lg:translate-x-0"
+        :class="sidebarOpen && 'translate-x-0'"
+    >
+        <div class="absolute inset-0 opacity-20 [background-image:radial-gradient(circle_at_20%_10%,#38bdf8_0,transparent_25%),radial-gradient(circle_at_80%_90%,#84cc16_0,transparent_22%)]"></div>
+        <div class="relative flex h-20 items-center gap-3 border-b border-white/10 px-6">
+            <div class="v3-brand-mark grid size-11 place-items-center rounded-2xl bg-white shadow-lg shadow-sky-950/30">
+                <img src="{{ asset('images/logo-bgn.png') }}" alt="BGN" class="size-9 object-contain">
+            </div>
+            <div>
+                <div class="flex items-center gap-2">
+                    <span class="text-lg font-bold tracking-tight">SPPG</span>
+                    <span class="rounded-full bg-cyan-300/15 px-2 py-0.5 text-[10px] font-bold tracking-[.16em] text-cyan-200 ring-1 ring-cyan-200/20">V3</span>
+                </div>
+                <p class="mt-0.5 text-xs text-slate-400">Sistem Operasional Terpadu</p>
+            </div>
+        </div>
+
+        <div class="relative mx-4 mt-5 rounded-2xl border border-white/10 bg-white/[.06] p-3.5">
+            <p class="text-[10px] font-semibold uppercase tracking-[.16em] text-slate-400">Unit aktif</p>
+            <p class="mt-1 truncate text-sm font-semibold text-white">{{ $unit->name }}</p>
+            <p class="mt-0.5 truncate text-xs text-slate-400">{{ $unit->code }}</p>
+        </div>
+
+        <nav class="relative mt-5 flex-1 overflow-y-auto px-4 pb-6">
+            @foreach ($navigation as $group)
+                <div class="mb-6">
+                    <p class="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.18em] text-slate-500">{{ $group['label'] }}</p>
+                    <div class="space-y-1">
+                        @foreach ($group['items'] as $item)
+                            <a
+                                href="{{ $item['url'] }}"
+                                @if ($item['external']) target="_blank" rel="noopener" @else wire:navigate @endif
+                                @class([
+                                    'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition',
+                                    'bg-cyan-300 text-[#071a34] shadow-lg shadow-cyan-950/20' => $item['active'],
+                                    'text-slate-300 hover:bg-white/[.07] hover:text-white' => ! $item['active'],
+                                ])
+                            >
+                                <x-v3.icon :name="$item['icon']" class="size-[19px] shrink-0" />
+                                <span class="min-w-0 flex-1 truncate">{{ $item['label'] }}</span>
+                                @if ($item['badge'])
+                                    <span @class([
+                                        'rounded-md px-1.5 py-0.5 text-[9px] font-bold tracking-wider',
+                                        'bg-[#071a34]/10 text-[#071a34]' => $item['active'],
+                                        'bg-cyan-300/10 text-cyan-300' => ! $item['active'],
+                                    ])>{{ $item['badge'] }}</span>
+                                @endif
+                            </a>
+                        @endforeach
+                    </div>
+                </div>
+            @endforeach
+        </nav>
+
+        <div class="relative border-t border-white/10 p-4">
+            <button wire:click="logout" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-300 transition hover:bg-white/[.07] hover:text-white">
+                <x-v3.icon name="logout" class="size-[19px]" />
+                Keluar
+            </button>
+        </div>
+    </aside>
+
+    <div class="min-h-screen lg:pl-[286px]">
+        <header class="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
+            <div class="flex h-20 items-center gap-3 px-4 sm:px-6 lg:px-8">
+                <button x-on:click="sidebarOpen = true" class="grid size-10 place-items-center rounded-xl text-slate-600 transition hover:bg-slate-100 lg:hidden" aria-label="Buka menu">
+                    <x-v3.icon name="menu" class="size-5" />
+                </button>
+
+                <div class="min-w-0 flex-1">
+                    <p class="text-[10px] font-bold uppercase tracking-[.18em] text-sky-700">{{ $eyebrow }}</p>
+                    <h1 class="mt-0.5 truncate text-lg font-bold tracking-tight text-slate-950 sm:text-xl">{{ $title }}</h1>
+                </div>
+
+                <x-v3.theme-toggle />
+
+                <div class="relative" x-on:click.outside="profileOpen = false">
+                    <button x-on:click="profileOpen = ! profileOpen" class="flex items-center gap-2 rounded-xl p-1.5 transition hover:bg-slate-100">
+                        <span class="grid size-9 place-items-center rounded-xl bg-[#081d3a] text-sm font-bold text-white">{{ str(auth()->user()->name)->substr(0, 1)->upper() }}</span>
+                        <span class="hidden max-w-36 text-left md:block">
+                            <span class="block truncate text-xs font-bold text-slate-800">{{ auth()->user()->name }}</span>
+                            <span class="block truncate text-[10px] text-slate-500">{{ $roleLabel }}</span>
+                        </span>
+                        <x-v3.icon name="chevron-down" class="hidden size-4 text-slate-400 md:block" />
+                    </button>
+                    <div x-cloak x-show="profileOpen" x-transition class="absolute right-0 mt-2 w-60 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/10">
+                        <div class="border-b border-slate-100 px-3 py-2.5">
+                            <p class="truncate text-sm font-bold text-slate-800">{{ auth()->user()->name }}</p>
+                            <p class="truncate text-xs text-slate-500">{{ auth()->user()->email }}</p>
+                        </div>
+                        <button wire:click="logout" class="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50">
+                            <x-v3.icon name="logout" class="size-4" />
+                            Keluar dari aplikasi
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <main class="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+            {{ $slot }}
+        </main>
+    </div>
+</div>

@@ -1,0 +1,15 @@
+{
+  "dataset": "Tabel Komposisi Pangan Indonesia (TKPI) 2017",
+  "edition": "2017",
+  "records": 1113,
+  "nutrition_components": 21,
+  "basis": "Nilai zat gizi per 100 gram bagian yang dapat dimakan (BDD)",
+  "source_publication": "Tabel Komposisi Pangan Indonesia, Kementerian Kesehatan RI",
+  "csv_sha256": "e5b78ed12ac777bd092345db75af9bb5299c5c98322e543a5f831f49ef0c5ee7",
+  "generated_at": "2026-06-27T12:34:43.160769+00:00",
+  "notes": [
+    "Sel kosong dipertahankan sebagai null/tidak tersedia.",
+    "Nilai 0 dipertahankan sebagai angka 0.",
+    "Lima baris hasil ekstraksi tabel diperiksa dan dikoreksi manual berdasarkan halaman sumber."
+  ]
+}

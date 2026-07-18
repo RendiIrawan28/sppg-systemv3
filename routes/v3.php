@@ -1,0 +1,94 @@
+<?php
+
+use App\Http\Controllers\V3\EntryController;
+use App\Http\Middleware\SetV3UnitContext;
+use App\Livewire\V3\Auth\Login;
+use App\Livewire\V3\Beneficiaries\Form as BeneficiaryForm;
+use App\Livewire\V3\Beneficiaries\Import as BeneficiaryImport;
+use App\Livewire\V3\Beneficiaries\Index as BeneficiaryIndex;
+use App\Livewire\V3\Beneficiaries\Periods\Form as BeneficiaryPeriodForm;
+use App\Livewire\V3\Beneficiaries\Periods\Index as BeneficiaryPeriodIndex;
+use App\Livewire\V3\Beneficiaries\Periods\Show as BeneficiaryPeriodShow;
+use App\Livewire\V3\Dashboard;
+use App\Livewire\V3\Field\DailyReports as FieldDailyReports;
+use App\Livewire\V3\Field\Incidents\Form as FieldIncidentForm;
+use App\Livewire\V3\Field\Incidents\Index as FieldIncidentIndex;
+use App\Livewire\V3\Field\Plans\Form as FieldPlanForm;
+use App\Livewire\V3\Field\Plans\Index as FieldPlanIndex;
+use App\Livewire\V3\MasterData\Catalog as MasterDataCatalog;
+use App\Livewire\V3\MasterData\Hub as MasterDataHub;
+use App\Livewire\V3\MasterData\Organization as MasterDataOrganization;
+use App\Livewire\V3\MasterData\Users as MasterDataUsers;
+use App\Livewire\V3\Nutrition\DailyEvaluation;
+use App\Livewire\V3\Nutrition\MenuMatrix;
+use App\Livewire\V3\Nutrition\Menus\Form as MenuRecipeForm;
+use App\Livewire\V3\Nutrition\Requirements\Index as NutritionRequirementIndex;
+use App\Livewire\V3\Nutrition\Requirements\Show as NutritionRequirementShow;
+use App\Livewire\V3\Nutrition\Standards;
+use App\Livewire\V3\Operations\Form as OperationalForm;
+use App\Livewire\V3\Operations\Index as OperationalIndex;
+use App\Livewire\V3\Procurement\Index as ProcurementIndex;
+use App\Livewire\V3\Procurement\Show as ProcurementShow;
+use App\Livewire\V3\Warehouse\Handovers\Index as HandoverIndex;
+use App\Livewire\V3\Warehouse\Handovers\Show as HandoverShow;
+use App\Livewire\V3\Warehouse\Receipts\Index as StockReceiptIndex;
+use App\Livewire\V3\Warehouse\Receipts\Show as StockReceiptShow;
+use App\Livewire\V3\Warehouse\Stock\Index as StockIndex;
+use App\Support\V3\MasterDataRegistry;
+use App\Support\V3\OperationalModuleRegistry;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/v3/login', Login::class)->name('login');
+
+Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
+    Route::get('/', EntryController::class)->name('entry');
+
+    Route::middleware(SetV3UnitContext::class)
+        ->group(function (): void {
+            Route::get('/dashboard', Dashboard::class)->name('dashboard');
+            Route::get('/penerima-manfaat', BeneficiaryIndex::class)->name('beneficiaries.index');
+            Route::get('/penerima-manfaat/tambah', BeneficiaryForm::class)->name('beneficiaries.create');
+            Route::get('/penerima-manfaat/impor', BeneficiaryImport::class)->name('beneficiaries.import');
+            Route::get('/penerima-manfaat/{beneficiary}/ubah', BeneficiaryForm::class)->name('beneficiaries.edit');
+            Route::get('/periode-penerima', BeneficiaryPeriodIndex::class)->name('beneficiary-periods.index');
+            Route::get('/periode-penerima/tambah', BeneficiaryPeriodForm::class)->name('beneficiary-periods.create');
+            Route::get('/periode-penerima/{period}', BeneficiaryPeriodShow::class)->name('beneficiary-periods.show');
+            Route::get('/periode-penerima/{period}/ubah', BeneficiaryPeriodForm::class)->name('beneficiary-periods.edit');
+            Route::get('/gizi/evaluasi-harian', DailyEvaluation::class)->name('nutrition.daily-evaluation');
+            Route::get('/gizi/standar', Standards::class)->name('nutrition.standards');
+            Route::get('/gizi/perencanaan-menu', MenuMatrix::class)->name('nutrition.menu-matrix');
+            Route::get('/gizi/resep/{menu}', MenuRecipeForm::class)->name('nutrition.menus.show');
+            Route::get('/gizi/kebutuhan-bahan', NutritionRequirementIndex::class)->name('nutrition.requirements.index');
+            Route::get('/gizi/kebutuhan-bahan/{plan}', NutritionRequirementShow::class)->name('nutrition.requirements.show');
+            Route::get('/pengadaan', ProcurementIndex::class)->name('procurement.index');
+            Route::get('/pengadaan/{procurement}', ProcurementShow::class)->name('procurement.show');
+            Route::get('/gudang/penerimaan', StockReceiptIndex::class)->name('warehouse.receipts.index');
+            Route::get('/gudang/penerimaan/{receipt}', StockReceiptShow::class)->name('warehouse.receipts.show');
+            Route::get('/gudang/stok', StockIndex::class)->name('warehouse.stock.index');
+            Route::get('/gudang/serah-bahan', HandoverIndex::class)->name('warehouse.handovers.index');
+            Route::get('/gudang/serah-bahan/{handover}', HandoverShow::class)->name('warehouse.handovers.show');
+            Route::get('/lapangan/rencana', FieldPlanIndex::class)->name('field.plans.index');
+            Route::get('/lapangan/rencana/tambah', FieldPlanForm::class)->name('field.plans.create');
+            Route::get('/lapangan/rencana/{plan}', FieldPlanForm::class)->name('field.plans.show');
+            Route::get('/lapangan/laporan-harian', FieldDailyReports::class)->name('field.daily-reports');
+            Route::get('/lapangan/insiden', FieldIncidentIndex::class)->name('field.incidents.index');
+            Route::get('/lapangan/insiden/tambah', FieldIncidentForm::class)->name('field.incidents.create');
+            Route::get('/lapangan/insiden/{incident}', FieldIncidentForm::class)->name('field.incidents.show');
+            Route::get('/operasional/{module}', OperationalIndex::class)
+                ->whereIn('module', app(OperationalModuleRegistry::class)->slugs())
+                ->name('operations.index');
+            Route::get('/operasional/{module}/tambah', OperationalForm::class)
+                ->whereIn('module', app(OperationalModuleRegistry::class)->slugs())
+                ->name('operations.create');
+            Route::get('/operasional/{module}/{record}', OperationalForm::class)
+                ->whereIn('module', app(OperationalModuleRegistry::class)->slugs())
+                ->whereNumber('record')
+                ->name('operations.show');
+            Route::get('/master-data', MasterDataHub::class)->name('master-data.index');
+            Route::get('/master-data/organisasi', MasterDataOrganization::class)->name('master-data.organization');
+            Route::get('/master-data/pengguna', MasterDataUsers::class)->name('master-data.users');
+            Route::get('/master-data/{catalog}', MasterDataCatalog::class)
+                ->whereIn('catalog', app(MasterDataRegistry::class)->slugs())
+                ->name('master-data.catalog');
+        });
+});
