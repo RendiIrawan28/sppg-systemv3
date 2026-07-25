@@ -8,11 +8,13 @@ beforeEach(function (): void {
     $this->withoutVite();
 });
 
-it('menampilkan halaman masuk native V3', function (): void {
+it('menampilkan halaman masuk tanpa catatan migrasi', function (): void {
     $this->get('/v3/login')
         ->assertOk()
         ->assertSee('Masuk ke ruang kerja')
-        ->assertSee('Native Laravel + Livewire')
+        ->assertSee('Sistem Operasional Terpadu')
+        ->assertDontSee('Native Laravel + Livewire')
+        ->assertDontSee('SPPG V3')
         ->assertSeeHtml('data-theme-toggle')
         ->assertSee('sppg-theme');
 });
@@ -38,7 +40,9 @@ it('memiliki route utama untuk rollout V3', function (): void {
         ->and(route('v3.procurement.index'))->toEndWith('/v3/pengadaan')
         ->and(route('v3.warehouse.receipts.index'))->toEndWith('/v3/gudang/penerimaan')
         ->and(route('v3.warehouse.stock.index'))->toEndWith('/v3/gudang/stok')
-        ->and(route('v3.warehouse.handovers.index'))->toEndWith('/v3/gudang/serah-bahan')
+        ->and(route('v3.warehouse.withdrawals.index'))->toEndWith('/v3/gudang/pengambilan')
+        ->and(route('v3.warehouse.controls.index'))->toEndWith('/v3/gudang/kontrol-stok')
+        ->and(route('v3.preparation.index'))->toEndWith('/v3/operasional/persiapan')
         ->and(route('v3.field.plans.index'))->toEndWith('/v3/lapangan/rencana')
         ->and(route('v3.field.daily-reports'))->toEndWith('/v3/lapangan/laporan-harian')
         ->and(route('v3.field.incidents.index'))->toEndWith('/v3/lapangan/insiden')
@@ -66,7 +70,9 @@ it('melindungi seluruh fitur penerima V3 dari pengguna yang belum masuk', functi
     '/v3/pengadaan',
     '/v3/gudang/penerimaan',
     '/v3/gudang/stok',
-    '/v3/gudang/serah-bahan',
+    '/v3/gudang/pengambilan',
+    '/v3/gudang/kontrol-stok',
+    '/v3/operasional/persiapan',
     '/v3/lapangan/rencana',
     '/v3/lapangan/laporan-harian',
     '/v3/lapangan/insiden',

@@ -4,8 +4,7 @@ namespace App\Services;
 
 use App\Enums\OperationalReportStatus;
 use App\Enums\ProcessingBatchState;
-use App\Enums\ProcessingDeviationSeverity;
-use App\Enums\ProcessingDeviationStatus;
+use App\Enums\ProcessingTemperatureCheckpoint;
 use App\Models\ProcessingBatch;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -19,22 +18,32 @@ class ProcessingWorkflow
 
         return DB::transaction(function () use ($batch, $actor): ProcessingBatch {
             $batch = $this->lockedBatch($batch);
-
             if ($batch->state !== ProcessingBatchState::Planned || ! $batch->isReportEditable()) {
                 throw ValidationException::withMessages([
                     'state' => 'Batch tidak dapat dimulai pada status saat ini.',
                 ]);
             }
+            if ($batch->materialUsages->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'materialUsages' => 'Batch belum menerima bahan dari pengambilan Gudang.',
+                ]);
+            }
 
             $fromState = $batch->state->value;
-
             $batch->update([
                 'state' => ProcessingBatchState::InProgress,
                 'started_at' => $batch->started_at ?? now(),
-                'updated_by' => $actor->getKey(),
+                'petugas_id' => $actor->id,
+                'petugas_name_snapshot' => $actor->name,
+                'updated_by' => $actor->id,
             ]);
-
-            $this->writeHistory($batch, $actor, 'production_started', $fromState, ProcessingBatchState::InProgress->value);
+            $this->writeHistory(
+                $batch,
+                $actor,
+                'production_started',
+                $fromState,
+                ProcessingBatchState::InProgress->value,
+            );
 
             return $batch->refresh();
         });
@@ -46,83 +55,28 @@ class ProcessingWorkflow
 
         return DB::transaction(function () use ($batch, $actor): ProcessingBatch {
             $batch = $this->lockedBatch($batch);
-
             if ($batch->state !== ProcessingBatchState::InProgress || ! $batch->isReportEditable()) {
                 throw ValidationException::withMessages([
-                    'state' => 'Hanya batch yang sedang diproses yang dapat diselesaikan.',
+                    'state' => 'Hanya Pengolahan yang sedang dikerjakan yang dapat diselesaikan.',
                 ]);
             }
 
             $this->validateBeforeComplete($batch);
             $fromState = $batch->state->value;
-
             $batch->update([
                 'state' => ProcessingBatchState::Completed,
                 'completed_at' => $batch->completed_at ?? now(),
-                'updated_by' => $actor->getKey(),
+                'updated_by' => $actor->id,
             ]);
-
-            $this->writeHistory($batch, $actor, 'production_completed', $fromState, ProcessingBatchState::Completed->value);
-
-            return $batch->refresh();
-        });
-    }
-
-    public function handover(
-        ProcessingBatch $batch,
-        User $actor,
-        array $data,
-    ): ProcessingBatch {
-        abort_unless($actor->can('processing.update'), 403);
-
-        return DB::transaction(function () use ($batch, $actor, $data): ProcessingBatch {
-            $batch = $this->lockedBatch($batch);
-
-            if ($batch->state !== ProcessingBatchState::Completed || ! $batch->isReportEditable()) {
-                throw ValidationException::withMessages([
-                    'state' => 'Serah-terima hanya dapat dilakukan setelah produksi selesai.',
-                ]);
-            }
-
-            $quantity = (float) ($data['output_quantity'] ?? 0);
-
-            if ($quantity <= 0 || blank($data['unit_name'] ?? null) || blank($data['received_by_name'] ?? null)) {
-                throw ValidationException::withMessages([
-                    'handover' => 'Jumlah hasil, satuan, dan penerima serah-terima wajib diisi.',
-                ]);
-            }
-
-            $batch->handover()->updateOrCreate(
-                ['processing_batch_id' => $batch->getKey()],
-                [
-                    'handed_over_at' => $data['handed_over_at'] ?? now(),
-                    'output_quantity' => $quantity,
-                    'unit_name' => $data['unit_name'],
-                    'received_by_user_id' => $data['received_by_user_id'] ?? null,
-                    'received_by_name' => $data['received_by_name'],
-                    'notes' => $data['notes'] ?? null,
-                    'photo_path' => $data['photo_path'] ?? null,
-                    'created_by' => $actor->getKey(),
-                ],
-            );
-
-            $fromState = $batch->state->value;
-
-            $batch->update([
-                'state' => ProcessingBatchState::HandedOver,
-                'actual_output_quantity' => $quantity,
-                'actual_output_unit' => $data['unit_name'],
-                'updated_by' => $actor->getKey(),
-            ]);
-
             $this->writeHistory(
                 $batch,
                 $actor,
-                'handed_over_to_portioning',
+                'production_completed',
                 $fromState,
-                ProcessingBatchState::HandedOver->value,
-                $data['notes'] ?? null,
+                ProcessingBatchState::Completed->value,
             );
+
+            app(PortioningInputService::class)->syncProcessingCompletion($batch->fresh(), $actor);
 
             return $batch->refresh();
         });
@@ -133,30 +87,29 @@ class ProcessingWorkflow
         User $actor,
         ?string $notes = null,
     ): ProcessingBatch {
-        abort_unless($actor->can('processing.update'), 403);
+        abort_unless($actor->can('processing.submit'), 403);
 
         return DB::transaction(function () use ($batch, $actor, $notes): ProcessingBatch {
             $batch = $this->lockedBatch($batch);
-
             if (! $batch->canBeSubmitted()) {
                 throw ValidationException::withMessages([
-                    'status' => 'Batch belum dapat diajukan. Pastikan hasil sudah diserahkan ke Pemorsian.',
+                    'status' => 'Pengolahan harus diselesaikan sebelum laporan diajukan.',
                 ]);
             }
+            $this->validateBeforeComplete($batch);
 
-            $this->validateBeforeSubmit($batch);
             $fromStatus = $batch->status->value;
-
             $batch->update([
                 'status' => OperationalReportStatus::Submitted,
-                'submitted_by' => $actor->getKey(),
+                'submitted_by' => $actor->id,
                 'submitted_at' => now(),
+                'division_approved_by' => null,
+                'division_approved_at' => null,
                 'verified_by' => null,
                 'verified_at' => null,
                 'review_notes' => null,
-                'updated_by' => $actor->getKey(),
+                'updated_by' => $actor->id,
             ]);
-
             $this->writeHistory(
                 $batch,
                 $actor,
@@ -181,29 +134,36 @@ class ProcessingWorkflow
 
         return DB::transaction(function () use ($batch, $actor, $notes): ProcessingBatch {
             $batch = $this->lockedBatch($batch);
-
-            if (! app(OperationalReportApprovalService::class)->isReviewable($batch->status)) {
+            $approval = app(OperationalReportApprovalService::class);
+            if (! $approval->isReviewable($batch->status)) {
                 throw ValidationException::withMessages([
                     'status' => 'Laporan tidak berada pada tahap persetujuan yang valid.',
                 ]);
             }
 
-            $nextStatus = app(OperationalReportApprovalService::class)->nextApprovedStatus($batch->status, $actor);
-            $action = app(OperationalReportApprovalService::class)->reviewActionName($nextStatus);
+            $nextStatus = $approval->nextApprovedStatus($batch->status, $actor);
             $fromStatus = $batch->status->value;
-
-            $batch->update([
+            $updates = [
                 'status' => $nextStatus,
-                'verified_by' => $actor->getKey(),
-                'verified_at' => now(),
                 'review_notes' => $notes,
-                'updated_by' => $actor->getKey(),
-            ]);
-
+                'updated_by' => $actor->id,
+            ];
+            if ($nextStatus === OperationalReportStatus::DivisionApproved) {
+                $updates += [
+                    'division_approved_by' => $actor->id,
+                    'division_approved_at' => now(),
+                ];
+            } else {
+                $updates += [
+                    'verified_by' => $actor->id,
+                    'verified_at' => now(),
+                ];
+            }
+            $batch->update($updates);
             $this->writeHistory(
                 $batch,
                 $actor,
-                $action,
+                $approval->reviewActionName($nextStatus),
                 $batch->state->value,
                 $batch->state->value,
                 $notes,
@@ -224,21 +184,21 @@ class ProcessingWorkflow
 
         return DB::transaction(function () use ($batch, $actor, $notes): ProcessingBatch {
             $batch = $this->lockedBatch($batch);
-
-            if (! app(OperationalReportApprovalService::class)->isReviewable($batch->status)) {
+            app(OperationalReportApprovalService::class)->assertCanReviewStage($batch->status, $actor);
+            if (blank($notes)) {
                 throw ValidationException::withMessages([
-                    'status' => 'Laporan tidak sedang menunggu verifikasi.',
+                    'reviewNotes' => 'Alasan revisi wajib diisi.',
                 ]);
             }
 
+            $fromStatus = $batch->status->value;
             $batch->update([
                 'status' => OperationalReportStatus::RevisionRequired,
                 'verified_by' => null,
                 'verified_at' => null,
-                'review_notes' => $notes,
-                'updated_by' => $actor->getKey(),
+                'review_notes' => trim($notes),
+                'updated_by' => $actor->id,
             ]);
-
             $this->writeHistory(
                 $batch,
                 $actor,
@@ -246,7 +206,7 @@ class ProcessingWorkflow
                 $batch->state->value,
                 $batch->state->value,
                 $notes,
-                OperationalReportStatus::Submitted->value,
+                $fromStatus,
                 OperationalReportStatus::RevisionRequired->value,
             );
 
@@ -254,16 +214,22 @@ class ProcessingWorkflow
         });
     }
 
+    /** @return array<int, string> */
+    public function submissionIssues(ProcessingBatch $batch): array
+    {
+        try {
+            $this->validateBeforeComplete($this->lockedBatch($batch));
+
+            return [];
+        } catch (ValidationException $exception) {
+            return collect($exception->errors())->flatten()->values()->all();
+        }
+    }
+
     private function lockedBatch(ProcessingBatch $batch): ProcessingBatch
     {
         return ProcessingBatch::query()
-            ->with([
-                'materialUsages',
-                'temperatureLogs',
-                'documentations',
-                'deviations',
-                'handover',
-            ])
+            ->with(['materialUsages.returns', 'temperatureLogs', 'documentations'])
             ->lockForUpdate()
             ->findOrFail($batch->getKey());
     }
@@ -271,56 +237,33 @@ class ProcessingWorkflow
     private function validateBeforeComplete(ProcessingBatch $batch): void
     {
         $errors = [];
-
         if ($batch->materialUsages->isEmpty()) {
-            $errors['materialUsages'] = 'Minimal satu bahan baku harus dicatat.';
+            $errors['materialUsages'] = 'Minimal satu bahan dari Gudang harus tersedia.';
         }
-
         if ((float) $batch->actual_output_quantity <= 0) {
-            $errors['actual_output_quantity'] = 'Hasil akhir produksi harus lebih dari nol.';
+            $errors['actual_output_quantity'] = 'Jumlah hasil akhir harus lebih dari nol.';
         }
-
         if (blank($batch->actual_output_unit)) {
             $errors['actual_output_unit'] = 'Satuan hasil akhir wajib diisi.';
         }
 
-        if ($errors !== []) {
-            throw ValidationException::withMessages($errors);
-        }
-    }
-
-    private function validateBeforeSubmit(ProcessingBatch $batch): void
-    {
-        $errors = [];
-
-        if ($batch->temperatureLogs->isEmpty()) {
-            $errors['temperatureLogs'] = 'Minimal satu pencatatan suhu wajib tersedia.';
+        $finalTemperatures = $batch->temperatureLogs
+            ->where('checkpoint', ProcessingTemperatureCheckpoint::Final);
+        if ($finalTemperatures->isEmpty()) {
+            $errors['temperatureLogs'] = 'Minimal satu suhu makanan setelah matang wajib dicatat.';
         }
 
-        $invalidTemperatures = $batch->temperatureLogs
-            ->filter(fn ($log): bool => ! $log->is_within_limit && blank($log->corrective_action));
-
-        if ($invalidTemperatures->isNotEmpty()) {
-            $errors['temperatureLogs'] = 'Suhu di luar batas wajib memiliki tindakan koreksi.';
-        }
-
-        if ($batch->documentations->isEmpty()) {
-            $errors['documentations'] = 'Minimal satu foto dokumentasi wajib tersedia.';
-        }
-
-        if (! $batch->handover) {
-            $errors['handover'] = 'Data serah-terima ke Pemorsian belum tersedia.';
-        }
-
-        $blockingDeviation = $batch->deviations->first(function ($deviation): bool {
-            return in_array($deviation->severity, [
-                ProcessingDeviationSeverity::High,
-                ProcessingDeviationSeverity::Critical,
-            ], true) && $deviation->status !== ProcessingDeviationStatus::Resolved;
-        });
-
-        if ($blockingDeviation) {
-            $errors['deviations'] = 'Penyimpangan tinggi atau kritis harus diselesaikan sebelum laporan diajukan.';
+        $documentedProducts = $batch->documentations
+            ->where('documentation_type', 'after')
+            ->filter(fn ($documentation): bool => filled($documentation->caption) && filled($documentation->photo_path))
+            ->pluck('caption')
+            ->map(fn ($name): string => mb_strtolower(trim((string) $name)));
+        $missingPhotos = $finalTemperatures
+            ->pluck('product_name')
+            ->map(fn ($name): string => mb_strtolower(trim((string) $name)))
+            ->diff($documentedProducts);
+        if ($missingPhotos->isNotEmpty()) {
+            $errors['documentations'] = 'Setiap makanan matang wajib memiliki satu foto hasil.';
         }
 
         if ($errors !== []) {
@@ -339,7 +282,7 @@ class ProcessingWorkflow
         ?string $toStatus = null,
     ): void {
         $batch->histories()->create([
-            'actor_id' => $actor->getKey(),
+            'actor_id' => $actor->id,
             'action' => $action,
             'from_state' => $fromState,
             'to_state' => $toState,
@@ -347,12 +290,9 @@ class ProcessingWorkflow
             'to_status' => $toStatus,
             'notes' => $notes,
             'snapshot' => $batch->fresh([
-                'materialUsages',
+                'materialUsages.returns',
                 'temperatureLogs',
-                'steps',
                 'documentations',
-                'deviations',
-                'handover',
             ])->toArray(),
         ]);
     }

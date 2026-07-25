@@ -68,7 +68,6 @@ class WasteHandoverReport extends Model
     {
         static::creating(function (self $report): void {
             $report->uuid ??= (string) Str::uuid();
-            $report->division_type ??= WasteDivision::Preparation;
             $report->status ??= OperationalReportStatus::Draft;
             $report->source_system ??= 'laravel_v2';
 
@@ -188,5 +187,4 @@ class WasteHandoverReport extends Model
             $this->sequence_number,
         );
     }
-
 }

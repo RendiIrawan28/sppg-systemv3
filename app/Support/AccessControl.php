@@ -143,7 +143,7 @@ final class AccessControl
 
             // Pengadaan dan gudang hanya dipantau. Approval pembelian tetap milik Pengawas Keuangan.
             ...self::module('suppliers', ['view']),
-            ...self::module('procurement', ['view', 'finalize_price']),
+            ...self::module('procurement', ['view', 'finalize_price', 'export']),
             ...self::module('stock', ['view']),
             ...self::module('finance', ['view']),
 
@@ -198,6 +198,7 @@ final class AccessControl
             ...self::module('field_daily_reports', ['view']),
             ...self::module('field_incidents', ['view']),
             ...self::module('incidents', ['view']),
+            ...self::module('security', ['view']),
         ];
     }
 
@@ -218,6 +219,7 @@ final class AccessControl
             ...self::module('incidents', ['view', 'create', 'update']),
             ...self::operationalViewPermissions(),
             ...self::module('sanitation', ['view', 'manage', 'verify']),
+            ...self::module('security', ['view']),
         ];
     }
 
@@ -305,6 +307,7 @@ final class AccessControl
             'dashboard.view', 'reports.view', 'reports.export',
             'menus.view', 'ingredients.view', 'nutrition.view',
             'incidents.view', 'incidents.create', 'incidents.update', 'incidents.close',
+            'security.view',
             ...self::module($prefix, ['view', 'create', 'update', 'delete', 'submit', 'approve', 'export']),
         ];
     }

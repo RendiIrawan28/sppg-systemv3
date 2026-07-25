@@ -40,9 +40,11 @@ return [
         'fiber',
     ],
 
+    // Hasil satu porsi dibandingkan dengan 100% kebutuhan harian. Menu MBG
+    // sekali makan diharapkan berkontribusi sekitar 25–35%.
     'tolerance' => [
-        'minimum_percent' => 90,
-        'maximum_percent' => 110,
+        'minimum_percent' => 25,
+        'maximum_percent' => 35,
     ],
 
     // Tetap mengikuti profil gramasi yang sudah digunakan sistem saat ini.

@@ -11,11 +11,11 @@ use App\Models\Menu;
 use App\Models\PortioningSession;
 use App\Models\ProcessingBatch;
 use App\Models\ProcurementRequest;
+use App\Models\SecurityShift;
 use App\Models\SppgUnit;
 use App\Models\StockReceipt;
 use App\Models\User;
 use App\Models\WashingSession;
-use App\Support\V3\Navigation;
 
 final class DashboardSummary
 {
@@ -89,10 +89,44 @@ final class DashboardSummary
             );
         }
 
+        if ($this->allowed($user, 'security.view')) {
+            if ($this->allowed($user, 'security.create')) {
+                $shift = SecurityShift::query()
+                    ->where('sppg_unit_id', $unitId)
+                    ->where('officer_id', $user->getKey())
+                    ->active()
+                    ->latest('started_at')
+                    ->first();
+                $value = ! $shift
+                    ? 'Belum mulai'
+                    : ($shift->isReportDue() ? 'Saatnya lapor' : 'Shift aktif');
+                $detail = ! $shift
+                    ? 'Mulai shift keamanan 12 jam'
+                    : ($shift->isReportDue()
+                        ? 'Laporan jam ke-'.$shift->next_report_sequence.' menunggu diisi'
+                        : 'Laporan berikutnya pukul '.$shift->next_report_due_at?->format('H:i'));
+            } else {
+                $activeCount = SecurityShift::query()
+                    ->where('sppg_unit_id', $unitId)
+                    ->active()
+                    ->count();
+                $value = $activeCount;
+                $detail = 'Petugas keamanan sedang bertugas';
+            }
+
+            $cards[] = $this->card(
+                'Pengingat keamanan',
+                $value,
+                $detail,
+                'shield',
+                isset($shift) && $shift?->isReportDue() ? 'amber' : 'sky',
+                route('v3.security.index'),
+            );
+        }
+
         return [
             'cards' => $cards,
             'pulse' => $this->operationalPulse($user, $unitId, $today),
-            'roadmap' => app(Navigation::class)->roadmap($user),
         ];
     }
 

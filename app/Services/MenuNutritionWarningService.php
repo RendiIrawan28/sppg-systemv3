@@ -60,6 +60,7 @@ class MenuNutritionWarningService
         foreach ($menu->items as $item) {
             if ($item->recipeIngredients->isEmpty()) {
                 $issues[] = "Hidangan {$item->name} belum memiliki bahan resep.";
+
                 continue;
             }
 
@@ -101,6 +102,7 @@ class MenuNutritionWarningService
                     $summary->component?->name ?? $code,
                     $summary->category?->name ?? 'kategori penerima',
                 );
+
                 continue;
             }
 
@@ -109,7 +111,7 @@ class MenuNutritionWarningService
             if ($percent < $minimum || $percent > $maximum) {
                 $status = $percent < $minimum ? 'kurang' : 'berlebih';
                 $warnings[] = sprintf(
-                    '%s untuk %s %s: %.2f%% dari standar (toleransi %.0f–%.0f%%).',
+                    '%s untuk %s %s: kontribusi menu %.2f%% dari kebutuhan harian (rentang sekali makan %.0f–%.0f%%).',
                     $summary->component?->name ?? $code,
                     $summary->category?->name ?? 'kategori penerima',
                     $status,

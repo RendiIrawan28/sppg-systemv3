@@ -8,7 +8,7 @@
             <div>
                 <div class="flex items-center gap-2 text-xs font-semibold text-cyan-200">
                     <span class="size-2 rounded-full bg-lime-300"></span>
-                    Native Livewire workspace
+                    Data penerima manfaat
                 </div>
                 <h2 class="mt-4 text-2xl font-bold tracking-[-.03em] sm:text-3xl">Data penerima yang mudah ditelusuri.</h2>
                 <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Cari berdasarkan nama, kode, nomor eksternal, atau kelompok tanpa memuat ulang halaman.</p>
@@ -148,8 +148,5 @@
             @endif
         </section>
 
-        <!-- <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-700">
-            <strong>Native V3 aktif:</strong> tambah, ubah, status, data alergi, impor Excel/CSV, dan periode penerima kini dikelola langsung dari workspace ini.
-        </div> -->
     </div>
 </x-v3.shell>

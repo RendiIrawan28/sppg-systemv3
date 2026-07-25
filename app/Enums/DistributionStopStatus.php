@@ -6,6 +6,7 @@ enum DistributionStopStatus: string
 {
     case Planned = 'planned';
     case InTransit = 'in_transit';
+    case Arrived = 'arrived';
     case Delivered = 'delivered';
     case Partial = 'partial';
     case Failed = 'failed';
@@ -15,6 +16,7 @@ enum DistributionStopStatus: string
         return match ($this) {
             self::Planned => 'Direncanakan',
             self::InTransit => 'Dalam Perjalanan',
+            self::Arrived => 'Tiba di Tujuan',
             self::Delivered => 'Terkirim',
             self::Partial => 'Terkirim Sebagian',
             self::Failed => 'Gagal Dikirim',
@@ -26,6 +28,7 @@ enum DistributionStopStatus: string
         return match ($this) {
             self::Planned => 'gray',
             self::InTransit => 'warning',
+            self::Arrived => 'info',
             self::Delivered => 'success',
             self::Partial => 'info',
             self::Failed => 'danger',

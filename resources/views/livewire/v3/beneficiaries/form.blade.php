@@ -8,7 +8,6 @@
                 <h2 class="mt-3 text-2xl font-bold tracking-tight text-slate-950">{{ $beneficiaryId ? 'Perbarui data penerima' : 'Tambahkan penerima baru' }}</h2>
                 <p class="mt-1 text-sm text-slate-500">Data lembaga, kategori, periode layanan, dan alergi tersimpan pada satu sumber data operasional.</p>
             </div>
-            <span class="self-start rounded-full bg-sky-50 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-700 ring-1 ring-sky-100">Form native V3</span>
         </div>
 
         <form wire:submit="save" class="space-y-5">

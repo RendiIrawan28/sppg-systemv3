@@ -263,6 +263,10 @@ class MenuMatrix extends Component
                     ->orWhereHas('cycleDays', fn ($query) => $query->where('menu_cycle_id', $cycleId));
             }))
             ->orderByDesc('service_date')->orderBy('name')->limit(300)->get();
+        $rowMenus = Menu::query()
+            ->where('sppg_unit_id', $unit->getKey())
+            ->whereIn('id', collect($this->rows)->pluck('menu_id')->filter()->unique())
+            ->get();
 
         return view('livewire.v3.nutrition.menu-matrix', [
             ...$this->shellData($unit),
@@ -271,7 +275,8 @@ class MenuMatrix extends Component
             'periods' => BeneficiaryPeriod::query()->where('sppg_unit_id', $unit->getKey())->whereIn('status', ['approved', 'active', 'closed'])->orderByDesc('start_date')->get(),
             'planningSummary' => $planningSummary,
             'menuOptions' => $menuOptions,
-            'menuEditorUrls' => $menuOptions->mapWithKeys(fn (Menu $menu): array => [$menu->getKey() => route('v3.nutrition.menus.show', $menu)])->all(),
+            'menuRecipeUrls' => $rowMenus->mapWithKeys(fn (Menu $menu): array => [$menu->getKey() => route('v3.nutrition.menus.show', $menu)])->all(),
+            'menuNutritionUrls' => $rowMenus->mapWithKeys(fn (Menu $menu): array => [$menu->getKey() => route('v3.nutrition.menus.nutrition', $menu)])->all(),
             'readiness' => $this->readiness($cycle),
         ])->layout('layouts.v3', ['title' => 'Perencanaan Menu']);
     }

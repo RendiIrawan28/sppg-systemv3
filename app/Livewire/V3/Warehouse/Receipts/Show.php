@@ -4,25 +4,25 @@ namespace App\Livewire\V3\Warehouse\Receipts;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\StockReceipt;
-use App\Services\PreparationMaterialHandoverService;
 use App\Services\StockReceiptService;
 use App\Support\V3\OperationsPresentation;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Throwable;
 
 class Show extends Component
 {
-    use InteractsWithV3Shell;
+    use InteractsWithV3Shell, WithFileUploads;
 
     public int $receiptId;
 
     public string $receiptDate = '';
 
-    public string $receivedByName = '';
-
     public string $notes = '';
+
+    public $documentation = null;
 
     public ?string $actionMessage = null;
 
@@ -58,17 +58,6 @@ class Show extends Component
         });
     }
 
-    public function createHandover(PreparationMaterialHandoverService $service): void
-    {
-        abort_unless($this->allowed('stock.create'), 403);
-        $this->runAction(function () use ($service): string {
-            $handover = $service->createFromStockReceipt($this->receipt()->load('items'));
-            $this->redirectRoute('v3.warehouse.handovers.show', ['handover' => $handover], navigate: true);
-
-            return 'Dokumen serah bahan ke Persiapan siap diisi.';
-        });
-    }
-
     public function delete(): void
     {
         abort_unless($this->allowed('stock.update') || $this->allowed('stock.create'), 403);
@@ -83,7 +72,7 @@ class Show extends Component
     {
         $unit = $this->currentUnit();
         abort_unless($this->allowed('stock.view'), 403);
-        $receipt = $this->receipt()->load(['procurementRequest', 'items.supplier']);
+        $receipt = $this->receipt()->load(['procurementRequest', 'supplier', 'items.supplier']);
 
         return view('livewire.v3.warehouse.receipts.show', [
             ...$this->shellData($unit),
@@ -99,19 +88,12 @@ class Show extends Component
         abort_unless($receipt->isEditable() && ($this->allowed('stock.update') || $this->allowed('stock.create')), 403);
         $data = $this->validate([
             'receiptDate' => ['required', 'date'],
-            'receivedByName' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:2000'],
+            'documentation' => ['nullable', 'image', 'max:5120'],
             'rows' => ['required', 'array'],
             'rows.*.received_quantity' => ['required', 'numeric', 'min:0'],
             'rows.*.accepted_quantity' => ['required', 'numeric', 'min:0'],
             'rows.*.rejected_quantity' => ['required', 'numeric', 'min:0'],
-            'rows.*.received_quantity_kg' => ['required', 'numeric', 'min:0'],
-            'rows.*.accepted_quantity_kg' => ['required', 'numeric', 'min:0'],
-            'rows.*.rejected_quantity_kg' => ['required', 'numeric', 'min:0'],
-            'rows.*.supplier_batch_number' => ['nullable', 'string', 'max:255'],
-            'rows.*.expired_date' => ['nullable', 'date'],
-            'rows.*.received_temperature_celsius' => ['nullable', 'numeric', 'between:-50,100'],
-            'rows.*.quality_status' => ['required', Rule::in(['pending', 'accepted', 'partial', 'rejected'])],
             'rows.*.quality_notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -123,23 +105,53 @@ class Show extends Component
             if ((float) $row['accepted_quantity'] + (float) $row['rejected_quantity'] > (float) $row['received_quantity'] + 0.0001) {
                 throw ValidationException::withMessages(['rows' => "Jumlah baik + ditolak untuk {$item->ingredient_name_snapshot} melebihi jumlah diterima."]);
             }
-            if ((float) $row['accepted_quantity_kg'] + (float) $row['rejected_quantity_kg'] > (float) $row['received_quantity_kg'] + 0.0001) {
-                throw ValidationException::withMessages(['rows' => "Berat baik + ditolak untuk {$item->ingredient_name_snapshot} melebihi berat diterima."]);
-            }
+
+            $received = (float) $row['received_quantity'];
+            $accepted = (float) $row['accepted_quantity'];
+            $rejected = (float) $row['rejected_quantity'];
+            $ordered = (float) $item->ordered_quantity;
+            $orderedKg = (float) $item->ordered_quantity_kg;
+            $kgRatio = $ordered > 0 ? $orderedKg / $ordered : 0;
+            $qualityStatus = match (true) {
+                $accepted > 0 && $rejected > 0 => 'partial',
+                $accepted > 0 => 'accepted',
+                $rejected > 0 => 'rejected',
+                default => 'pending',
+            };
+
             $item->update([
-                ...$row,
-                'supplier_batch_number' => trim((string) ($row['supplier_batch_number'] ?? '')) ?: null,
-                'expired_date' => $row['expired_date'] ?: null,
-                'received_temperature_celsius' => $row['received_temperature_celsius'] === '' ? null : $row['received_temperature_celsius'],
+                'received_quantity' => $received,
+                'accepted_quantity' => $accepted,
+                'rejected_quantity' => $rejected,
+                'received_quantity_kg' => round($received * $kgRatio, 4),
+                'accepted_quantity_kg' => round($accepted * $kgRatio, 4),
+                'rejected_quantity_kg' => round($rejected * $kgRatio, 4),
+                'quality_status' => $qualityStatus,
                 'quality_notes' => trim((string) ($row['quality_notes'] ?? '')) ?: null,
             ]);
         }
 
+        $oldDocumentationPath = $receipt->documentation_path;
+        $newDocumentationPath = null;
+        if ($this->documentation) {
+            $newDocumentationPath = $this->documentation->store(
+                'stock-receipts/'.$receipt->receipt_date?->format('Y/m/d'),
+                'public',
+            );
+        }
+
         $receipt->update([
             'receipt_date' => $data['receiptDate'],
-            'received_by_name' => trim($data['receivedByName']) ?: null,
+            'received_by_name' => auth()->user()->name,
             'notes' => trim($data['notes']) ?: null,
+            'documentation_path' => $newDocumentationPath ?: $oldDocumentationPath,
         ]);
+
+        if ($newDocumentationPath && $oldDocumentationPath && $oldDocumentationPath !== $newDocumentationPath) {
+            Storage::disk('public')->delete($oldDocumentationPath);
+        }
+
+        $this->reset('documentation');
     }
 
     private function receipt(): StockReceipt
@@ -153,19 +165,11 @@ class Show extends Component
     {
         $receipt->load('items');
         $this->receiptDate = $receipt->receipt_date?->toDateString() ?? '';
-        $this->receivedByName = (string) $receipt->received_by_name;
         $this->notes = (string) $receipt->notes;
         $this->rows = $receipt->items->mapWithKeys(fn ($item): array => [$item->id => [
             'received_quantity' => (float) $item->received_quantity,
             'accepted_quantity' => (float) $item->accepted_quantity,
             'rejected_quantity' => (float) $item->rejected_quantity,
-            'received_quantity_kg' => (float) $item->received_quantity_kg,
-            'accepted_quantity_kg' => (float) $item->accepted_quantity_kg,
-            'rejected_quantity_kg' => (float) $item->rejected_quantity_kg,
-            'supplier_batch_number' => (string) $item->supplier_batch_number,
-            'expired_date' => $item->expired_date?->toDateString() ?? '',
-            'received_temperature_celsius' => $item->received_temperature_celsius !== null ? (float) $item->received_temperature_celsius : '',
-            'quality_status' => $item->quality_status ?: 'pending',
             'quality_notes' => (string) $item->quality_notes,
         ]])->all();
     }

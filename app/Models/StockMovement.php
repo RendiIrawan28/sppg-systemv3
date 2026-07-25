@@ -12,12 +12,18 @@ class StockMovement extends Model
     use HasUuids;
 
     public const TYPE_RECEIPT = 'receipt';
+
     public const TYPE_HANDOVER = 'handover_to_preparation';
+
     public const TYPE_ADJUSTMENT = 'adjustment';
 
+    public const TYPE_RETURN_FROM_PREPARATION = 'return_from_preparation';
+
+    public const TYPE_RETURN_FROM_PROCESSING = 'return_from_processing';
+
     protected $fillable = [
-        'uuid', 'sppg_unit_id', 'ingredient_id', 'ingredient_name_snapshot', 'unit_snapshot',
-        'movement_type', 'movement_date', 'quantity_in_kg', 'quantity_out_kg', 'source_type', 'source_id',
+        'uuid', 'sppg_unit_id', 'ingredient_id', 'inventory_lot_id', 'ingredient_name_snapshot', 'unit_snapshot',
+        'movement_type', 'movement_date', 'quantity_in_kg', 'quantity_out_kg', 'quantity_in', 'quantity_out', 'source_type', 'source_id',
         'reference_number', 'supplier_batch_number', 'expired_date', 'notes', 'created_by',
     ];
 
@@ -27,6 +33,8 @@ class StockMovement extends Model
             'movement_date' => 'date',
             'quantity_in_kg' => 'decimal:4',
             'quantity_out_kg' => 'decimal:4',
+            'quantity_in' => 'decimal:4',
+            'quantity_out' => 'decimal:4',
             'expired_date' => 'date',
         ];
     }
@@ -51,5 +59,10 @@ class StockMovement extends Model
     public function ingredient(): BelongsTo
     {
         return $this->belongsTo(Ingredient::class);
+    }
+
+    public function inventoryLot(): BelongsTo
+    {
+        return $this->belongsTo(InventoryLot::class);
     }
 }

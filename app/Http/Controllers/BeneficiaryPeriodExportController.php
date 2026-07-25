@@ -33,8 +33,10 @@ class BeneficiaryPeriodExportController extends Controller
     {
         $this->authorizeExport($beneficiaryPeriod);
         $this->loadExcelData($beneficiaryPeriod);
-        $recap = $this->recapFromLoadedMembers($beneficiaryPeriod);
-        $spreadsheet = new Spreadsheet();
+        $recap = $beneficiaryPeriod->categoryTotals->isNotEmpty()
+            ? $this->recapFromAggregate($beneficiaryPeriod)
+            : $this->recapFromLoadedMembers($beneficiaryPeriod);
+        $spreadsheet = new Spreadsheet;
 
         $summary = $spreadsheet->getActiveSheet();
         $summary->setTitle('Ringkasan');
@@ -46,8 +48,8 @@ class BeneficiaryPeriodExportController extends Controller
             ['Status', $beneficiaryPeriod->statusLabel()],
             ['Jumlah Instansi', $beneficiaryPeriod->destination_count],
             ['Jumlah Penerima Aktif', $beneficiaryPeriod->active_members],
-            ['Porsi Kecil', $beneficiaryPeriod->members->where('is_active', true)->where('portion_category', 'small')->count()],
-            ['Porsi Besar', $beneficiaryPeriod->members->where('is_active', true)->where('portion_category', 'large')->count()],
+            ['Porsi Kecil', $recap['totals']['small']],
+            ['Porsi Besar', $recap['totals']['large']],
             [],
             ['Kelompok Penerima', 'Jumlah'],
         ], null, 'A1');
@@ -97,37 +99,58 @@ class BeneficiaryPeriodExportController extends Controller
         $destinationSheet->freezePane('A2');
 
         $memberSheet = $spreadsheet->createSheet();
-        $memberSheet->setTitle('Daftar Individu');
-        $memberSheet->fromArray([[
-            'No', 'Instansi', 'NISN/NIK', 'Nama', 'Tanggal Lahir', 'Jenis Kelamin', 'Orang Tua/Wali',
-            'Jenjang', 'Kelas/Golongan', 'Kelompok Penerima', 'Kategori Porsi', 'Kelompok Menu',
-            'Alamat', 'Alergi', 'Kebutuhan Khusus', 'Status',
-        ]], null, 'A1');
-        $row = 2;
-        foreach ($beneficiaryPeriod->members->sortBy('name')->values() as $index => $member) {
+        $memberSheet->setTitle($beneficiaryPeriod->categoryTotals->isNotEmpty() ? 'Jumlah Kategori' : 'Daftar Individu');
+        if ($beneficiaryPeriod->categoryTotals->isNotEmpty()) {
+            $memberSheet->fromArray([['No', 'Instansi', 'Kelompok Penerima', 'Kategori Porsi', 'Kelompok Menu', 'Jumlah']], null, 'A1');
+            $row = 2;
+            foreach ($beneficiaryPeriod->destinations as $destination) {
+                foreach ($destination->categoryTotals as $total) {
+                    $memberSheet->fromArray([[
+                        $row - 1,
+                        $destination->destination_name_snapshot,
+                        $total->beneficiary_category_name_snapshot,
+                        $total->portion_category === 'large' ? 'Besar' : 'Kecil',
+                        $this->menuLabel((string) $total->menu_audience),
+                        $total->total_beneficiaries,
+                    ]], null, "A{$row}");
+                    $row++;
+                }
+            }
+            $memberSheet->getStyle('A1:F'.max(1, $row - 1))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+            $memberSheet->getStyle('A1:F1')->getFont()->setBold(true);
+            $memberSheet->freezePane('A2');
+        } else {
             $memberSheet->fromArray([[
-                $index + 1,
-                $member->destination?->destination_name_snapshot,
-                $member->identity_number,
-                $member->name,
-                $member->birth_date?->format('d-m-Y'),
-                $member->gender,
-                $member->parent_name,
-                $member->education_level,
-                $member->class_group,
-                $member->beneficiary_category_name_snapshot,
-                $member->portion_category === 'large' ? 'Besar' : 'Kecil',
-                $member->menu_audience,
-                $member->address,
-                $member->allergy_notes,
-                $member->special_needs,
-                $member->is_active ? 'Aktif' : 'Tidak Aktif',
-            ]], null, "A{$row}");
-            $row++;
+                'No', 'Instansi', 'NISN/NIK', 'Nama', 'Tanggal Lahir', 'Jenis Kelamin', 'Orang Tua/Wali',
+                'Jenjang', 'Kelas/Golongan', 'Kelompok Penerima', 'Kategori Porsi', 'Kelompok Menu',
+                'Alamat', 'Alergi', 'Kebutuhan Khusus', 'Status',
+            ]], null, 'A1');
+            $row = 2;
+            foreach ($beneficiaryPeriod->members->sortBy('name')->values() as $index => $member) {
+                $memberSheet->fromArray([[
+                    $index + 1,
+                    $member->destination?->destination_name_snapshot,
+                    $member->identity_number,
+                    $member->name,
+                    $member->birth_date?->format('d-m-Y'),
+                    $member->gender,
+                    $member->parent_name,
+                    $member->education_level,
+                    $member->class_group,
+                    $member->beneficiary_category_name_snapshot,
+                    $member->portion_category === 'large' ? 'Besar' : 'Kecil',
+                    $member->menu_audience,
+                    $member->address,
+                    $member->allergy_notes,
+                    $member->special_needs,
+                    $member->is_active ? 'Aktif' : 'Tidak Aktif',
+                ]], null, "A{$row}");
+                $row++;
+            }
+            $memberSheet->getStyle('A1:P'.max(1, $row - 1))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
+            $memberSheet->getStyle('A1:P1')->getFont()->setBold(true);
+            $memberSheet->freezePane('A2');
         }
-        $memberSheet->getStyle('A1:P'.max(1, $row - 1))->getBorders()->getAllBorders()->setBorderStyle(Border::BORDER_THIN);
-        $memberSheet->getStyle('A1:P1')->getFont()->setBold(true);
-        $memberSheet->freezePane('A2');
 
         $historySheet = $spreadsheet->createSheet();
         $historySheet->setTitle('Histori');
@@ -180,6 +203,8 @@ class BeneficiaryPeriodExportController extends Controller
             'sppgUnit',
             'approver',
             'histories.user',
+            'destinations' => fn ($query) => $query->where('is_active', true)->with('categoryTotals'),
+            'categoryTotals',
         ]);
     }
 
@@ -193,7 +218,8 @@ class BeneficiaryPeriodExportController extends Controller
             'creator',
             'submitter',
             'approver',
-            'destinations.members',
+            'destinations' => fn ($query) => $query->where('is_active', true)->with(['members', 'categoryTotals']),
+            'categoryTotals',
             'members.destination',
             'histories.user',
         ]);
@@ -205,6 +231,10 @@ class BeneficiaryPeriodExportController extends Controller
      */
     private function recapForPdf(BeneficiaryPeriod $period): array
     {
+        if ($period->categoryTotals->isNotEmpty()) {
+            return $this->recapFromAggregate($period);
+        }
+
         $groups = BeneficiaryPeriodMember::query()
             ->where('beneficiary_period_id', $period->id)
             ->where('is_active', true)
@@ -306,13 +336,20 @@ class BeneficiaryPeriodExportController extends Controller
     {
         $active = $period->members->where('is_active', true);
 
+        $menus = $active->groupBy('menu_audience')->map(fn ($items): array => [
+            'small' => $items->where('portion_category', 'small')->count(),
+            'large' => $items->where('portion_category', 'large')->count(),
+            'total' => $items->count(),
+        ])->sortKeys();
+
         return [
             'groups' => $active->groupBy('beneficiary_category_name_snapshot')->map->count()->sortKeys(),
-            'menus' => $active->groupBy('menu_audience')->map(fn ($items): array => [
-                'small' => $items->where('portion_category', 'small')->count(),
-                'large' => $items->where('portion_category', 'large')->count(),
-                'total' => $items->count(),
-            ])->sortKeys(),
+            'menus' => $menus,
+            'totals' => [
+                'small' => (int) $menus->sum('small'),
+                'large' => (int) $menus->sum('large'),
+                'total' => (int) $menus->sum('total'),
+            ],
             'destinations' => $period->destinations->map(function ($destination): array {
                 $members = $destination->members->where('is_active', true);
 
@@ -324,6 +361,46 @@ class BeneficiaryPeriodExportController extends Controller
                     'small' => $members->where('portion_category', 'small')->count(),
                     'large' => $members->where('portion_category', 'large')->count(),
                     'total' => $members->count(),
+                ];
+            }),
+        ];
+    }
+
+    private function recapFromAggregate(BeneficiaryPeriod $period): array
+    {
+        $totals = $period->categoryTotals;
+        $menus = $totals->groupBy('menu_audience')->map(fn ($items): array => [
+            'small' => (int) $items->where('portion_category', 'small')->sum('total_beneficiaries'),
+            'large' => (int) $items->where('portion_category', 'large')->sum('total_beneficiaries'),
+            'total' => (int) $items->sum('total_beneficiaries'),
+        ])->sortKeys();
+
+        return [
+            'groups' => $totals
+                ->groupBy('beneficiary_category_name_snapshot')
+                ->map(fn ($items): int => (int) $items->sum('total_beneficiaries'))
+                ->sortKeys(),
+            'menus' => $menus,
+            'totals' => [
+                'small' => (int) $menus->sum('small'),
+                'large' => (int) $menus->sum('large'),
+                'total' => (int) $menus->sum('total'),
+            ],
+            'destinations' => $period->destinations->map(function ($destination): array {
+                $totals = $destination->categoryTotals;
+
+                return [
+                    'type' => $destination->destination_type === 'school' ? 'Sekolah' : 'Posyandu',
+                    'code' => $destination->destination_code_snapshot,
+                    'name' => $destination->destination_name_snapshot,
+                    'groups' => $totals
+                        ->groupBy('beneficiary_category_name_snapshot')
+                        ->map(fn ($items): int => (int) $items->sum('total_beneficiaries'))
+                        ->sortKeys()
+                        ->all(),
+                    'small' => (int) $totals->where('portion_category', 'small')->sum('total_beneficiaries'),
+                    'large' => (int) $totals->where('portion_category', 'large')->sum('total_beneficiaries'),
+                    'total' => (int) $totals->sum('total_beneficiaries'),
                 ];
             }),
         ];

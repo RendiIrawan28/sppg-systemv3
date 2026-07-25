@@ -44,6 +44,12 @@ return new class extends Migration
 
     public function up(): void
     {
+        // SQLite stores fresh-schema string columns as TEXT already and does not
+        // support MySQL's ALTER TABLE ... MODIFY syntax.
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         foreach ($this->identifierColumns as $table => $columns) {
             if (! Schema::hasTable($table)) {
                 continue;

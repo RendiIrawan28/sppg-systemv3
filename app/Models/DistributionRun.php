@@ -22,6 +22,7 @@ class DistributionRun extends Model
         'uuid',
         'sppg_unit_id',
         'portioning_session_id',
+        'portioning_handover_id',
         'field_distribution_plan_id',
         'run_number',
         'run_year',
@@ -44,6 +45,7 @@ class DistributionRun extends Model
         'vehicle_name',
         'vehicle_plate',
         'driver_name',
+        'kernet_name',
         'departure_temperature_celsius',
         'petugas_id',
         'petugas_name_snapshot',
@@ -119,6 +121,11 @@ class DistributionRun extends Model
     public function portioningSession(): BelongsTo
     {
         return $this->belongsTo(PortioningSession::class);
+    }
+
+    public function portioningHandover(): BelongsTo
+    {
+        return $this->belongsTo(PortioningHandover::class);
     }
 
     public function petugas(): BelongsTo
@@ -262,19 +269,21 @@ class DistributionRun extends Model
             $this->sequence_number,
         );
     }
+
     public function washingSessions(): HasMany
     {
-        return $this->hasMany(\App\Models\WashingSession::class);
+        return $this->hasMany(WashingSession::class);
     }
 
     public function fieldDistributionPlan(): BelongsTo
     {
         return $this->belongsTo(
-            \App\Models\FieldDistributionPlan::class
+            FieldDistributionPlan::class
         );
     }
-    public function menuAcceptanceEvaluations(): \Illuminate\Database\Eloquent\Relations\HasMany
+
+    public function menuAcceptanceEvaluations(): HasMany
     {
-        return $this->hasMany(\App\Models\MenuAcceptanceEvaluation::class);
+        return $this->hasMany(MenuAcceptanceEvaluation::class);
     }
 }

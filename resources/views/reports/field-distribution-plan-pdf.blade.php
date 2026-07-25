@@ -41,7 +41,7 @@
         </tr>
         <tr>
             <td class="label">Menu</td><td>: {{ $plan->menu_name_snapshot }}</td>
-            <td class="label">Shift</td><td>: {{ ucfirst((string) $plan->shift) }}</td>
+            <td class="label">Tanggal layanan</td><td>: {{ $plan->service_date?->format('d/m/Y') }}</td>
         </tr>
         <tr>
             <td class="label">Status</td><td>: {{ $plan->status?->label() }}</td>

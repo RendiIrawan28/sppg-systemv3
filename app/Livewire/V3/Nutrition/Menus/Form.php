@@ -103,7 +103,7 @@ class Form extends Component
         $ingredient = Ingredient::query()->where('sppg_unit_id', $unitId)->with('measurementUnit')->findOrFail($ingredientId);
         $standard = IngredientPortionStandard::query()
             ->where('sppg_unit_id', $unitId)->where('ingredient_id', $ingredientId)->where('is_active', true)->first();
-        $row =& $this->items[$itemIndex]['ingredients'][$ingredientIndex];
+        $row = &$this->items[$itemIndex]['ingredients'][$ingredientIndex];
 
         if ($standard) {
             $row['ingredient_portion_standard_id'] = $standard->getKey();
@@ -177,9 +177,15 @@ class Form extends Component
             }
             app(MenuNutritionCalculator::class)->refresh($menu);
             $warnings = app(MenuNutritionWarningService::class)->nutritionWarnings($menu->refresh());
-            $this->fillFromMenu($menu);
+            session()->flash(
+                'v3.status',
+                $warnings === []
+                    ? 'Nilai gizi berhasil dihitung ulang.'
+                    : 'Perhitungan selesai. '.implode(' ', $warnings),
+            );
+            $this->redirectRoute('v3.nutrition.menus.nutrition', ['menu' => $menu], navigate: true);
 
-            return $warnings === [] ? 'Nilai gizi sesuai toleransi.' : 'Perhitungan selesai. '.implode(' ', $warnings);
+            return 'Membuka hasil kebutuhan gizi harian.';
         });
     }
 
@@ -239,7 +245,7 @@ class Form extends Component
     public function render()
     {
         $unit = $this->currentUnit();
-        $menu = $this->menu()->load(['nutritionSummaries.component', 'nutritionSummaries.category', 'allergenSummaries.allergen']);
+        $menu = $this->menu();
         $activeRevision = app(MenuDayRevisionService::class)->activeRequestForMenu($menu);
 
         return view('livewire.v3.nutrition.menus.form', [
@@ -343,6 +349,7 @@ class Form extends Component
             $weights['toddler'] += (float) (($row['input_quantity_toddler'] ?? 0) ?: $small) * $factor;
             $weights['maternal'] += (float) (($row['input_quantity_maternal'] ?? 0) ?: $large) * $factor;
         }
+
         return array_map(fn (float $value): float => round($value, 4), $weights);
     }
 

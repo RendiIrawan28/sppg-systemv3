@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\BeneficiaryPeriodSnapshotService;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -44,12 +45,12 @@ class BeneficiaryPeriodDestination extends Model
     {
         static::saved(function (self $record): void {
             if ($record->period) {
-                app(\App\Services\BeneficiaryPeriodSnapshotService::class)->recalculate($record->period);
+                app(BeneficiaryPeriodSnapshotService::class)->recalculate($record->period);
             }
         });
         static::deleted(function (self $record): void {
             if ($record->period) {
-                app(\App\Services\BeneficiaryPeriodSnapshotService::class)->recalculate($record->period);
+                app(BeneficiaryPeriodSnapshotService::class)->recalculate($record->period);
             }
         });
     }
@@ -67,5 +68,10 @@ class BeneficiaryPeriodDestination extends Model
     public function activeMembers(): HasMany
     {
         return $this->members()->where('is_active', true);
+    }
+
+    public function categoryTotals(): HasMany
+    {
+        return $this->hasMany(BeneficiaryPeriodCategoryTotal::class, 'beneficiary_period_destination_id');
     }
 }

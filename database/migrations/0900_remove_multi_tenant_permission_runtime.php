@@ -16,6 +16,9 @@ return new class extends Migration
         Schema::dropIfExists('sppg_unit_user');
 
         if (Schema::hasColumn('users', 'last_active_sppg_unit_id')) {
+            if (DB::connection()->getDriverName() === 'sqlite') {
+                Schema::table('users', fn (Blueprint $table) => $table->dropIndex(['last_active_sppg_unit_id']));
+            }
             Schema::table('users', fn (Blueprint $table) => $table->dropColumn('last_active_sppg_unit_id'));
         }
     }

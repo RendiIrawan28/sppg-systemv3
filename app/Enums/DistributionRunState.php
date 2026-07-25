@@ -13,7 +13,7 @@ enum DistributionRunState: string
     {
         return match ($this) {
             self::Planned => 'Direncanakan',
-            self::Loaded => 'Muatan Siap',
+            self::Loaded => 'Sedang Memuat',
             self::Departed => 'Dalam Distribusi',
             self::Returned => 'Kembali ke SPPG',
         };

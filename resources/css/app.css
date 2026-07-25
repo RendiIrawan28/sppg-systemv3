@@ -46,6 +46,39 @@ select {
     transition: background-color 180ms ease, color 180ms ease;
 }
 
+.v3-theme input[type="file"] {
+    min-height: 2.75rem;
+    cursor: pointer;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.75rem;
+    background-color: #fff;
+    padding: 0.3rem;
+    color: #475569;
+}
+
+.v3-theme input[type="file"]::file-selector-button {
+    margin-right: 0.75rem;
+    cursor: pointer;
+    border: 0;
+    border-radius: 0.6rem;
+    background-color: #0284c7;
+    padding: 0.6rem 0.9rem;
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    transition: background-color 150ms ease;
+}
+
+.v3-theme input[type="file"]::file-selector-button:hover {
+    background-color: #0369a1;
+}
+
+.v3-theme input[type="file"]:disabled,
+.v3-theme input[type="file"]:disabled::file-selector-button {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
 /*
  * V3 uses a deliberately small palette. These scoped mappings give every
  * application surface a consistent dark counterpart, including classes
@@ -129,6 +162,10 @@ select {
     --tw-ring-color: #2a4159 !important;
 }
 
+.dark .v3-theme [class~="ring-slate-100"] {
+    --tw-ring-color: #20354d !important;
+}
+
 .dark .v3-theme input:not([type="checkbox"]):not([type="radio"]),
 .dark .v3-theme select,
 .dark .v3-theme textarea {
@@ -150,6 +187,14 @@ select {
     border-color: #38bdf8 !important;
     background-color: #10243a !important;
     --tw-ring-color: rgb(56 189 248 / 18%) !important;
+}
+
+.dark .v3-theme input:-webkit-autofill,
+.dark .v3-theme input:-webkit-autofill:hover,
+.dark .v3-theme input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #edf4fc;
+    box-shadow: 0 0 0 1000px #0d1b2d inset;
+    caret-color: #7dd3fc;
 }
 
 .dark .v3-theme [class~="bg-sky-50"],
@@ -200,8 +245,10 @@ select {
 }
 
 .dark .v3-theme [class~="text-sky-700"],
+.dark .v3-theme [class~="text-sky-600"],
 .dark .v3-theme [class~="text-sky-800"],
-.dark .v3-theme [class~="text-sky-900"] {
+.dark .v3-theme [class~="text-sky-900"],
+.dark .v3-theme [class~="text-sky-950/70"] {
     color: #7dd3fc !important;
 }
 
@@ -209,7 +256,8 @@ select {
     --tw-ring-color: rgb(56 189 248 / 22%) !important;
 }
 
-.dark .v3-theme [class~="border-sky-100"] {
+.dark .v3-theme [class~="border-sky-100"],
+.dark .v3-theme [class~="border-sky-200"] {
     border-color: rgb(56 189 248 / 25%) !important;
 }
 
@@ -224,7 +272,9 @@ select {
 }
 
 .dark .v3-theme [class~="border-rose-100"],
-.dark .v3-theme [class~="border-rose-200"] {
+.dark .v3-theme [class~="border-rose-200"],
+.dark .v3-theme [class~="border-rose-300"],
+.dark .v3-theme [class~="border-rose-400"] {
     border-color: rgb(251 113 133 / 26%) !important;
 }
 
@@ -247,7 +297,9 @@ select {
     background-color: rgb(245 158 11 / 15%) !important;
 }
 
-.dark .v3-theme [class~="text-amber-700"] {
+.dark .v3-theme [class~="text-amber-600"],
+.dark .v3-theme [class~="text-amber-700"],
+.dark .v3-theme [class~="text-amber-800"] {
     color: #fcd34d !important;
 }
 
@@ -260,6 +312,7 @@ select {
     background-color: rgb(244 63 94 / 14%) !important;
 }
 
+.dark .v3-theme [class~="text-rose-500"],
 .dark .v3-theme [class~="text-rose-600"],
 .dark .v3-theme [class~="text-rose-700"],
 .dark .v3-theme [class~="text-rose-800"] {

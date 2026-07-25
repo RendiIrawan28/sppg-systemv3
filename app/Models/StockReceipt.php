@@ -15,11 +15,12 @@ class StockReceipt extends Model
     use SoftDeletes;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_RECEIVED = 'received';
 
     protected $fillable = [
-        'uuid', 'sppg_unit_id', 'procurement_request_id', 'receipt_number', 'receipt_date', 'status',
-        'received_by_name', 'notes', 'created_by', 'received_by', 'received_at',
+        'uuid', 'sppg_unit_id', 'procurement_request_id', 'supplier_id', 'receipt_number', 'receipt_date', 'status',
+        'received_by_name', 'notes', 'documentation_path', 'created_by', 'received_by', 'received_at',
     ];
 
     protected function casts(): array
@@ -62,6 +63,11 @@ class StockReceipt extends Model
     public function procurementRequest(): BelongsTo
     {
         return $this->belongsTo(ProcurementRequest::class);
+    }
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class);
     }
 
     public function items(): HasMany

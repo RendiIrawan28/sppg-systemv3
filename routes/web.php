@@ -11,6 +11,7 @@ use App\Http\Controllers\FieldDistributionPlanPdfController;
 use App\Http\Controllers\NutritionExportController;
 use App\Http\Controllers\PortioningSessionPdfController;
 use App\Http\Controllers\ProcessingBatchPdfController;
+use App\Http\Controllers\ProcurementRequestExportController;
 use App\Http\Controllers\WashingSessionPdfController;
 use Illuminate\Support\Facades\Route;
 
@@ -26,6 +27,10 @@ Route::middleware('auth')
 Route::middleware('auth')->group(function (): void {
     Route::get('/processing-batches/{processingBatch}/pdf', ProcessingBatchPdfController::class)
         ->name('processing-batches.pdf');
+    Route::get('/processing-batches/{processingBatch}/monitoring-produksi.pdf', [ProcessingBatchPdfController::class, 'production'])
+        ->name('processing-batches.production-pdf');
+    Route::get('/processing-batches/{processingBatch}/pemantauan-suhu.pdf', [ProcessingBatchPdfController::class, 'temperature'])
+        ->name('processing-batches.temperature-pdf');
     Route::get('/portioning-sessions/{portioningSession}/pdf', PortioningSessionPdfController::class)
         ->name('portioning-sessions.pdf');
     Route::get('/distribution-runs/{distributionRun}/pdf', DistributionRunPdfController::class)
@@ -46,6 +51,10 @@ Route::middleware('auth')->group(function (): void {
         ->name('beneficiary-periods.pdf');
     Route::get('/beneficiary-periods/{beneficiaryPeriod}/excel', [BeneficiaryPeriodExportController::class, 'excel'])
         ->name('beneficiary-periods.excel');
+    Route::get('/procurement-requests/{procurement}/pdf', [ProcurementRequestExportController::class, 'pdf'])
+        ->name('procurement-requests.pdf');
+    Route::get('/procurement-requests/{procurement}/excel', [ProcurementRequestExportController::class, 'excel'])
+        ->name('procurement-requests.excel');
 });
 
 Route::middleware(['auth'])
@@ -68,8 +77,6 @@ Route::middleware(['auth'])
             ->name('nutrition.daily-reports.excel');
     });
 
-require base_path('routes/web_preparation_waste_handover.php');
-
-require base_path('routes/web_preparation_material_handover_reports.php');
+require base_path('routes/web_preparation_session_reports.php');
 
 require base_path('routes/v3.php');

@@ -14,8 +14,7 @@ class MenuNutritionCalculator
     public function __construct(
         private readonly MenuAllergenAnalyzer $allergenAnalyzer,
         private readonly MenuPortionProfileResolver $profileResolver,
-    ) {
-    }
+    ) {}
 
     public function refresh(Menu $menu): void
     {

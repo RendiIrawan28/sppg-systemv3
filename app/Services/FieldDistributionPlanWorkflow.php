@@ -7,15 +7,10 @@ use App\Models\FieldDistributionPlan;
 use App\Models\User;
 use App\Support\V3\SystemUnit;
 use DomainException;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class FieldDistributionPlanWorkflow
 {
-    public function __construct(
-        private readonly FieldOperationalPlanGenerator $generator,
-    ) {}
-
     public function submissionIssues(FieldDistributionPlan $plan): array
     {
         $plan->recalculateTotals();
@@ -77,15 +72,6 @@ class FieldDistributionPlanWorkflow
                 $issues[] = "{$label}: rute distribusi belum diisi.";
             }
 
-            $departureTime = $this->timeValue($destination->planned_departure_time ?: $destination->planned_departure_at);
-            $arrivalTime = $this->timeValue($destination->planned_arrival_time ?: $destination->planned_arrival_at);
-
-            if (! $departureTime || ! $arrivalTime) {
-                $issues[] = "{$label}: perkiraan jam berangkat dan jam tiba wajib diisi.";
-            } elseif ($arrivalTime < $departureTime) {
-                $issues[] = "{$label}: perkiraan jam tiba tidak boleh sebelum jam berangkat.";
-            }
-
             if (! in_array($destination->confirmation_status, ['confirmed', 'changed'], true)) {
                 $issues[] = "{$label}: konfirmasi penerima belum selesai.";
             }
@@ -132,12 +118,11 @@ class FieldDistributionPlanWorkflow
         }
 
         return DB::transaction(function () use ($plan, $actor, $notes): array {
-            $generated = $this->generator->generate($plan, $actor);
             $this->transitionInsideTransaction(
                 $plan,
                 FieldDistributionPlanStatus::Activated,
                 $actor,
-                $notes ?: 'Rencana dikirim dan langsung diaktifkan tanpa tahap persetujuan.',
+                $notes ?: 'Rencana diaktifkan',
                 [
                     'submitted_by' => $actor->getKey(),
                     'submitted_at' => now(),
@@ -149,37 +134,19 @@ class FieldDistributionPlanWorkflow
                 ]
             );
 
-            return $generated;
+            return ['operational_documents' => 'manual'];
         });
     }
 
     public function synchronize(FieldDistributionPlan $plan, User $actor): array
     {
-        if ($plan->status !== FieldDistributionPlanStatus::Activated) {
-            throw new DomainException('Sinkronisasi hanya tersedia untuk rencana yang sedang diproses.');
-        }
-
-        return $this->generator->generate($plan, $actor);
+        throw new DomainException('Pembuatan dan sinkronisasi pekerjaan divisi otomatis sedang dinonaktifkan. Dokumen dibuat manual pada masing-masing modul.');
     }
 
     public function complete(FieldDistributionPlan $plan, User $actor, ?string $notes = null): void
     {
         if ($plan->status !== FieldDistributionPlanStatus::Activated) {
             throw new DomainException('Hanya rencana yang sudah diproses divisi yang dapat diselesaikan.');
-        }
-
-        $plan->load('distributionRun');
-
-        if (! $plan->distributionRun) {
-            throw new DomainException('Perjalanan Distribusi dari rencana ini belum tersedia.');
-        }
-
-        $distributionState = $plan->distributionRun->state instanceof \BackedEnum
-            ? $plan->distributionRun->state->value
-            : $plan->distributionRun->state;
-
-        if ($distributionState !== 'returned') {
-            throw new DomainException('Rencana baru dapat diselesaikan setelah perjalanan Distribusi kembali ke SPPG.');
         }
 
         DB::transaction(function () use ($plan, $actor, $notes): void {
@@ -234,19 +201,6 @@ class FieldDistributionPlanWorkflow
         ]);
     }
 
-    private function timeValue(mixed $value): ?string
-    {
-        if (blank($value)) {
-            return null;
-        }
-
-        if ($value instanceof \DateTimeInterface) {
-            return $value->format('H:i:s');
-        }
-
-        return Carbon::parse((string) $value)->format('H:i:s');
-    }
-
     private function snapshot(FieldDistributionPlan $plan): array
     {
         $plan->load('destinations.recipientGroups');
@@ -264,8 +218,6 @@ class FieldDistributionPlanWorkflow
                 'small' => $destination->small_portions,
                 'large' => $destination->large_portions,
                 'route' => $destination->route_name,
-                'planned_departure_time' => $destination->planned_departure_time,
-                'planned_arrival_time' => $destination->planned_arrival_time,
                 'recipient_groups' => $destination->recipientGroups->map(fn ($group): array => [
                     'name' => $group->beneficiary_category_name_snapshot,
                     'menu_audience' => $group->menu_audience,

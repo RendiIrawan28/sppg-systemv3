@@ -8,6 +8,7 @@ use App\Enums\DistributionRunState;
 use App\Enums\DistributionStopStatus;
 use App\Enums\OperationalReportStatus;
 use App\Models\DistributionRun;
+use App\Models\DistributionStop;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -36,20 +37,21 @@ class DistributionWorkflow
                 ]);
             }
 
-            $loadedSmall = (int) ($data['loaded_small_portions'] ?? 0);
-            $loadedLarge = (int) ($data['loaded_large_portions'] ?? 0);
-
-            if ($loadedSmall !== (int) $run->planned_small_portions
-                || $loadedLarge !== (int) $run->planned_large_portions) {
+            if ($run->portioning_session_id && ! $run->portioning_handover_id) {
                 throw ValidationException::withMessages([
-                    'loaded_small_portions' => 'Jumlah muatan harus sama dengan total porsi seluruh tujuan.',
+                    'portioning_handover_id' => 'Muatan belum diserahkan secara resmi oleh Divisi Pemorsian.',
                 ]);
             }
 
+            $loadedSmall = (int) $run->planned_small_portions;
+            $loadedLarge = (int) $run->planned_large_portions;
+
             if (blank($data['vehicle_name'] ?? $run->vehicle_name)
-                || blank($data['driver_name'] ?? $run->driver_name)) {
+                || blank($data['vehicle_plate'] ?? $run->vehicle_plate)
+                || blank($data['driver_name'] ?? $run->driver_name)
+                || blank($data['kernet_name'] ?? $run->kernet_name)) {
                 throw ValidationException::withMessages([
-                    'vehicle_name' => 'Kendaraan dan nama pengemudi wajib diisi.',
+                    'vehicle_name' => 'Kendaraan, nomor polisi, nama driver, dan nama kernet wajib diisi.',
                 ]);
             }
 
@@ -60,6 +62,9 @@ class DistributionWorkflow
                 'vehicle_name' => $data['vehicle_name'] ?? $run->vehicle_name,
                 'vehicle_plate' => $data['vehicle_plate'] ?? $run->vehicle_plate,
                 'driver_name' => $data['driver_name'] ?? $run->driver_name,
+                'kernet_name' => $data['kernet_name'] ?? $run->kernet_name,
+                'petugas_id' => $actor->getKey(),
+                'petugas_name_snapshot' => $actor->name,
                 'state' => DistributionRunState::Loaded,
                 'updated_by' => $actor->getKey(),
             ]);
@@ -83,17 +88,10 @@ class DistributionWorkflow
                 ]);
             }
 
-            if (! isset($data['departure_temperature_celsius'])
-                || $data['departure_temperature_celsius'] === '') {
-                throw ValidationException::withMessages([
-                    'departure_temperature_celsius' => 'Suhu makanan saat keberangkatan wajib dicatat.',
-                ]);
-            }
-
             $previousState = $run->state->value;
             $run->update([
                 'actual_departure_at' => $data['actual_departure_at'] ?? now(),
-                'departure_temperature_celsius' => $data['departure_temperature_celsius'],
+                'departure_temperature_celsius' => $data['departure_temperature_celsius'] ?? null,
                 'state' => DistributionRunState::Departed,
                 'updated_by' => $actor->getKey(),
             ]);
@@ -105,6 +103,117 @@ class DistributionWorkflow
             $this->writeHistory($run, $actor, 'departed', $previousState, $run->state->value);
 
             return $run->refresh();
+        });
+    }
+
+    public function arriveAtStop(
+        DistributionRun $run,
+        DistributionStop $stop,
+        User $actor,
+    ): DistributionStop {
+        abort_unless($actor->can('distribution.update'), 403);
+
+        return DB::transaction(function () use ($run, $stop, $actor): DistributionStop {
+            $run = $this->lockedRun($run);
+            $stop = $this->lockedStop($run, $stop);
+
+            if ($run->state !== DistributionRunState::Departed
+                || $stop->status !== DistributionStopStatus::InTransit) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Tujuan belum dapat ditandai tiba pada kondisi saat ini.',
+                ]);
+            }
+
+            $stop->update([
+                'arrived_at' => now(),
+                'delivered_small_portions' => $stop->small_portions,
+                'delivered_large_portions' => $stop->large_portions,
+                'status' => DistributionStopStatus::Arrived,
+            ]);
+            $this->writeHistory($run, $actor, 'arrived_at_destination', $run->state->value, $run->state->value, $stop->destination_name);
+
+            return $stop->refresh();
+        });
+    }
+
+    public function completeStop(
+        DistributionRun $run,
+        DistributionStop $stop,
+        User $actor,
+    ): DistributionStop {
+        abort_unless($actor->can('distribution.update'), 403);
+
+        return DB::transaction(function () use ($run, $stop, $actor): DistributionStop {
+            $run = $this->lockedRun($run);
+            $stop = $this->lockedStop($run, $stop);
+
+            if ($run->state !== DistributionRunState::Departed
+                || $stop->status !== DistributionStopStatus::Arrived) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Tekan Tiba di Tujuan sebelum mencatat penyerahan.',
+                ]);
+            }
+            if (blank($stop->recipient_name) || blank($stop->handover_photo_path)) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Nama penerima dan foto serah-terima wajib diisi.',
+                ]);
+            }
+
+            $deliveredSmall = (int) $stop->delivered_small_portions;
+            $deliveredLarge = (int) $stop->delivered_large_portions;
+            if ($deliveredSmall < 0 || $deliveredSmall > (int) $stop->small_portions
+                || $deliveredLarge < 0 || $deliveredLarge > (int) $stop->large_portions) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Jumlah porsi yang diserahkan tidak boleh melebihi porsi tujuan.',
+                ]);
+            }
+
+            $returnedSmall = (int) $stop->small_portions - $deliveredSmall;
+            $returnedLarge = (int) $stop->large_portions - $deliveredLarge;
+            $stop->update([
+                'returned_small_portions' => $returnedSmall,
+                'returned_large_portions' => $returnedLarge,
+                'status' => ($returnedSmall + $returnedLarge) > 0
+                    ? DistributionStopStatus::Partial
+                    : DistributionStopStatus::Delivered,
+            ]);
+            $run->recalculateTotals();
+            $this->writeHistory($run, $actor, 'delivered_at_destination', $run->state->value, $run->state->value, $stop->destination_name);
+
+            return $stop->refresh();
+        });
+    }
+
+    public function failStop(
+        DistributionRun $run,
+        DistributionStop $stop,
+        User $actor,
+    ): DistributionStop {
+        abort_unless($actor->can('distribution.update'), 403);
+
+        return DB::transaction(function () use ($run, $stop, $actor): DistributionStop {
+            $run = $this->lockedRun($run);
+            $stop = $this->lockedStop($run, $stop);
+
+            if ($run->state !== DistributionRunState::Departed
+                || $stop->status !== DistributionStopStatus::Arrived
+                || blank($stop->failure_reason)) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Alasan gagal diserahkan wajib diisi setelah tiba di tujuan.',
+                ]);
+            }
+
+            $stop->update([
+                'delivered_small_portions' => 0,
+                'delivered_large_portions' => 0,
+                'returned_small_portions' => $stop->small_portions,
+                'returned_large_portions' => $stop->large_portions,
+                'status' => DistributionStopStatus::Failed,
+            ]);
+            $run->recalculateTotals();
+            $this->writeHistory($run, $actor, 'delivery_failed', $run->state->value, $run->state->value, $stop->destination_name.': '.$stop->failure_reason);
+
+            return $stop->refresh();
         });
     }
 
@@ -140,6 +249,9 @@ class DistributionWorkflow
                 $run->state->value,
                 $data['notes'] ?? null,
             );
+
+            app(OperationalHandoverFlow::class)
+                ->createWashingSessionFromDistribution($run->refresh(), $actor);
 
             return $run->refresh();
         });
@@ -238,11 +350,7 @@ class DistributionWorkflow
         return DB::transaction(function () use ($run, $actor, $notes): DistributionRun {
             $run = $this->lockedRun($run);
 
-            if (! app(OperationalReportApprovalService::class)->isReviewable($run->status)) {
-                throw ValidationException::withMessages([
-                    'status' => 'Laporan tidak sedang menunggu verifikasi.',
-                ]);
-            }
+            app(OperationalReportApprovalService::class)->assertCanReviewStage($run->status, $actor);
 
             $previousStatus = $run->status->value;
             $run->update([
@@ -350,6 +458,7 @@ class DistributionWorkflow
 
         if (! $stop->status?->isTerminal()) {
             $issues[] = 'status tujuan belum selesai.';
+
             return $issues;
         }
 
@@ -395,6 +504,14 @@ class DistributionWorkflow
     {
         return DistributionRun::query()
             ->whereKey($run->getKey())
+            ->lockForUpdate()
+            ->firstOrFail();
+    }
+
+    private function lockedStop(DistributionRun $run, DistributionStop $stop): DistributionStop
+    {
+        return $run->stops()
+            ->whereKey($stop->getKey())
             ->lockForUpdate()
             ->firstOrFail();
     }

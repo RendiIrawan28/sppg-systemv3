@@ -25,7 +25,8 @@ class CleaningSession extends Model
         'petugas_id', 'petugas_name_snapshot', 'supervisor_id',
         'supervisor_name_snapshot', 'before_condition', 'after_condition', 'notes',
         'status', 'created_by', 'updated_by', 'submitted_by', 'submitted_at',
-        'verified_by', 'verified_at', 'review_notes', 'source_system', 'legacy_id',
+        'division_approved_by', 'division_approved_at', 'verified_by', 'verified_at',
+        'review_notes', 'source_system', 'legacy_id',
         'legacy_sheet_name', 'legacy_created_at', 'import_batch_id',
     ];
 
@@ -43,6 +44,7 @@ class CleaningSession extends Model
             'state' => CleaningSessionState::class,
             'status' => OperationalReportStatus::class,
             'submitted_at' => 'datetime',
+            'division_approved_at' => 'datetime',
             'verified_at' => 'datetime',
             'legacy_created_at' => 'datetime',
         ];
@@ -71,6 +73,7 @@ class CleaningSession extends Model
     public function petugas(): BelongsTo { return $this->belongsTo(User::class, 'petugas_id'); }
     public function supervisor(): BelongsTo { return $this->belongsTo(User::class, 'supervisor_id'); }
     public function submitter(): BelongsTo { return $this->belongsTo(User::class, 'submitted_by'); }
+    public function divisionApprover(): BelongsTo { return $this->belongsTo(User::class, 'division_approved_by'); }
     public function verifier(): BelongsTo { return $this->belongsTo(User::class, 'verified_by'); }
 
     public function checklistItems(): HasMany

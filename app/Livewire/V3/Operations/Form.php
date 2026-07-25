@@ -3,9 +3,12 @@
 namespace App\Livewire\V3\Operations;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Models\PortioningSupply;
+use App\Models\ProcessingMaterialUsage;
 use App\Models\User;
 use App\Services\CleaningWorkflow;
 use App\Services\DistributionWorkflow;
+use App\Services\OperationalReportApprovalService;
 use App\Services\PortioningWorkflow;
 use App\Services\ProcessingWorkflow;
 use App\Services\V3\OperationalRecordInitializer;
@@ -15,6 +18,7 @@ use BackedEnum;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -53,6 +57,8 @@ class Form extends Component
         $definition = $registry->get($module);
         $this->module = $module;
         $this->recordId = $record;
+        abort_if($module === 'pengolahan', 404);
+        abort_if($module === 'distribusi' && ! $record, 404);
         $permission = $record ? '.view' : '.create';
         abort_unless($this->allowed($definition['permission'].$permission), 403);
 
@@ -96,6 +102,7 @@ class Form extends Component
 
     public function removeRelationRow(string $name, int $index): void
     {
+        abort_if((bool) ($this->relations[$name][$index]['_locked'] ?? false), 403);
         unset($this->relations[$name][$index], $this->uploads[$name][$index]);
         $this->relations[$name] = array_values($this->relations[$name]);
         $this->uploads[$name] = array_values($this->uploads[$name] ?? []);
@@ -139,8 +146,12 @@ class Form extends Component
     public function workflow(string $action): void
     {
         $definition = $this->definition();
-        $approval = in_array($action, ['verify', 'revision'], true);
-        abort_unless($this->allowed($definition['permission'].($approval ? '.approve' : '.update')), 403);
+        $permission = match (true) {
+            in_array($action, ['verify', 'revision'], true) => '.approve',
+            $action === 'submit' => '.submit',
+            default => '.update',
+        };
+        abort_unless($this->allowed($definition['permission'].$permission), 403);
 
         $this->runAction(function () use ($action): string {
             $record = $this->record();
@@ -156,42 +167,76 @@ class Form extends Component
             $photo = $this->handoverPhoto?->store("v3/operations/{$this->module}/handover", 'public');
             $handover = array_filter([...$this->handover, 'photo_path' => $photo, 'notes' => $notes], fn ($value) => $value !== '' && $value !== null);
 
-            match ($this->module) {
-                'pengolahan' => match ($action) {
-                    'start' => $service->start($record, $actor), 'complete' => $service->complete($record, $actor),
-                    'handover' => $service->handover($record, $actor, $handover), 'submit' => $service->submit($record, $actor, $notes),
-                    'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
-                },
-                'pemorsian' => match ($action) {
-                    'start' => $service->start($record, $actor), 'complete' => $service->complete($record, $actor),
-                    'handover' => $service->handover($record, $actor, $handover), 'submit' => $service->submit($record, $actor, $notes),
-                    'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
-                },
-                'distribusi' => match ($action) {
-                    'load' => $service->prepareLoad($record, $actor, $this->data), 'depart' => $service->depart($record, $actor, $this->data),
-                    'finish' => $service->finish($record, $actor, ['notes' => $notes]), 'submit' => $service->submit($record, $actor, $notes),
-                    'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
-                },
-                'pencucian' => match ($action) {
-                    'receive' => $service->receive($record, $actor, [...$this->data, 'notes' => $notes]),
-                    'start' => $service->start($record, $actor, ['notes' => $notes]),
-                    'complete' => $service->complete($record, $actor, [...$this->data, 'notes' => $notes]),
-                    'ready' => $service->markReady($record, $actor, $notes), 'submit' => $service->submit($record, $actor, $notes),
-                    'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
-                },
-                'kebersihan' => match ($action) {
-                    'start' => $service->start($record, $actor, ['notes' => $notes]),
-                    'complete' => $service->complete($record, $actor, ['after_condition' => $this->data['after_condition'] ?? null, 'notes' => $notes]),
-                    'ready' => $service->markReady($record, $actor, $notes), 'submit' => $service->submit($record, $actor, $notes),
-                    'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
-                },
-            };
+            try {
+                match ($this->module) {
+                    'pengolahan' => match ($action) {
+                        'start' => $service->start($record, $actor), 'complete' => $service->complete($record, $actor),
+                        'submit' => $service->submit($record, $actor, $notes),
+                        'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
+                    },
+                    'pemorsian' => match ($action) {
+                        'start' => $service->start($record, $actor), 'complete' => $service->complete($record, $actor),
+                        'handover' => $service->handover($record, $actor, $handover), 'submit' => $service->submit($record, $actor, $notes),
+                        'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
+                    },
+                    'distribusi' => match ($action) {
+                        'load' => $service->prepareLoad($record, $actor, $this->data), 'depart' => $service->depart($record, $actor, $this->data),
+                        'finish' => $service->finish($record, $actor, ['notes' => $notes]), 'submit' => $service->submit($record, $actor, $notes),
+                        'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
+                    },
+                    'pencucian' => match ($action) {
+                        'receive' => $service->receive($record, $actor, [...$this->data, 'notes' => $notes]),
+                        'start' => $service->start($record, $actor, ['notes' => $notes]),
+                        'complete' => $service->complete($record, $actor, [...$this->data, 'notes' => $notes]),
+                        'ready' => $service->markReady($record, $actor, $notes), 'submit' => $service->submit($record, $actor, $notes),
+                        'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
+                    },
+                    'kebersihan' => match ($action) {
+                        'start' => $service->start($record, $actor, ['notes' => $notes]),
+                        'complete' => $service->complete($record, $actor, ['after_condition' => $this->data['after_condition'] ?? null, 'notes' => $notes]),
+                        'ready' => $service->markReady($record, $actor, $notes), 'submit' => $service->submit($record, $actor, $notes),
+                        'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
+                    },
+                };
+            } catch (Throwable $exception) {
+                if ($photo) {
+                    Storage::disk('public')->delete($photo);
+                }
+                throw $exception;
+            }
 
             $this->workflowNotes = '';
             $this->handoverPhoto = null;
             $this->fillFromRecord($this->record()->refresh());
 
             return 'Tahap operasional berhasil diperbarui.';
+        });
+    }
+
+    public function distributionStopWorkflow(int $index, string $action): void
+    {
+        abort_unless($this->module === 'distribusi' && $this->allowed('distribution.update'), 403);
+        abort_unless(in_array($action, ['arrive', 'deliver', 'fail'], true), 404);
+
+        $this->runAction(function () use ($index, $action): string {
+            $run = $this->persist();
+            $stopId = (int) ($this->relations['stops'][$index]['_id'] ?? 0);
+            $stop = $run->stops()->whereKey($stopId)->firstOrFail();
+            $workflow = app(DistributionWorkflow::class);
+
+            match ($action) {
+                'arrive' => $workflow->arriveAtStop($run, $stop, auth()->user()),
+                'deliver' => $workflow->completeStop($run, $stop, auth()->user()),
+                'fail' => $workflow->failStop($run, $stop, auth()->user()),
+            };
+
+            $this->fillFromRecord($run->refresh());
+
+            return match ($action) {
+                'arrive' => 'Waktu tiba di tujuan berhasil dicatat.',
+                'deliver' => 'Penyerahan makanan berhasil dicatat.',
+                'fail' => 'Kegagalan penyerahan dan porsi kembali berhasil dicatat.',
+            };
         });
     }
 
@@ -214,6 +259,7 @@ class Form extends Component
             ...$this->shellData($unit), 'definition' => $definition, 'record' => $record,
             'fieldOptions' => $options, 'editable' => ! $record || $this->isEditable($record),
             'canUpdate' => $this->allowed($definition['permission'].'.update'),
+            'canSubmit' => $this->allowed($definition['permission'].'.submit'),
             'canApprove' => $this->allowed($definition['permission'].'.approve'),
             'actions' => $record ? $this->availableActions($record) : [],
         ])->layout('layouts.v3', ['title' => ($record ? 'Rincian ' : 'Tambah ').$definition['label']]);
@@ -259,10 +305,15 @@ class Form extends Component
                     }
                     $id = isset($row['_id']) && $row['_id'] ? (int) $row['_id'] : null;
                     $child = $id ? $relation->whereKey($id)->firstOrFail() : $relation->make();
-                    $child->fill($values)->save();
+                    if (! (bool) ($row['_locked'] ?? false)) {
+                        $child->fill($values)->save();
+                    }
                     $kept[] = $child->getKey();
                 }
-                $relation->when($kept !== [], fn ($query) => $query->whereNotIn('id', $kept))->when($kept === [], fn ($query) => $query)->delete();
+                $isSourcedRelation = ($this->module === 'pengolahan' && $name === 'materialUsages')
+                    || ($this->module === 'pemorsian' && $name === 'supplies');
+                $deletable = $isSourcedRelation ? $relation->whereNull('source_type') : $relation;
+                $deletable->when($kept !== [], fn ($query) => $query->whereNotIn('id', $kept))->delete();
             }
 
             if (method_exists($record, 'recalculateTotals')) {
@@ -291,13 +342,16 @@ class Form extends Component
                 foreach ($relation['fields'] as $field) {
                     $row[$field['name']] = $this->inputValue($child->{$field['name']}, $field['type']);
                 }
+                $row['_locked'] = (($this->module === 'pengolahan' && $child instanceof ProcessingMaterialUsage)
+                    || ($this->module === 'pemorsian' && $child instanceof PortioningSupply))
+                    && filled($child->source_type);
 
                 return $row;
             })->values()->all();
         }
         $this->uploads = [];
         $this->handover = match ($this->module) {
-            'pengolahan' => ['output_quantity' => $this->data['actual_output_quantity'] ?: '', 'unit_name' => $this->data['actual_output_unit'] ?: '', 'received_by_name' => ''],
+            'pengolahan' => [],
             'pemorsian' => ['small_portions' => $this->data['actual_small_portions'] ?: 0, 'large_portions' => $this->data['actual_large_portions'] ?: 0, 'received_by_name' => ''],
             default => [],
         };
@@ -394,6 +448,11 @@ class Form extends Component
 
     private function isEditable(Model $record): bool
     {
+        if ($this->module === 'distribusi'
+            && ($record->state instanceof BackedEnum ? $record->state->value : $record->state) === 'returned') {
+            return false;
+        }
+
         return ! method_exists($record, 'isReportEditable') || $record->isReportEditable();
     }
 
@@ -413,13 +472,13 @@ class Form extends Component
         $status = $record->status instanceof BackedEnum ? $record->status->value : $record->status;
         $actions = match ($this->module) {
             'pengolahan' => match ($state) {
-                'planned' => ['start' => 'Mulai pengolahan'], 'in_progress' => ['complete' => 'Selesaikan pengolahan'], 'completed' => ['handover' => 'Serahkan ke Pemorsian'], default => []
+                'planned' => ['start' => 'Mulai pengolahan'], 'in_progress' => ['complete' => 'Selesaikan pengolahan'], default => []
             },
             'pemorsian' => match ($state) {
                 'planned' => ['start' => 'Mulai pemorsian'], 'in_progress' => ['complete' => 'Selesaikan pemorsian'], 'completed' => ['handover' => 'Serahkan ke Distribusi'], default => []
             },
             'distribusi' => match ($state) {
-                'planned' => ['load' => 'Siapkan muatan'], 'loaded' => ['depart' => 'Berangkat'], 'departed' => ['finish' => 'Kembali ke SPPG'], default => []
+                'planned' => ['load' => 'Mulai memuat'], 'loaded' => ['depart' => 'Mulai perjalanan'], 'departed' => ['finish' => 'Kembali ke SPPG'], default => []
             },
             'pencucian' => match ($state) {
                 'planned' => ['receive' => 'Terima ompreng'], 'received' => ['start' => 'Mulai pencucian'], 'washing' => ['complete' => 'Selesaikan pencucian'], 'completed' => ['ready' => 'Tandai siap digunakan'], default => []
@@ -428,10 +487,21 @@ class Form extends Component
                 'planned' => ['start' => 'Mulai kebersihan'], 'in_progress' => ['complete' => 'Selesaikan kebersihan'], 'completed' => ['ready' => 'Tandai area siap'], default => []
             },
         };
-        if (in_array($state, ['handed_over', 'returned', 'ready'], true) && in_array($status, ['draft', 'revision_required'], true)) {
+        if ($this->module !== 'distribusi'
+            && (
+                ($this->module === 'pengolahan' && $state === 'completed')
+                || in_array($state, ['handed_over', 'returned', 'ready'], true)
+            )
+            && in_array($status, ['draft', 'revision_required'], true)) {
             $actions['submit'] = 'Ajukan laporan';
         }
-        if (in_array($status, ['submitted', 'division_approved'], true)) {
+        $approvalService = app(OperationalReportApprovalService::class);
+        $actor = auth()->user();
+        $canReviewStage = $actor !== null && (
+            ($status === 'submitted' && ! $approvalService->isHeadSppg($actor))
+            || ($status === 'division_approved' && $approvalService->isHeadSppg($actor))
+        );
+        if ($canReviewStage) {
             $actions['verify'] = 'Setujui / verifikasi';
             $actions['revision'] = 'Minta revisi';
         }

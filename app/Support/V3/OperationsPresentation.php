@@ -2,7 +2,6 @@
 
 namespace App\Support\V3;
 
-use App\Models\PreparationMaterialHandover;
 use App\Models\ProcurementRequest;
 use App\Models\StockMovement;
 use App\Models\StockReceipt;
@@ -32,26 +31,11 @@ final class OperationsPresentation
     }
 
     /** @return array<string, string> */
-    public static function handoverStatuses(): array
-    {
-        return [
-            PreparationMaterialHandover::STATUS_DRAFT => 'Draft',
-            PreparationMaterialHandover::STATUS_HANDED_OVER => 'Diserahkan Gudang',
-            PreparationMaterialHandover::STATUS_RECEIVED => 'Diterima Persiapan',
-            PreparationMaterialHandover::STATUS_INSPECTED => 'Kondisi Diperiksa',
-            PreparationMaterialHandover::STATUS_PREPARED => 'Bahan Siap Olah',
-            PreparationMaterialHandover::STATUS_WASTE_RECORDED => 'Limbah Dicatat',
-            PreparationMaterialHandover::STATUS_HANDED_OVER_TO_PROCESSING => 'Diserahkan ke Pengolahan',
-            PreparationMaterialHandover::STATUS_COMPLETED => 'Selesai',
-        ];
-    }
-
-    /** @return array<string, string> */
     public static function movementTypes(): array
     {
         return [
             StockMovement::TYPE_RECEIPT => 'Penerimaan',
-            StockMovement::TYPE_HANDOVER => 'Serah ke Persiapan',
+            StockMovement::TYPE_HANDOVER => 'Pengambilan Divisi',
             StockMovement::TYPE_ADJUSTMENT => 'Penyesuaian',
         ];
     }

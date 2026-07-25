@@ -33,6 +33,11 @@ class PortioningSession extends Model
         'target_large_portions',
         'actual_small_portions',
         'actual_large_portions',
+        'received_output_quantity',
+        'received_output_unit',
+        'received_temperature_celsius',
+        'received_by',
+        'received_at',
         'started_at',
         'completed_at',
         'duration_minutes',
@@ -40,11 +45,14 @@ class PortioningSession extends Model
         'petugas_id',
         'petugas_name_snapshot',
         'notes',
+        'input_variance_notes',
         'status',
         'created_by',
         'updated_by',
         'submitted_by',
         'submitted_at',
+        'division_approved_by',
+        'division_approved_at',
         'verified_by',
         'verified_at',
         'review_notes',
@@ -63,6 +71,9 @@ class PortioningSession extends Model
             'target_large_portions' => 'integer',
             'actual_small_portions' => 'integer',
             'actual_large_portions' => 'integer',
+            'received_output_quantity' => 'decimal:3',
+            'received_temperature_celsius' => 'decimal:2',
+            'received_at' => 'datetime',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
             'duration_minutes' => 'integer',
@@ -71,6 +82,7 @@ class PortioningSession extends Model
             'state' => PortioningSessionState::class,
             'status' => OperationalReportStatus::class,
             'submitted_at' => 'datetime',
+            'division_approved_at' => 'datetime',
             'verified_at' => 'datetime',
             'legacy_created_at' => 'datetime',
         ];
@@ -141,6 +153,21 @@ class PortioningSession extends Model
         return $this->hasMany(PortioningLeftoverRecord::class)
             ->orderBy('checked_at')
             ->orderBy('id');
+    }
+
+    public function supplies(): HasMany
+    {
+        return $this->hasMany(PortioningSupply::class)->orderBy('sort_order')->orderBy('id');
+    }
+
+    public function checklistItems(): HasMany
+    {
+        return $this->hasMany(PortioningChecklistItem::class)->orderBy('sort_order')->orderBy('id');
+    }
+
+    public function temperatureLogs(): HasMany
+    {
+        return $this->hasMany(PortioningTemperatureLog::class)->orderBy('checked_at')->orderBy('id');
     }
 
     public function documentations(): HasMany
@@ -255,14 +282,16 @@ class PortioningSession extends Model
             $this->sequence_number,
         );
     }
+
     public function distributionRuns(): HasMany
     {
-        return $this->hasMany(\App\Models\DistributionRun::class);
+        return $this->hasMany(DistributionRun::class);
     }
+
     public function fieldDistributionPlan(): BelongsTo
     {
         return $this->belongsTo(
-            \App\Models\FieldDistributionPlan::class
+            FieldDistributionPlan::class
         );
     }
 }

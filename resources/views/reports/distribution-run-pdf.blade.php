@@ -15,13 +15,14 @@
     </style>
 </head>
 <body>
-    <h1>LAPORAN DISTRIBUSI TERPADU</h1>
+    <h1>LAPORAN PERJALANAN DISTRIBUSI</h1>
     <div style="text-align:center">{{ $run->sppgUnit?->name }}</div>
 
     <table class="no-border">
         <tr><td width="18%">Nomor Perjalanan</td><td>: {{ $run->run_number }}</td><td width="18%">Tanggal</td><td>: {{ $run->distribution_date?->format('d-m-Y') }}</td></tr>
         <tr><td>Menu/Produk</td><td>: {{ $run->menu_name_snapshot }}</td><td>Penanggung Jawab</td><td>: {{ $run->petugas_name_snapshot ?: '-' }}</td></tr>
         <tr><td>Kendaraan</td><td>: {{ $run->vehicle_name ?: '-' }} / {{ $run->vehicle_plate ?: '-' }}</td><td>Pengemudi</td><td>: {{ $run->driver_name ?: '-' }}</td></tr>
+        <tr><td>Kernet</td><td>: {{ $run->kernet_name ?: '-' }}</td><td>Status Perjalanan</td><td>: {{ $run->state?->label() }}</td></tr>
         <tr><td>Berangkat</td><td>: {{ $run->actual_departure_at?->format('d-m-Y H:i') ?: '-' }}</td><td>Kembali</td><td>: {{ $run->returned_at?->format('d-m-Y H:i') ?: '-' }}</td></tr>
         <tr><td>Suhu Berangkat</td><td>: {{ $run->departure_temperature_celsius !== null ? $run->departure_temperature_celsius . ' °C' : '-' }}</td><td>Durasi</td><td>: {{ $run->duration_minutes !== null ? $run->duration_minutes . ' menit' : '-' }}</td></tr>
         <tr><td>Muatan</td><td>: {{ $run->loaded_small_portions }} kecil + {{ $run->loaded_large_portions }} besar</td><td>Terkirim</td><td>: {{ $run->delivered_small_portions }} kecil + {{ $run->delivered_large_portions }} besar</td></tr>
@@ -75,6 +76,6 @@
         </tbody>
     </table>
 
-    <p class="small">Status laporan: {{ $run->status?->label() }}. Dicetak pada {{ now()->format('d-m-Y H:i') }}.</p>
+    <p class="small">Dicetak pada {{ now()->format('d-m-Y H:i') }}.</p>
 </body>
 </html>

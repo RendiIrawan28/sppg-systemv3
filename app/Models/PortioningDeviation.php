@@ -18,8 +18,11 @@ class PortioningDeviation extends Model
         'category',
         'severity',
         'description',
+        'immediate_action',
         'corrective_action',
+        'photo_path',
         'status',
+        'reported_by',
         'resolved_at',
         'resolved_by',
         'notes',
@@ -33,6 +36,13 @@ class PortioningDeviation extends Model
             'status' => PortioningDeviationStatus::class,
             'resolved_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $deviation): void {
+            $deviation->reported_by ??= auth()->id();
+        });
     }
 
     public function session(): BelongsTo

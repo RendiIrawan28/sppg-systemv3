@@ -15,29 +15,44 @@ class OperationalReportApprovalService
             ? $status
             : OperationalReportStatus::tryFrom((string) $status);
 
-        if ($status === OperationalReportStatus::Submitted) {
-            if ($this->isHeadSppg($actor)) {
-                throw ValidationException::withMessages([
-                    'status' => 'Laporan harus diperiksa Kepala Divisi terlebih dahulu sebelum disetujui Kepala SPPG.',
-                ]);
-            }
+        $this->assertCanReviewStage($status, $actor);
 
+        if ($status === OperationalReportStatus::Submitted) {
             return OperationalReportStatus::DivisionApproved;
         }
 
         if ($status === OperationalReportStatus::DivisionApproved) {
-            if (! $this->isHeadSppg($actor)) {
-                throw ValidationException::withMessages([
-                    'status' => 'Hanya Kepala SPPG yang dapat memberi persetujuan akhir.',
-                ]);
-            }
-
             return OperationalReportStatus::Verified;
         }
 
         throw ValidationException::withMessages([
             'status' => 'Laporan tidak berada pada tahap persetujuan yang valid.',
         ]);
+    }
+
+    public function assertCanReviewStage(OperationalReportStatus|string|null $status, User $actor): void
+    {
+        $status = $status instanceof OperationalReportStatus
+            ? $status
+            : OperationalReportStatus::tryFrom((string) $status);
+
+        if (! $this->isReviewable($status)) {
+            throw ValidationException::withMessages([
+                'status' => 'Laporan tidak berada pada tahap persetujuan yang valid.',
+            ]);
+        }
+
+        if ($status === OperationalReportStatus::Submitted && $this->isHeadSppg($actor)) {
+            throw ValidationException::withMessages([
+                'status' => 'Laporan harus diperiksa Kepala Divisi terlebih dahulu sebelum ditangani Kepala SPPG.',
+            ]);
+        }
+
+        if ($status === OperationalReportStatus::DivisionApproved && ! $this->isHeadSppg($actor)) {
+            throw ValidationException::withMessages([
+                'status' => 'Hanya Kepala SPPG yang dapat menangani laporan setelah persetujuan Kepala Divisi.',
+            ]);
+        }
     }
 
     public function reviewActionName(OperationalReportStatus $nextStatus): string

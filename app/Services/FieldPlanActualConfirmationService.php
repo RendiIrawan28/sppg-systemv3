@@ -9,12 +9,13 @@ use App\Models\FieldDistributionPlanDestination;
 use App\Models\User;
 use Carbon\CarbonInterface;
 use DomainException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Nama class dipertahankan agar patch lama tetap kompatibel.
- * Sumber data saat ini adalah snapshot Master Penerima Per Periode,
- * bukan lagi modul Konfirmasi Aktual Harian.
+ * Sumber data adalah jumlah penerima per sekolah/Posyandu dan kategori.
+ * Snapshot lama berbasis nama tetap dibaca untuk kompatibilitas arsip.
  */
 class FieldPlanActualConfirmationService
 {
@@ -25,7 +26,7 @@ class FieldPlanActualConfirmationService
         }
 
         $period = BeneficiaryPeriod::query()
-            ->with(['destinations.members'])
+            ->with(['destinations.members', 'destinations.categoryTotals'])
             ->where('sppg_unit_id', $unitId)
             ->whereIn('status', ['approved', 'active'])
             ->whereDate('start_date', '<=', $serviceDate)
@@ -34,11 +35,11 @@ class FieldPlanActualConfirmationService
             ->first();
 
         if (! $period) {
-            throw new DomainException('Master Penerima Per Periode yang sudah disetujui belum tersedia untuk tanggal layanan tersebut.');
+            throw new DomainException('Jumlah penerima aktif belum tersedia untuk tanggal layanan tersebut.');
         }
 
         if ($period->active_members < 1 || $period->destinations->isEmpty()) {
-            throw new DomainException('Master periode belum memiliki instansi dan penerima aktif.');
+            throw new DomainException('Data jumlah penerima belum memiliki sekolah/Posyandu dan kategori dengan jumlah lebih dari nol.');
         }
 
         return $period;
@@ -60,15 +61,46 @@ class FieldPlanActualConfirmationService
 
             foreach ($period->destinations->where('is_active', true)->values() as $index => $periodDestination) {
                 $members = $periodDestination->members->where('is_active', true);
+                $groups = $periodDestination->categoryTotals->isNotEmpty()
+                    ? $periodDestination->categoryTotals->map(fn ($total): array => [
+                        'beneficiary_category_id' => $total->beneficiary_category_id,
+                        'code' => $total->beneficiary_category_code_snapshot,
+                        'name' => $total->beneficiary_category_name_snapshot,
+                        'portion_size' => $total->portion_category ?: 'small',
+                        'menu_audience' => $total->menu_audience ?: 'student',
+                        'count' => (int) $total->total_beneficiaries,
+                    ])
+                    : $members
+                        ->groupBy(fn ($member): string => implode('|', [
+                            $member->beneficiary_category_id ?: 0,
+                            $member->beneficiary_category_code_snapshot,
+                            $member->portion_category,
+                            $member->menu_audience,
+                        ]))
+                        ->map(function ($group): array {
+                            $first = $group->first();
 
-                if ($members->isEmpty()) {
+                            return [
+                                'beneficiary_category_id' => $first->beneficiary_category_id,
+                                'code' => $first->beneficiary_category_code_snapshot,
+                                'name' => $first->beneficiary_category_name_snapshot ?: 'Tanpa Kelompok',
+                                'portion_size' => $first->portion_category ?: 'small',
+                                'menu_audience' => $first->menu_audience ?: 'student',
+                                'count' => $group->count(),
+                            ];
+                        })
+                        ->values();
+
+                $groups = $groups->filter(fn (array $group): bool => $group['count'] > 0)->values();
+
+                if ($groups->isEmpty()) {
                     continue;
                 }
 
                 $destination = $this->findDestination($plan, $periodDestination);
-                $masterTotal = $members->count();
-                $small = $members->where('portion_category', 'small')->count();
-                $large = $members->where('portion_category', 'large')->count();
+                $masterTotal = (int) $groups->sum('count');
+                $small = (int) $groups->where('portion_size', 'small')->sum('count');
+                $large = (int) $groups->where('portion_size', 'large')->sum('count');
 
                 $destination->fill([
                     'beneficiary_period_destination_id' => $periodDestination->getKey(),
@@ -97,24 +129,15 @@ class FieldPlanActualConfirmationService
                 $destination->save();
                 $destination->recipientGroups()->delete();
 
-                $grouped = $members->groupBy(fn ($member): string => implode('|', [
-                    $member->beneficiary_category_id ?: 0,
-                    $member->beneficiary_category_code_snapshot,
-                    $member->portion_category,
-                    $member->menu_audience,
-                ]));
-
-                foreach ($grouped as $group) {
-                    $first = $group->first();
-                    $count = $group->count();
+                foreach ($groups as $group) {
                     $destination->recipientGroups()->create([
-                        'beneficiary_category_id' => $first->beneficiary_category_id,
-                        'beneficiary_category_code_snapshot' => $first->beneficiary_category_code_snapshot,
-                        'beneficiary_category_name_snapshot' => $first->beneficiary_category_name_snapshot ?: 'Tanpa Kelompok',
-                        'menu_audience' => $first->menu_audience ?: 'student',
-                        'portion_size' => $first->portion_category ?: 'small',
-                        'registered_beneficiaries' => $count,
-                        'confirmed_beneficiaries' => $count,
+                        'beneficiary_category_id' => $group['beneficiary_category_id'],
+                        'beneficiary_category_code_snapshot' => $group['code'],
+                        'beneficiary_category_name_snapshot' => $group['name'],
+                        'menu_audience' => $group['menu_audience'],
+                        'portion_size' => $group['portion_size'],
+                        'registered_beneficiaries' => $group['count'],
+                        'confirmed_beneficiaries' => $group['count'],
                     ]);
                 }
 
@@ -163,32 +186,34 @@ class FieldPlanActualConfirmationService
         }
 
         if (! $plan->actual_data_synced_at || ! $plan->beneficiary_period_id) {
-            return ['Master Penerima Per Periode belum dimuat ke Rencana H-3.'];
+            return ['Jumlah penerima belum dimuat ke Rencana H-3.'];
         }
 
         if ((int) $plan->beneficiary_period_id !== (int) $period->getKey()) {
-            return ['Rencana belum menggunakan Master Penerima yang berlaku pada tanggal distribusi. Muat ulang data master.'];
+            return ['Rencana belum menggunakan jumlah penerima yang berlaku pada tanggal distribusi. Muat ulang data.'];
         }
 
         $timestamps = collect([
             $period->updated_at,
             $period->destinations()->max('updated_at'),
+            $period->categoryTotals()->max('updated_at'),
             $period->members()->max('updated_at'),
-        ])->filter()->map(fn ($value): int => \Illuminate\Support\Carbon::parse($value)->getTimestamp());
+        ])->filter()->map(fn ($value): int => Carbon::parse($value)->getTimestamp());
         $latestUpdate = $timestamps->isNotEmpty() ? $timestamps->max() : null;
 
         if ($latestUpdate && $plan->actual_data_synced_at->getTimestamp() < $latestUpdate) {
-            return ['Snapshot periode berubah setelah rencana dibuat. Klik “Ambil Ulang Master Periode”.'];
+            return ['Jumlah penerima berubah setelah rencana dibuat. Klik “Ambil Ulang Jumlah Penerima”.'];
         }
 
         $sourceIds = $plan->destinations()->whereNotNull('beneficiary_period_destination_id')
             ->pluck('beneficiary_period_destination_id')->sort()->values();
         $periodIds = $period->destinations->where('is_active', true)
-            ->filter(fn ($destination): bool => $destination->members->where('is_active', true)->isNotEmpty())
+            ->filter(fn ($destination): bool => $destination->categoryTotals->where('total_beneficiaries', '>', 0)->isNotEmpty()
+                || $destination->members->where('is_active', true)->isNotEmpty())
             ->pluck('id')->sort()->values();
 
         if ($sourceIds->all() !== $periodIds->all()) {
-            return ['Daftar instansi belum sama dengan snapshot Master Periode. Muat ulang data master.'];
+            return ['Daftar sekolah/Posyandu belum sama dengan data jumlah penerima. Muat ulang data.'];
         }
 
         return [];
@@ -205,7 +230,7 @@ class FieldPlanActualConfirmationService
                 ->where('destination_type', $periodDestination->destination_type)
                 ->where('destination_id', $periodDestination->destination_id)
                 ->first()
-            ?? tap(new FieldDistributionPlanDestination(), function ($destination) use ($plan): void {
+            ?? tap(new FieldDistributionPlanDestination, function ($destination) use ($plan): void {
                 $destination->field_distribution_plan_id = $plan->getKey();
             });
     }

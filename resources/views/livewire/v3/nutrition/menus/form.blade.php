@@ -8,24 +8,19 @@
             </div>
             <div class="flex flex-wrap gap-2">
                 <button type="button" wire:click="toggleSpecialGramasi" class="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600">{{ $showSpecialGramasi ? 'Sembunyikan gramasi khusus' : 'Atur gramasi khusus' }}</button>
-                <button type="button" wire:click="recalculate" class="h-10 rounded-xl bg-sky-50 px-4 text-xs font-bold text-sky-700">Hitung ulang gizi</button>
+                @if($editable)
+                    <button type="button" wire:click="recalculate" wire:loading.attr="disabled" class="h-10 rounded-xl bg-sky-50 px-4 text-xs font-bold text-sky-700 disabled:opacity-60">
+                        <span wire:loading.remove wire:target="recalculate">Simpan & lihat nilai gizi</span>
+                        <span wire:loading wire:target="recalculate">Menghitung...</span>
+                    </button>
+                @else
+                    <a wire:navigate href="{{ route('v3.nutrition.menus.nutrition', $menu) }}" class="inline-flex h-10 items-center rounded-xl bg-sky-50 px-4 text-xs font-bold text-sky-700">Lihat nilai gizi</a>
+                @endif
             </div>
         </div>
 
         @if ($actionMessage)<div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ $actionMessage }}</div>@endif
         @error('action')<div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ $message }}</div>@enderror
-
-        @if ($menu->nutritionSummaries->isNotEmpty())
-            <section class="overflow-hidden rounded-[26px] bg-[#081d3a] text-white shadow-xl">
-                <div class="p-5"><p class="text-[10px] font-bold uppercase tracking-[.18em] text-cyan-300">RESEP + nilai gizi otomatis</p><p class="mt-1 text-xs text-slate-400">Berat, hasil gizi, standar, dan persentase pencapaian per kelompok penerima.</p></div>
-                <div class="overflow-x-auto"><table class="min-w-full border-collapse text-xs"><thead class="bg-white/[.06] text-left text-[10px] uppercase tracking-wider text-slate-300"><tr><th class="px-4 py-3">Kelompok</th><th class="px-4 py-3">Komponen gizi</th><th class="px-4 py-3 text-right">Hasil</th><th class="px-4 py-3 text-right">Standar</th><th class="px-4 py-3 text-right">Pencapaian</th><th class="px-4 py-3">Status</th></tr></thead><tbody class="divide-y divide-white/10">
-                    @foreach($menu->nutritionSummaries->sortBy(fn($row) => sprintf('%04d-%04d', $row->category?->sort_order ?? 9999, $row->component?->sort_order ?? 9999)) as $summary)
-                        @php($ok = $summary->achievement_percent !== null && (float)$summary->achievement_percent >= 90 && (float)$summary->achievement_percent <= 110)
-                        <tr><td class="px-4 py-2 font-semibold text-white">{{ $summary->category?->name ?? '-' }}</td><td class="px-4 py-2 text-slate-300">{{ $summary->component?->name ?? '-' }}</td><td class="px-4 py-2 text-right font-semibold">{{ number_format((float)$summary->value_per_portion, 2, ',', '.') }} {{ $summary->component?->unit }}</td><td class="px-4 py-2 text-right text-slate-300">{{ $summary->standard_target !== null ? number_format((float)$summary->standard_target, 2, ',', '.') : '-' }}</td><td class="px-4 py-2 text-right font-bold {{ $ok ? 'text-emerald-300' : 'text-amber-300' }}">{{ $summary->achievement_percent !== null ? number_format((float)$summary->achievement_percent, 1, ',', '.').'%' : '-' }}</td><td class="px-4 py-2"><span class="rounded-full px-2 py-1 text-[9px] font-bold {{ $ok ? 'bg-emerald-400/15 text-emerald-300' : 'bg-amber-400/15 text-amber-300' }}">{{ $ok ? '90–110%' : 'Periksa' }}</span></td></tr>
-                    @endforeach
-                </tbody></table></div>
-            </section>
-        @endif
 
         <form wire:submit="save" class="space-y-5">
             <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -48,7 +43,7 @@
             </section>
 
             <section class="space-y-3">
-                <div class="flex items-center justify-between"><div><h3 class="font-bold text-slate-900">Resep + nilai gizi</h3><p class="mt-1 text-xs text-slate-400">Gramasi utama diambil otomatis dari Standar Gizi siswa. BDD, gizi, harga, susut, dan pembulatan mengikuti Master Bahan.</p></div>@if($editable)<button type="button" wire:click="addItem" class="h-9 rounded-xl bg-sky-600 px-3 text-xs font-bold text-white">+ Hidangan</button>@endif</div>
+                <div class="flex items-center justify-between"><div><h3 class="font-bold text-slate-900">Resep dan gramasi</h3><p class="mt-1 text-xs text-slate-400">Gramasi utama diambil otomatis dari Standar Gizi siswa. BDD, gizi, harga, susut, dan pembulatan mengikuti Master Bahan.</p></div>@if($editable)<button type="button" wire:click="addItem" class="h-9 rounded-xl bg-sky-600 px-3 text-xs font-bold text-white">+ Hidangan</button>@endif</div>
 
                 @foreach ($items as $itemIndex => $item)
                     <details open class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

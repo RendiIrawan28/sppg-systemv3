@@ -10,6 +10,7 @@ use App\Models\CleaningSession;
 use App\Models\DistributionRun;
 use App\Models\User;
 use App\Models\WashingSession;
+use App\Services\V3\OperationalRecordInitializer;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -46,20 +47,22 @@ class OperationalHandoverFlow
             }
 
             if ($returned <= 0 && $expected > 0) {
-                $returned = max(0, $expected - $lost);
+                $returned = max(0, $expected - $damaged - $lost);
             }
 
-            return WashingSession::query()->create([
+            $received = $returned + $damaged;
+
+            $session = WashingSession::query()->create([
                 'sppg_unit_id' => $run->sppg_unit_id,
                 'distribution_run_id' => $run->getKey(),
                 'washing_date' => Carbon::parse($run->returned_at ?? now())->toDateString(),
                 'menu_name_snapshot' => $run->menu_name_snapshot,
                 'expected_containers' => $expected,
-                'received_containers' => $returned,
+                'received_containers' => $received,
                 'damaged_containers' => $damaged,
                 'missing_containers' => $lost,
                 'received_at' => $run->returned_at ?? now(),
-                'state' => $returned > 0 ? WashingSessionState::Received : WashingSessionState::Planned,
+                'state' => $received > 0 ? WashingSessionState::Received : WashingSessionState::Planned,
                 'washing_area' => 'Area Pencucian Ompreng',
                 'petugas_id' => $actor->getKey(),
                 'petugas_name_snapshot' => $actor->name,
@@ -67,6 +70,10 @@ class OperationalHandoverFlow
                 'updated_by' => $actor->getKey(),
                 'notes' => sprintf('Dibuat otomatis dari perjalanan distribusi %s.', $run->run_number),
             ]);
+
+            app(OperationalRecordInitializer::class)->initialize($session, $actor);
+
+            return $session->refresh();
         });
     }
 
@@ -117,7 +124,7 @@ class OperationalHandoverFlow
                     continue;
                 }
 
-                CleaningSession::query()->create([
+                $session = CleaningSession::query()->create([
                     'sppg_unit_id' => $washingSession->sppg_unit_id,
                     'cleaning_area_id' => $area->getKey(),
                     'scheduled_date' => $date,
@@ -128,6 +135,7 @@ class OperationalHandoverFlow
                     'updated_by' => $actor->getKey(),
                     'notes' => sprintf('Sesi kebersihan akhir dibuat dari pencucian %s.', $washingSession->session_number),
                 ]);
+                app(OperationalRecordInitializer::class)->initialize($session, $actor);
 
                 $created++;
             }

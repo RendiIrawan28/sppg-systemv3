@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class StockReceiptItem extends Model
 {
@@ -63,5 +64,10 @@ class StockReceiptItem extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function inventoryLot(): HasOne
+    {
+        return $this->hasOne(InventoryLot::class);
     }
 }

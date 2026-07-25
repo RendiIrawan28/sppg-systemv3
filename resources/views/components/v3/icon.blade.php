@@ -40,6 +40,9 @@
     @case('alert')
         <svg {{ $attributes->merge(['class' => $class, 'viewBox' => '0 0 24 24', 'fill' => 'none', 'stroke' => 'currentColor', 'stroke-width' => '1.8']) }}><path stroke-linecap="round" stroke-linejoin="round" d="M10.3 3.8 2.4 18a2 2 0 0 0 1.8 3h15.6a2 2 0 0 0 1.8-3L13.7 3.8a2 2 0 0 0-3.4 0Z"/><path stroke-linecap="round" d="M12 9v4m0 4h.01"/></svg>
         @break
+    @case('shield')
+        <svg {{ $attributes->merge(['class' => $class, 'viewBox' => '0 0 24 24', 'fill' => 'none', 'stroke' => 'currentColor', 'stroke-width' => '1.8']) }}><path stroke-linecap="round" stroke-linejoin="round" d="M12 3 4.5 6v5.2c0 4.7 3.1 8.8 7.5 9.8 4.4-1 7.5-5.1 7.5-9.8V6L12 3Z"/><path stroke-linecap="round" stroke-linejoin="round" d="m8.8 12 2.1 2.1 4.4-4.4"/></svg>
+        @break
     @case('box')
         <svg {{ $attributes->merge(['class' => $class, 'viewBox' => '0 0 24 24', 'fill' => 'none', 'stroke' => 'currentColor', 'stroke-width' => '1.8']) }}><path stroke-linecap="round" stroke-linejoin="round" d="m21 8-9-5-9 5 9 5 9-5Zm-18 0v8l9 5 9-5V8m-9 5v8"/></svg>
         @break

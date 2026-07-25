@@ -3,11 +3,14 @@
 namespace App\Livewire\V3\Procurement;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Models\Ingredient;
 use App\Models\ProcurementRequest;
+use App\Models\ProcurementRequestItem;
 use App\Models\Supplier;
 use App\Services\ProcurementRequestService;
 use App\Services\StockReceiptService;
 use App\Support\V3\OperationsPresentation;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
@@ -26,6 +29,8 @@ class Show extends Component
     public string $notes = '';
 
     public string $decisionNotes = '';
+
+    public string $newIngredientId = '';
 
     public ?string $actionMessage = null;
 
@@ -47,6 +52,89 @@ class Show extends Component
             $this->persist();
 
             return 'Perubahan permintaan pembelian berhasil disimpan.';
+        });
+    }
+
+    public function addItem(ProcurementRequestService $service): void
+    {
+        abort_unless($this->allowed('procurement.update'), 403);
+        $request = $this->request();
+        abort_unless($request->isEditable(), 403);
+        $unit = $this->currentUnit();
+
+        $data = $this->validate([
+            'newIngredientId' => [
+                'required',
+                'integer',
+                Rule::exists('ingredients', 'id')
+                    ->where('sppg_unit_id', $unit->getKey())
+                    ->where('is_active', true),
+            ],
+        ], [
+            'newIngredientId.required' => 'Pilih bahan yang akan ditambahkan.',
+            'newIngredientId.exists' => 'Bahan tidak tersedia pada Unit SPPG aktif.',
+        ]);
+
+        $this->runAction(function () use ($data, $request, $service, $unit): string {
+            $ingredient = Ingredient::query()
+                ->with('measurementUnit')
+                ->where('sppg_unit_id', $unit->getKey())
+                ->where('is_active', true)
+                ->findOrFail((int) $data['newIngredientId']);
+
+            if ($request->items()->where('ingredient_id', $ingredient->getKey())->exists()) {
+                throw ValidationException::withMessages([
+                    'newIngredientId' => 'Bahan tersebut sudah ada dalam daftar pembelian.',
+                ]);
+            }
+
+            DB::transaction(function () use ($ingredient, $request, $service): void {
+                $quantity = 1.0;
+                $quantityKg = $this->quantityInKgForIngredient($ingredient, $quantity);
+
+                $request->items()->create([
+                    'nutrition_requirement_item_id' => null,
+                    'ingredient_id' => $ingredient->getKey(),
+                    'supplier_id' => null,
+                    'ingredient_code_snapshot' => $ingredient->code,
+                    'ingredient_name_snapshot' => $ingredient->name,
+                    'unit_snapshot' => $ingredient->measurementUnit?->symbol
+                        ?: $ingredient->measurementUnit?->code
+                        ?: 'unit',
+                    'requested_quantity' => $quantity,
+                    'approved_quantity' => $quantity,
+                    'requested_quantity_kg' => $quantityKg,
+                    'approved_quantity_kg' => $quantityKg,
+                    'estimated_unit_price' => (float) ($ingredient->reference_price ?? 0),
+                    'estimated_total_price' => (float) ($ingredient->reference_price ?? 0),
+                ]);
+
+                $service->recalculate($request);
+            });
+
+            $this->newIngredientId = '';
+
+            return "{$ingredient->name} berhasil ditambahkan ke item pembelian.";
+        });
+    }
+
+    public function removeItem(int $itemId, ProcurementRequestService $service): void
+    {
+        abort_unless($this->allowed('procurement.update'), 403);
+        $request = $this->request();
+        abort_unless($request->isEditable(), 403);
+
+        $item = $request->items()->findOrFail($itemId);
+
+        $this->runAction(function () use ($item, $request, $service): string {
+            $name = $item->ingredient_name_snapshot;
+
+            DB::transaction(function () use ($item, $request, $service): void {
+                $item->delete();
+                $service->recalculate($request);
+            });
+
+            return "{$name} berhasil dihapus dari item pembelian.";
         });
     }
 
@@ -105,10 +193,16 @@ class Show extends Component
     {
         abort_unless($this->allowed('stock.create'), 403);
         $this->runAction(function () use ($service): string {
-            $receipt = $service->createFromProcurementRequest($this->request()->load('items'));
-            $this->redirectRoute('v3.warehouse.receipts.show', ['receipt' => $receipt], navigate: true);
+            $receipts = $service->createGroupedFromProcurementRequest($this->request()->load('items'));
 
-            return 'Dokumen penerimaan bahan siap diisi.';
+            if ($receipts->count() === 1) {
+                $this->redirectRoute('v3.warehouse.receipts.show', ['receipt' => $receipts->first()], navigate: true);
+            } else {
+                session()->flash('v3.status', "{$receipts->count()} dokumen penerimaan dibuat berdasarkan supplier.");
+                $this->redirectRoute('v3.warehouse.receipts.index', navigate: true);
+            }
+
+            return 'Dokumen penerimaan per supplier siap diisi.';
         });
     }
 
@@ -133,6 +227,13 @@ class Show extends Component
             'request' => $request,
             'statuses' => OperationsPresentation::procurementStatuses(),
             'suppliers' => Supplier::query()->where('sppg_unit_id', $unit->getKey())->where('is_active', true)->orderBy('name')->get(),
+            'availableIngredients' => Ingredient::query()
+                ->with('measurementUnit')
+                ->where('sppg_unit_id', $unit->getKey())
+                ->where('is_active', true)
+                ->whereNotIn('id', $request->items->pluck('ingredient_id')->filter())
+                ->orderBy('name')
+                ->get(),
             'canHeaderEdit' => $this->allowed('procurement.update') && $request->isEditable(),
             'canSupplierEdit' => $this->allowed('procurement.select_supplier') && $request->status === ProcurementRequest::STATUS_SUBMITTED,
             'canPriceEdit' => $this->allowed('procurement.price_input') && $request->priceIsEditable(),
@@ -175,8 +276,12 @@ class Show extends Component
 
             $updates = [];
             if ($canHeader) {
-                $updates['requested_quantity'] = $row['requested_quantity'];
-                $updates['approved_quantity'] = $row['requested_quantity'];
+                $quantity = (float) $row['requested_quantity'];
+                $quantityKg = $this->quantityInKgForItem($item, $quantity);
+                $updates['requested_quantity'] = $quantity;
+                $updates['approved_quantity'] = $quantity;
+                $updates['requested_quantity_kg'] = $quantityKg;
+                $updates['approved_quantity_kg'] = $quantityKg;
                 $updates['notes'] = trim((string) ($row['notes'] ?? '')) ?: null;
             }
             if ($canSupplier) {
@@ -215,6 +320,37 @@ class Show extends Component
                 'notes' => (string) $item->notes,
             ],
         ])->all();
+    }
+
+    private function quantityInKgForIngredient(Ingredient $ingredient, float $quantity): float
+    {
+        $gramsPerUnit = (float) ($ingredient->grams_per_unit
+            ?: $ingredient->measurementUnit?->to_base_factor
+            ?: 0);
+
+        return round($quantity * $gramsPerUnit / 1000, 4);
+    }
+
+    private function quantityInKgForItem(ProcurementRequestItem $item, float $quantity): float
+    {
+        $currentQuantity = (float) $item->requested_quantity;
+        $currentQuantityKg = (float) $item->requested_quantity_kg;
+
+        if ($currentQuantity > 0 && $currentQuantityKg > 0) {
+            return round($quantity * ($currentQuantityKg / $currentQuantity), 4);
+        }
+
+        $item->loadMissing('ingredient.measurementUnit');
+
+        if ($item->ingredient) {
+            return $this->quantityInKgForIngredient($item->ingredient, $quantity);
+        }
+
+        return match (strtolower((string) $item->unit_snapshot)) {
+            'kg' => round($quantity, 4),
+            'g', 'gram' => round($quantity / 1000, 4),
+            default => 0.0,
+        };
     }
 
     private function runAction(callable $action): void

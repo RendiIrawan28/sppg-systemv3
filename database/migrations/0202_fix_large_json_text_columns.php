@@ -39,6 +39,11 @@ return new class extends Migration
 
     public function up(): void
     {
+        // JSON/TEXT values are already unbounded in SQLite. MODIFY is MySQL syntax.
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return;
+        }
+
         foreach ($this->jsonColumns as $table => $columns) {
             if (! Schema::hasTable($table)) {
                 continue;

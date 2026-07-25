@@ -6,7 +6,12 @@
     'eyebrow' => 'Ruang kerja unit',
 ])
 
-<div x-data="{ sidebarOpen: false, profileOpen: false }" class="min-h-screen">
+<div
+    x-data="{ sidebarOpen: false, profileOpen: false, documentationUrl: null, documentationTitle: '' }"
+    x-on:open-documentation.window="documentationUrl = $event.detail.url; documentationTitle = $event.detail.title || 'Dokumentasi'"
+    x-on:keydown.escape.window="documentationUrl = null"
+    class="min-h-screen"
+>
     <div
         x-cloak
         x-show="sidebarOpen"
@@ -27,16 +32,9 @@
             <div>
                 <div class="flex items-center gap-2">
                     <span class="text-lg font-bold tracking-tight">SPPG</span>
-                    <span class="rounded-full bg-cyan-300/15 px-2 py-0.5 text-[10px] font-bold tracking-[.16em] text-cyan-200 ring-1 ring-cyan-200/20">V3</span>
                 </div>
                 <p class="mt-0.5 text-xs text-slate-400">Sistem Operasional Terpadu</p>
             </div>
-        </div>
-
-        <div class="relative mx-4 mt-5 rounded-2xl border border-white/10 bg-white/[.06] p-3.5">
-            <p class="text-[10px] font-semibold uppercase tracking-[.16em] text-slate-400">Unit aktif</p>
-            <p class="mt-1 truncate text-sm font-semibold text-white">{{ $unit->name }}</p>
-            <p class="mt-0.5 truncate text-xs text-slate-400">{{ $unit->code }}</p>
         </div>
 
         <nav class="relative mt-5 flex-1 overflow-y-auto px-4 pb-6">
@@ -53,16 +51,9 @@
                                     'bg-cyan-300 text-[#071a34] shadow-lg shadow-cyan-950/20' => $item['active'],
                                     'text-slate-300 hover:bg-white/[.07] hover:text-white' => ! $item['active'],
                                 ])
-                            >
+                                >
                                 <x-v3.icon :name="$item['icon']" class="size-[19px] shrink-0" />
                                 <span class="min-w-0 flex-1 truncate">{{ $item['label'] }}</span>
-                                @if ($item['badge'])
-                                    <span @class([
-                                        'rounded-md px-1.5 py-0.5 text-[9px] font-bold tracking-wider',
-                                        'bg-[#071a34]/10 text-[#071a34]' => $item['active'],
-                                        'bg-cyan-300/10 text-cyan-300' => ! $item['active'],
-                                    ])>{{ $item['badge'] }}</span>
-                                @endif
                             </a>
                         @endforeach
                     </div>
@@ -118,5 +109,29 @@
         <main class="px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             {{ $slot }}
         </main>
+    </div>
+
+    <div
+        x-cloak
+        x-show="documentationUrl"
+        x-transition.opacity
+        class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Pratinjau dokumentasi"
+    >
+        <button type="button" x-on:click="documentationUrl = null" class="absolute inset-0 cursor-default" aria-label="Tutup modal"></button>
+        <div x-show="documentationUrl" x-transition.scale class="relative z-10 flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                <div>
+                    <p class="text-sm font-bold text-slate-900">Dokumentasi</p>
+                    <p class="mt-0.5 text-xs text-slate-500" x-text="documentationTitle"></p>
+                </div>
+                <button type="button" x-on:click="documentationUrl = null" class="grid size-9 place-items-center rounded-xl bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200" aria-label="Tutup">×</button>
+            </div>
+            <div class="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-slate-100 p-4">
+                <img x-bind:src="documentationUrl" x-bind:alt="`Dokumentasi ${documentationTitle}`" class="max-h-[76vh] max-w-full rounded-xl object-contain shadow-sm">
+            </div>
+        </div>
     </div>
 </div>

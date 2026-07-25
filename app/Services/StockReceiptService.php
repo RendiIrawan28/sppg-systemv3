@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\InventoryLot;
 use App\Models\ProcurementRequest;
 use App\Models\StockMovement;
 use App\Models\StockReceipt;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -12,52 +14,66 @@ class StockReceiptService
 {
     public function createFromProcurementRequest(ProcurementRequest $request): StockReceipt
     {
+        return $this->createGroupedFromProcurementRequest($request)->firstOrFail();
+    }
+
+    /** @return Collection<int, StockReceipt> */
+    public function createGroupedFromProcurementRequest(ProcurementRequest $request): Collection
+    {
         if ($request->status !== ProcurementRequest::STATUS_ORDERED) {
             throw new InvalidArgumentException('Penerimaan bahan hanya dapat dibuat dari permintaan yang sudah dipesan Gudang.');
         }
 
-        return DB::transaction(function () use ($request): StockReceipt {
-            $existing = StockReceipt::query()
-                ->where('procurement_request_id', $request->id)
-                ->first();
-
-            if ($existing) {
-                return $existing;
-            }
-
+        return DB::transaction(function () use ($request): Collection {
             $request->loadMissing('items');
 
-            $receipt = StockReceipt::query()->create([
-                'sppg_unit_id' => $request->sppg_unit_id,
-                'procurement_request_id' => $request->id,
-                'receipt_date' => now()->toDateString(),
-                'status' => StockReceipt::STATUS_DRAFT,
-                'created_by' => auth()->id(),
-            ]);
-
-            foreach ($request->items as $item) {
-                $ordered = (float) ($item->approved_quantity ?: $item->requested_quantity ?: 0);
-                $orderedKg = (float) ($item->approved_quantity_kg ?: $item->requested_quantity_kg ?: 0);
-
-                $receipt->items()->create([
-                    'procurement_request_item_id' => $item->id,
-                    'ingredient_id' => $item->ingredient_id,
-                    'supplier_id' => $item->supplier_id,
-                    'ingredient_name_snapshot' => $item->ingredient_name_snapshot,
-                    'unit_snapshot' => $item->unit_snapshot ?: 'unit',
-                    'ordered_quantity' => $ordered,
-                    'received_quantity' => $ordered,
-                    'accepted_quantity' => $ordered,
-                    'rejected_quantity' => 0,
-                    'ordered_quantity_kg' => $orderedKg,
-                    'received_quantity_kg' => $orderedKg,
-                    'accepted_quantity_kg' => $orderedKg,
-                    'rejected_quantity_kg' => 0,
-                    'quality_status' => 'pending',
-                ]);
+            if ($request->items->isEmpty()) {
+                throw new InvalidArgumentException('Pesanan belum memiliki item untuk diterima.');
             }
 
-            return $receipt->refresh();
+            if ($request->items->contains(fn ($item): bool => blank($item->supplier_id))) {
+                throw new InvalidArgumentException('Seluruh item harus memiliki supplier sebelum dokumen penerimaan dibuat.');
+            }
+
+            return $request->items
+                ->groupBy('supplier_id')
+                ->map(function (Collection $items, int|string $supplierId) use ($request): StockReceipt {
+                    $receipt = StockReceipt::query()->firstOrCreate([
+                        'procurement_request_id' => $request->id,
+                        'supplier_id' => (int) $supplierId,
+                    ], [
+                        'sppg_unit_id' => $request->sppg_unit_id,
+                        'receipt_date' => now()->toDateString(),
+                        'status' => StockReceipt::STATUS_DRAFT,
+                        'created_by' => auth()->id(),
+                    ]);
+
+                    foreach ($items as $item) {
+                        $ordered = (float) ($item->approved_quantity ?: $item->requested_quantity ?: 0);
+                        $orderedKg = (float) ($item->approved_quantity_kg ?: $item->requested_quantity_kg ?: 0);
+
+                        $receipt->items()->updateOrCreate([
+                            'procurement_request_item_id' => $item->id,
+                        ], [
+                            'ingredient_id' => $item->ingredient_id,
+                            'supplier_id' => $item->supplier_id,
+                            'ingredient_name_snapshot' => $item->ingredient_name_snapshot,
+                            'unit_snapshot' => $item->unit_snapshot ?: 'unit',
+                            'ordered_quantity' => $ordered,
+                            'received_quantity' => $ordered,
+                            'accepted_quantity' => $ordered,
+                            'rejected_quantity' => 0,
+                            'ordered_quantity_kg' => $orderedKg,
+                            'received_quantity_kg' => $orderedKg,
+                            'accepted_quantity_kg' => $orderedKg,
+                            'rejected_quantity_kg' => 0,
+                            'quality_status' => 'pending',
+                        ]);
+                    }
+
+                    return $receipt->refresh();
+                })
+                ->values();
         });
     }
 
@@ -71,28 +87,55 @@ class StockReceiptService
             throw new InvalidArgumentException('Penerimaan bahan belum memiliki item.');
         }
 
+        if (blank($receipt->documentation_path)) {
+            throw new InvalidArgumentException('Satu foto dokumentasi kiriman supplier wajib diunggah.');
+        }
+
         return DB::transaction(function () use ($receipt): StockReceipt {
             $receipt->load('items');
 
             foreach ($receipt->items as $item) {
                 $acceptedKg = (float) $item->accepted_quantity_kg;
+                $unit = $item->unit_snapshot ?: 'unit';
+                $accepted = (float) ($item->accepted_quantity ?? ($unit === 'kg' ? $acceptedKg : 0));
 
-                if ($acceptedKg <= 0) {
+                if ($item->quality_status === 'pending') {
+                    throw new InvalidArgumentException("Status kualitas {$item->ingredient_name_snapshot} belum diperiksa.");
+                }
+                if ($item->expired_date && $item->expired_date->isBefore(today())) {
+                    throw new InvalidArgumentException("{$item->ingredient_name_snapshot} sudah kedaluwarsa dan tidak boleh masuk stok.");
+                }
+                if ($item->quality_status === 'rejected' && $accepted > 0) {
+                    throw new InvalidArgumentException('Barang ditolak tidak boleh memiliki jumlah diterima baik.');
+                }
+
+                if ($accepted <= 0) {
                     continue;
                 }
 
-                $accepted = (float) ($item->accepted_quantity ?: 0);
-                $unit = $item->unit_snapshot ?: 'unit';
+                $lot = InventoryLot::query()->updateOrCreate(
+                    ['stock_receipt_item_id' => $item->id],
+                    [
+                        'sppg_unit_id' => $receipt->sppg_unit_id, 'ingredient_id' => $item->ingredient_id,
+                        'unit_snapshot' => $unit, 'initial_quantity' => $accepted, 'balance_quantity' => $accepted,
+                        'lot_number' => $item->supplier_batch_number, 'expired_date' => $item->expired_date,
+                        'location_name' => 'Gudang Utama', 'status' => InventoryLot::AVAILABLE,
+                        'initial_quantity_kg' => $acceptedKg, 'balance_quantity_kg' => $acceptedKg,
+                    ],
+                );
 
                 StockMovement::query()->create([
                     'sppg_unit_id' => $receipt->sppg_unit_id,
                     'ingredient_id' => $item->ingredient_id,
+                    'inventory_lot_id' => $lot->id,
                     'ingredient_name_snapshot' => $item->ingredient_name_snapshot,
                     'unit_snapshot' => $unit,
                     'movement_type' => StockMovement::TYPE_RECEIPT,
                     'movement_date' => $receipt->receipt_date,
                     'quantity_in_kg' => $acceptedKg,
                     'quantity_out_kg' => 0,
+                    'quantity_in' => $accepted,
+                    'quantity_out' => 0,
                     'source_type' => StockReceipt::class,
                     'source_id' => $receipt->id,
                     'reference_number' => $receipt->receipt_number,
@@ -104,6 +147,7 @@ class StockReceiptService
                     ]))),
                     'created_by' => auth()->id(),
                 ]);
+
             }
 
             $receipt->forceFill([

@@ -25,8 +25,8 @@ class WashingSession extends Model
         'rejected_containers', 'missing_containers', 'received_at', 'started_at',
         'completed_at', 'ready_at', 'duration_minutes', 'state', 'washing_area',
         'equipment_name', 'petugas_id', 'petugas_name_snapshot', 'notes', 'status',
-        'created_by', 'updated_by', 'submitted_by', 'submitted_at', 'verified_by',
-        'verified_at', 'review_notes', 'source_system', 'legacy_id', 'legacy_sheet_name',
+        'created_by', 'updated_by', 'submitted_by', 'submitted_at', 'division_approved_by',
+        'division_approved_at', 'verified_by', 'verified_at', 'review_notes', 'source_system', 'legacy_id', 'legacy_sheet_name',
         'legacy_created_at', 'import_batch_id',
     ];
 
@@ -51,6 +51,7 @@ class WashingSession extends Model
             'state' => WashingSessionState::class,
             'status' => OperationalReportStatus::class,
             'submitted_at' => 'datetime',
+            'division_approved_at' => 'datetime',
             'verified_at' => 'datetime',
             'legacy_created_at' => 'datetime',
         ];
@@ -78,6 +79,7 @@ class WashingSession extends Model
     public function distributionRun(): BelongsTo { return $this->belongsTo(DistributionRun::class); }
     public function petugas(): BelongsTo { return $this->belongsTo(User::class, 'petugas_id'); }
     public function submitter(): BelongsTo { return $this->belongsTo(User::class, 'submitted_by'); }
+    public function divisionApprover(): BelongsTo { return $this->belongsTo(User::class, 'division_approved_by'); }
     public function verifier(): BelongsTo { return $this->belongsTo(User::class, 'verified_by'); }
 
     public function checklistItems(): HasMany

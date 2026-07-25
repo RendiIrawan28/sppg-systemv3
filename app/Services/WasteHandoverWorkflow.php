@@ -110,11 +110,7 @@ class WasteHandoverWorkflow
                 ->lockForUpdate()
                 ->findOrFail($report->getKey());
 
-            if (! app(OperationalReportApprovalService::class)->isReviewable($report->status)) {
-                throw ValidationException::withMessages([
-                    'status' => 'Berita acara tidak sedang menunggu verifikasi.',
-                ]);
-            }
+            app(OperationalReportApprovalService::class)->assertCanReviewStage($report->status, $actor);
 
             $report->update([
                 'status' => OperationalReportStatus::RevisionRequired,

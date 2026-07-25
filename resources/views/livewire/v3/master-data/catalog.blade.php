@@ -1,4 +1,4 @@
-<x-v3.shell :$unit :$navigation :$roleLabel :title="$config['label']" eyebrow="Master data native V3">
+<x-v3.shell :$unit :$navigation :$roleLabel :title="$config['label']" eyebrow="Katalog master data">
     <div class="mx-auto max-w-[1500px] space-y-5">
         <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div><a wire:navigate href="{{ route('v3.master-data.index') }}" class="inline-flex items-center gap-2 text-xs font-bold text-sky-700"><x-v3.icon name="arrow-left" class="size-4" /> Pusat master data</a><h2 class="mt-3 text-2xl font-bold tracking-tight text-slate-950">{{ $config['label'] }}</h2><p class="mt-1 text-sm text-slate-500">{{ $config['description'] }}</p></div>

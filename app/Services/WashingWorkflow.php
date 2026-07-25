@@ -150,6 +150,10 @@ class WashingWorkflow
             ]);
 
             $this->writeHistory($session, $actor, 'ready', $previousState, $session->state->value, $notes);
+
+            app(OperationalHandoverFlow::class)
+                ->createCleaningSessionsAfterWashing($session->refresh(), $actor);
+
             return $session->refresh();
         });
     }
@@ -218,6 +222,10 @@ class WashingWorkflow
                 'status' => OperationalReportStatus::Submitted,
                 'submitted_by' => $actor->getKey(),
                 'submitted_at' => now(),
+                'division_approved_by' => null,
+                'division_approved_at' => null,
+                'verified_by' => null,
+                'verified_at' => null,
                 'review_notes' => null,
                 'updated_by' => $actor->getKey(),
             ]);
@@ -239,13 +247,23 @@ class WashingWorkflow
             $nextStatus = app(OperationalReportApprovalService::class)->nextApprovedStatus($session->status, $actor);
             $action = app(OperationalReportApprovalService::class)->reviewActionName($nextStatus);
 
-            $session->update([
+            $updates = [
                 'status' => $nextStatus,
-                'verified_by' => $actor->getKey(),
-                'verified_at' => now(),
                 'review_notes' => $notes,
                 'updated_by' => $actor->getKey(),
-            ]);
+            ];
+            if ($nextStatus === OperationalReportStatus::DivisionApproved) {
+                $updates += [
+                    'division_approved_by' => $actor->getKey(),
+                    'division_approved_at' => now(),
+                ];
+            } else {
+                $updates += [
+                    'verified_by' => $actor->getKey(),
+                    'verified_at' => now(),
+                ];
+            }
+            $session->update($updates);
 
             $this->writeHistory($session, $actor, $action, $session->state->value, $session->state->value, $notes, $previousStatus, $nextStatus->value);
             return $session->refresh();
@@ -256,14 +274,14 @@ class WashingWorkflow
     {
         return DB::transaction(function () use ($session, $actor, $notes): WashingSession {
             $session = $this->lockedSession($session);
-            if (! app(OperationalReportApprovalService::class)->isReviewable($session->status)) {
-                throw ValidationException::withMessages(['status' => 'Hanya laporan yang diajukan yang dapat dikembalikan.']);
-            }
+            app(OperationalReportApprovalService::class)->assertCanReviewStage($session->status, $actor);
 
             $previousStatus = $session->status->value;
             $session->update([
                 'status' => OperationalReportStatus::RevisionRequired,
                 'review_notes' => $notes,
+                'division_approved_by' => null,
+                'division_approved_at' => null,
                 'verified_by' => null,
                 'verified_at' => null,
                 'updated_by' => $actor->getKey(),

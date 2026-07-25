@@ -67,7 +67,7 @@ class MbgV14NutritionSeeder extends Seeder
                     standards: $data['standards'],
                     now: $now,
                 );
-                (new MbgV14PortionStandardSeeder())->runForUnit((int) $unitId);
+                (new MbgV14PortionStandardSeeder)->runForUnit((int) $unitId);
             }
         }, 3);
 
@@ -168,7 +168,7 @@ class MbgV14NutritionSeeder extends Seeder
     }
 
     /**
-     * @param array<int, array<string, mixed>> $sourceComponents
+     * @param  array<int, array<string, mixed>>  $sourceComponents
      * @return array<int, array{code:string,name:string,unit:string,sort_order:int}>
      */
     private function canonicalNutritionComponents(array $sourceComponents): array
@@ -441,8 +441,8 @@ class MbgV14NutritionSeeder extends Seeder
     }
 
     /**
-     * @param array<string, int|string> $ingredientIds
-     * @param array<int, array<string, mixed>> $ingredients
+     * @param  array<string, int|string>  $ingredientIds
+     * @param  array<int, array<string, mixed>>  $ingredients
      */
     private function seedIngredientAllergens(array $ingredientIds, array $ingredients, mixed $now): void
     {
@@ -534,6 +534,7 @@ class MbgV14NutritionSeeder extends Seeder
 
             if (! $categoryId) {
                 $this->command?->warn("Kategori {$categoryCode} tidak ditemukan pada Unit {$unitId}; standar dilewati.");
+
                 continue;
             }
 
@@ -549,16 +550,17 @@ class MbgV14NutritionSeeder extends Seeder
                     continue;
                 }
 
-                $target = round((float) $targetValue, 4);
+                $mealTarget = round((float) $targetValue, 4);
+                $target = round($mealTarget * 100 / 30, 4);
                 $validated = in_array($componentCode, self::VALIDATED_COMPONENTS, true);
 
-                $notes = self::SOURCE_MARKER.' Target makan siang dari sheet Standar Gizi siswa.';
+                $notes = self::SOURCE_MARKER.' Kebutuhan harian penuh, dikonversi dari target makan siang 30% pada sheet Standar Gizi siswa.';
 
                 if (
                     in_array($categoryCode, ['ibu_hamil', 'ibu_menyusui', 'guru', 'tendik'], true) &&
                     $componentCode === 'fiber'
                 ) {
-                    $notes .= ' Target serat 9,6 g diturunkan dari 30% AKG harian 32 g karena sel serat pada workbook bernilai 0.';
+                    $notes .= ' Target serat menggunakan AKG harian 32 g karena sel serat pada workbook bernilai 0.';
                 }
 
                 if (in_array($categoryCode, ['guru', 'tendik'], true)) {

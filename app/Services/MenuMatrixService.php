@@ -246,14 +246,27 @@ class MenuMatrixService
         }
     }
 
-    private function syncCategoryTargets(Menu $menu, MenuCycle $cycle): void
+    public function syncCategoryTargets(Menu $menu, MenuCycle $cycle): void
     {
         if (! $cycle->beneficiary_period_id) {
             return;
         }
 
-        $categoryIds = DB::table('beneficiary_period_members')->where('beneficiary_period_id', $cycle->beneficiary_period_id)
-            ->where('is_active', true)->whereNotNull('beneficiary_category_id')->distinct()->pluck('beneficiary_category_id');
+        $categoryIds = DB::table('beneficiary_period_category_totals')
+            ->where('beneficiary_period_id', $cycle->beneficiary_period_id)
+            ->where('total_beneficiaries', '>', 0)
+            ->whereNotNull('beneficiary_category_id')
+            ->distinct()
+            ->pluck('beneficiary_category_id');
+
+        if ($categoryIds->isEmpty()) {
+            $categoryIds = DB::table('beneficiary_period_members')
+                ->where('beneficiary_period_id', $cycle->beneficiary_period_id)
+                ->where('is_active', true)
+                ->whereNotNull('beneficiary_category_id')
+                ->distinct()
+                ->pluck('beneficiary_category_id');
+        }
 
         foreach ($categoryIds as $categoryId) {
             $menu->categoryTargets()->firstOrCreate(['beneficiary_category_id' => $categoryId], ['portion_multiplier' => 1]);

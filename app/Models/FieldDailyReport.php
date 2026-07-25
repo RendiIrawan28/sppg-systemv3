@@ -127,13 +127,25 @@ class FieldDailyReport extends Model
     public function divisions(): HasMany
     {
         return $this->hasMany(FieldDailyReportDivision::class)
-            ->orderByRaw("FIELD(division_code, 'preparation', 'processing', 'portioning', 'distribution', 'washing', 'cleaning')");
+            ->orderByRaw("CASE division_code
+                WHEN 'preparation' THEN 1
+                WHEN 'processing' THEN 2
+                WHEN 'portioning' THEN 3
+                WHEN 'distribution' THEN 4
+                WHEN 'washing' THEN 5
+                WHEN 'cleaning' THEN 6
+                ELSE 7 END");
     }
 
     public function incidents(): HasMany
     {
         return $this->hasMany(FieldDailyReportIncident::class)
-            ->orderByRaw("FIELD(severity, 'critical', 'high', 'medium', 'low')");
+            ->orderByRaw("CASE severity
+                WHEN 'critical' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'medium' THEN 3
+                WHEN 'low' THEN 4
+                ELSE 5 END");
     }
 
     public function isEditable(): bool

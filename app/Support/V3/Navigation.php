@@ -27,15 +27,13 @@ final class Navigation
                         url: route('v3.beneficiaries.index'),
                         active: request()->routeIs('v3.beneficiaries.*'),
                         visible: $this->allowed($user, 'beneficiaries.view'),
-                        badge: 'V3',
                     ),
                     $this->item(
-                        label: 'Periode penerima',
+                        label: 'Jumlah penerima',
                         icon: 'calendar',
                         url: route('v3.beneficiary-periods.index'),
                         active: request()->routeIs('v3.beneficiary-periods.*'),
                         visible: $this->allowed($user, 'beneficiary_periods.view'),
-                        badge: '14 hari',
                     ),
                     $this->item(
                         label: 'Perencanaan menu',
@@ -43,7 +41,6 @@ final class Navigation
                         url: route('v3.nutrition.menu-matrix'),
                         active: request()->routeIs('v3.nutrition.menu-matrix'),
                         visible: $this->allowed($user, 'menus.view'),
-                        badge: 'Matriks',
                     ),
                     $this->item(
                         label: 'Kebutuhan & pengadaan',
@@ -51,7 +48,6 @@ final class Navigation
                         url: route('v3.nutrition.requirements.index'),
                         active: request()->routeIs('v3.nutrition.requirements.*'),
                         visible: $this->allowed($user, 'nutrition.view'),
-                        badge: 'Otomatis',
                     ),
                     $this->item(
                         label: 'Evaluasi gizi harian',
@@ -59,7 +55,6 @@ final class Navigation
                         url: route('v3.nutrition.daily-evaluation'),
                         active: request()->routeIs('v3.nutrition.daily-evaluation'),
                         visible: $this->allowed($user, 'nutrition.view'),
-                        badge: 'Gabung',
                     ),
                     $this->item(
                         label: 'Referensi gizi & bahan',
@@ -68,7 +63,6 @@ final class Navigation
                         active: request()->routeIs('v3.nutrition.standards'),
                         visible: $this->allowed($user, 'nutrition.view')
                             || $this->allowed($user, 'measurement_units.view'),
-                        badge: 'Gabung',
                     ),
                     $this->item(
                         label: 'Pengadaan bahan',
@@ -76,7 +70,6 @@ final class Navigation
                         url: route('v3.procurement.index'),
                         active: request()->routeIs('v3.procurement.*'),
                         visible: $this->allowed($user, 'procurement.view'),
-                        badge: 'Workflow',
                     ),
                     $this->item(
                         label: 'Penerimaan bahan',
@@ -84,7 +77,6 @@ final class Navigation
                         url: route('v3.warehouse.receipts.index'),
                         active: request()->routeIs('v3.warehouse.receipts.*'),
                         visible: $this->allowed($user, 'stock.view'),
-                        badge: 'QC',
                     ),
                     $this->item(
                         label: 'Kartu stok',
@@ -94,30 +86,33 @@ final class Navigation
                         visible: $this->allowed($user, 'stock.view'),
                     ),
                     $this->item(
-                        label: 'Serah bahan',
-                        icon: 'arrow-up-right',
-                        url: route('v3.warehouse.handovers.index'),
-                        active: request()->routeIs('v3.warehouse.handovers.*'),
-                        visible: $this->allowed($user, 'stock.view') || $this->allowed($user, 'preparation.view'),
-                        badge: 'Gudang → Persiapan',
+                        label: 'Pengambilan Gudang', icon: 'arrow-up-right', url: route('v3.warehouse.withdrawals.index'),
+                        active: request()->routeIs('v3.warehouse.withdrawals.*'),
+                        visible: $this->allowed($user, 'stock.view') || $this->allowed($user, 'preparation.view') || $this->allowed($user, 'processing.view') || $this->allowed($user, 'portioning.view'),
+                    ),
+                    $this->item(
+                        label: 'Kontrol Stok', icon: 'settings', url: route('v3.warehouse.controls.index'),
+                        active: request()->routeIs('v3.warehouse.controls.*'), visible: $this->allowed($user, 'stock.view'),
+                    ),
+                    $this->item(
+                        label: 'Persiapan', icon: 'clipboard', url: route('v3.preparation.index'),
+                        active: request()->routeIs('v3.preparation.*'), visible: $this->allowed($user, 'preparation.view'),
                     ),
                     $this->item(
                         label: 'Rencana lapangan', icon: 'calendar', url: route('v3.field.plans.index'),
                         active: request()->routeIs('v3.field.plans.*'), visible: $this->allowed($user, 'field_planning.view'),
-                        badge: 'H-3',
                     ),
                     $this->item(
                         label: 'Laporan harian', icon: 'clipboard', url: route('v3.field.daily-reports'),
                         active: request()->routeIs('v3.field.daily-reports'), visible: $this->allowed($user, 'field_daily_reports.view'),
-                        badge: 'Otomatis',
                     ),
                     $this->item(
                         label: 'Insiden lapangan', icon: 'alert', url: route('v3.field.incidents.index'),
                         active: request()->routeIs('v3.field.incidents.*'), visible: $this->allowed($user, 'field_incidents.view'),
                     ),
                     $this->item(
-                        label: 'Pengolahan', icon: 'settings', url: route('v3.operations.index', ['module' => 'pengolahan']),
-                        active: request()->routeIs('v3.operations.*') && request()->route('module') === 'pengolahan', visible: $this->allowed($user, 'processing.view'),
+                        label: 'Pengolahan', icon: 'settings', url: route('v3.processing.index'),
+                        active: request()->routeIs('v3.processing.*'), visible: $this->allowed($user, 'processing.view'),
                     ),
                     $this->item(
                         label: 'Pemorsian', icon: 'calculator', url: route('v3.operations.index', ['module' => 'pemorsian']),
@@ -136,12 +131,15 @@ final class Navigation
                         active: request()->routeIs('v3.operations.*') && request()->route('module') === 'kebersihan', visible: $this->allowed($user, 'cleaning.view'),
                     ),
                     $this->item(
+                        label: 'Keamanan', icon: 'shield', url: route('v3.security.index'),
+                        active: request()->routeIs('v3.security.*'), visible: $this->allowed($user, 'security.view'),
+                    ),
+                    $this->item(
                         label: 'Master data',
                         icon: 'settings',
                         url: route('v3.master-data.index'),
                         active: request()->routeIs('v3.master-data.*'),
                         visible: $this->canSeeMasterData($user),
-                        badge: 'Native V3',
                     ),
                 ],
             ],
@@ -161,31 +159,6 @@ final class Navigation
             ->all();
     }
 
-    /** @return array<int, array{label: string, description: string, state: string}> */
-    public function roadmap(User $user): array
-    {
-        $items = [
-            ['permission' => 'dashboard.view', 'label' => 'Dashboard lintas proses', 'description' => 'Ringkasan unit dan denyut operasional harian.', 'state' => 'active'],
-            ['permission' => 'beneficiaries.view', 'label' => 'Penerima manfaat', 'description' => 'Form, impor Excel, alergi, dan periode 14 hari sudah native V3.', 'state' => 'active'],
-            ['permission' => 'menus.view', 'label' => 'Menu & gizi', 'description' => 'Matriks menu, kebutuhan bahan, standar, evaluasi, dan laporan harian tersedia di V3.', 'state' => 'active'],
-            ['permission' => 'procurement.view', 'label' => 'Pengadaan & gudang', 'description' => 'Permintaan, penerimaan, QC, kartu stok, dan serah bahan tersedia di V3.', 'state' => 'active'],
-            ['permission' => 'field_planning.view', 'label' => 'Rencana lapangan', 'description' => 'Rencana H-3, tujuan, insiden, dan laporan otomatis tersedia di V3.', 'state' => 'active'],
-            ['permission' => 'processing.view', 'label' => 'Operasional dapur', 'description' => 'Pengolahan sampai pencucian dan kebersihan tersedia di V3.', 'state' => 'active'],
-        ];
-
-        return array_values(array_map(
-            static function (array $item): array {
-                unset($item['permission']);
-
-                return $item;
-            },
-            array_filter(
-                $items,
-                fn (array $item): bool => $this->allowed($user, $item['permission']),
-            ),
-        ));
-    }
-
     /** @return array<string, mixed> */
     private function item(
         string $label,
@@ -193,10 +166,9 @@ final class Navigation
         string $url,
         bool $active,
         bool $visible,
-        ?string $badge = null,
         bool $external = false,
     ): array {
-        return compact('label', 'icon', 'url', 'active', 'visible', 'badge', 'external');
+        return compact('label', 'icon', 'url', 'active', 'visible', 'external');
     }
 
     private function allowed(User $user, string $permission): bool

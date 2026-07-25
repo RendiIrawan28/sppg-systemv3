@@ -13,16 +13,6 @@
                     <h2 class="mt-5 text-3xl font-bold tracking-[-.035em] sm:text-4xl">Selamat bekerja, {{ str(auth()->user()->name)->before(' ') }}.</h2>
                     <p class="mt-3 max-w-xl text-sm leading-6 text-slate-300 sm:text-base">Pantau kesiapan layanan {{ $unit->name }} dan tindak lanjuti hal penting dari satu tempat.</p>
                 </div>
-                <div class="grid grid-cols-2 gap-3 sm:flex">
-                    <div class="rounded-2xl border border-white/10 bg-white/[.07] px-4 py-3 backdrop-blur-sm">
-                        <p class="text-[10px] font-bold uppercase tracking-[.15em] text-slate-400">Unit</p>
-                        <p class="mt-1 text-sm font-semibold">{{ $unit->code }}</p>
-                    </div>
-                    <div class="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3 backdrop-blur-sm">
-                        <p class="text-[10px] font-bold uppercase tracking-[.15em] text-cyan-200/70">Platform</p>
-                        <p class="mt-1 text-sm font-semibold text-cyan-100">Native Livewire</p>
-                    </div>
-                </div>
             </div>
         </section>
 
@@ -91,47 +81,6 @@
                     </div>
                 @endif
             </section>
-
-            <aside class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-cyan-100 to-sky-50 p-6 ring-1 ring-sky-100">
-                <div class="absolute -bottom-16 -right-16 size-48 rounded-full bg-sky-300/20"></div>
-                <p class="relative text-[10px] font-bold uppercase tracking-[.17em] text-sky-800">Migrasi selesai</p>
-                <h3 class="relative mt-2 text-xl font-bold tracking-tight text-[#081d3a]">Seluruh operasional kini native V3.</h3>
-                <p class="relative mt-3 text-sm leading-6 text-sky-950/70">Rencana lapangan, dapur, distribusi, pencucian, kebersihan, dan master data berjalan pada Laravel + Livewire tanpa panel atau tenant lama.</p>
-                <a wire:navigate href="{{ route('v3.field.plans.index') }}" class="relative mt-6 inline-flex items-center gap-2 rounded-xl bg-[#081d3a] px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-sky-900/15 transition hover:bg-[#0d2b54]">
-                    Buka rencana lapangan
-                    <x-v3.icon name="arrow-up-right" class="size-4" />
-                </a>
-            </aside>
         </div>
-
-        <section class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
-            <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-                <div>
-                    <p class="text-[10px] font-bold uppercase tracking-[.17em] text-sky-700">Peta migrasi</p>
-                    <h3 class="mt-1 text-lg font-bold tracking-tight text-slate-950">Workspace yang tersedia untuk peran Anda</h3>
-                </div>
-                <p class="text-xs text-slate-400">Setiap modul dipindahkan tanpa mengganti sumber data bisnis.</p>
-            </div>
-            <div class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                @foreach ($roadmap as $item)
-                    <article class="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
-                        <div class="flex items-start justify-between gap-3">
-                            <div>
-                                <h4 class="text-sm font-bold text-slate-800">{{ $item['label'] }}</h4>
-                                <p class="mt-1 text-xs leading-5 text-slate-500">{{ $item['description'] }}</p>
-                            </div>
-                            <span @class([
-                                'shrink-0 rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-wider',
-                                'bg-emerald-100 text-emerald-700' => $item['state'] === 'active',
-                                'bg-sky-100 text-sky-700' => $item['state'] === 'next',
-                                'bg-slate-200 text-slate-600' => $item['state'] === 'queued',
-                            ])>
-                                {{ match ($item['state']) { 'active' => 'V3 aktif', 'next' => 'Berikutnya', default => 'Antrean' } }}
-                            </span>
-                        </div>
-                    </article>
-                @endforeach
-            </div>
-        </section>
     </div>
 </x-v3.shell>

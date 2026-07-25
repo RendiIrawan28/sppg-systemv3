@@ -78,6 +78,6 @@ class Login extends Component
     public function render()
     {
         return view('livewire.v3.auth.login')
-            ->layout('layouts.v3-auth', ['title' => 'Masuk ke SPPG V3']);
+            ->layout('layouts.v3-auth', ['title' => 'Masuk ke SPPG']);
     }
 }

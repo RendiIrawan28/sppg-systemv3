@@ -13,7 +13,6 @@
             <div>
                 <div class="flex items-center gap-2">
                     <span class="text-xl font-bold tracking-tight">SPPG</span>
-                    <span class="rounded-full bg-cyan-300/15 px-2 py-0.5 text-[10px] font-bold tracking-[.18em] text-cyan-200 ring-1 ring-cyan-200/20">V3</span>
                 </div>
                 <p class="text-xs text-slate-400">Sistem Operasional Terpadu</p>
             </div>
@@ -22,7 +21,7 @@
         <div class="max-w-xl pb-10">
             <span class="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs font-semibold text-cyan-200">
                 <span class="size-1.5 rounded-full bg-cyan-300"></span>
-                Native Laravel + Livewire
+                Sistem Operasional Terpadu
             </span>
             <h1 class="mt-6 text-5xl font-bold leading-[1.08] tracking-[-.04em] xl:text-6xl">
                 Satu ruang kerja untuk seluruh alur layanan gizi.
@@ -50,7 +49,7 @@
                     <img src="{{ asset('images/logo-bgn.png') }}" alt="BGN" class="size-9 object-contain">
                 </div>
                 <div>
-                    <span class="font-bold text-[#081d3a]">SPPG V3</span>
+                    <span class="font-bold text-[#081d3a]">SPPG</span>
                     <p class="text-xs text-slate-500">Sistem Operasional Terpadu</p>
                 </div>
             </div>

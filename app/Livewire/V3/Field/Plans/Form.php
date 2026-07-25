@@ -25,8 +25,6 @@ class Form extends Component
 
     public string $menuCycleDayId = '';
 
-    public string $shift = 'morning';
-
     public string $confirmationDeadlineAt = '';
 
     public string $generalNotes = '';
@@ -91,20 +89,10 @@ class Form extends Component
     public function activate(): void
     {
         $this->runAction(function (): string {
-            $result = app(FieldDistributionPlanWorkflow::class)->submit($this->persist(), auth()->user(), trim($this->workflowNotes) ?: null);
+            app(FieldDistributionPlanWorkflow::class)->submit($this->persist(), auth()->user(), trim($this->workflowNotes) ?: null);
             $this->fillFromPlan($this->plan()->refresh());
 
-            return 'Rencana aktif. Dokumen Pengolahan, Pemorsian, dan Distribusi telah disiapkan: '.collect($result)->filter(fn ($value, $key) => $key !== 'skipped' && filled($value))->implode(', ');
-        });
-    }
-
-    public function synchronizeWork(): void
-    {
-        $this->runAction(function (): string {
-            app(FieldDistributionPlanWorkflow::class)->synchronize($this->plan(), auth()->user());
-            $this->fillFromPlan($this->plan()->refresh());
-
-            return 'Pekerjaan divisi diperbarui dari rencana aktif.';
+            return 'Rencana aktif';
         });
     }
 
@@ -123,7 +111,7 @@ class Form extends Component
             app(FieldDistributionPlanWorkflow::class)->complete($this->plan(), auth()->user(), trim($this->workflowNotes) ?: null);
             $this->fillFromPlan($this->plan()->refresh());
 
-            return 'Rencana selesai dan laporan harian otomatis telah dibentuk.';
+            return 'Rencana ditandai selesai dan laporan harian telah dibentuk.';
         });
     }
 
@@ -162,12 +150,10 @@ class Form extends Component
         abort_unless(! $plan->exists || $plan->isEditable(), 403);
         $data = $this->validate([
             'distributionDate' => ['required', 'date'], 'menuCycleDayId' => ['required', 'integer'],
-            'shift' => ['required', 'in:morning,afternoon,night'], 'confirmationDeadlineAt' => ['nullable', 'date'],
+            'confirmationDeadlineAt' => ['nullable', 'date'],
             'generalNotes' => ['nullable', 'string', 'max:5000'],
             'destinations' => ['array'], 'destinations.*.route_name' => ['nullable', 'string', 'max:255'],
             'destinations.*.sequence_order' => ['nullable', 'integer', 'min:1'],
-            'destinations.*.planned_departure_time' => ['nullable', 'date_format:H:i'],
-            'destinations.*.planned_arrival_time' => ['nullable', 'date_format:H:i'],
             'destinations.*.special_notes' => ['nullable', 'string', 'max:2000'],
             'destinations.*.groups' => ['array'], 'destinations.*.groups.*.confirmed_beneficiaries' => ['required', 'integer', 'min:0'],
             'destinations.*.groups.*.menu_audience' => ['required', 'string', 'max:100'],
@@ -194,7 +180,7 @@ class Form extends Component
                 'production_date' => $cycleDay->production_date?->toDateString() ?: $cycleDay->delivery_date?->toDateString() ?: $data['distributionDate'],
                 'is_rapel' => (bool) $cycleDay->is_rapel, 'menu_id' => $cycleDay->menu_id,
                 'menu_name_snapshot' => $cycleDay->menu?->name ?: 'Menu Siklus', 'meal_type' => 'lunch',
-                'shift' => $data['shift'], 'confirmation_deadline_at' => $data['confirmationDeadlineAt'] ?: null,
+                'shift' => $plan->shift ?: 'morning', 'confirmation_deadline_at' => $data['confirmationDeadlineAt'] ?: null,
                 'general_notes' => trim((string) $data['generalNotes']) ?: null, 'updated_by' => auth()->id(),
                 'source_system' => 'web_v3',
             ]);
@@ -211,8 +197,6 @@ class Form extends Component
                 $destination->update([
                     'route_name' => trim((string) ($row['route_name'] ?? '')) ?: null,
                     'sequence_order' => (int) ($row['sequence_order'] ?? 1),
-                    'planned_departure_time' => $row['planned_departure_time'] ?: null,
-                    'planned_arrival_time' => $row['planned_arrival_time'] ?: null,
                     'special_notes' => trim((string) ($row['special_notes'] ?? '')) ?: null,
                 ]);
                 foreach ($row['groups'] ?? [] as $groupId => $groupRow) {
@@ -236,15 +220,12 @@ class Form extends Component
         $plan->load('destinations.recipientGroups');
         $this->distributionDate = $plan->distribution_date?->toDateString() ?? '';
         $this->menuCycleDayId = (string) $plan->menu_cycle_day_id;
-        $this->shift = (string) $plan->shift;
         $this->confirmationDeadlineAt = $plan->confirmation_deadline_at?->format('Y-m-d\TH:i') ?? '';
         $this->generalNotes = (string) $plan->general_notes;
         $this->destinations = $plan->destinations->mapWithKeys(fn ($destination): array => [$destination->id => [
             'name' => $destination->destination_name_snapshot, 'type' => $destination->destination_type,
             'address' => $destination->address_snapshot, 'contact' => $destination->contact_name_snapshot,
             'route_name' => (string) $destination->route_name, 'sequence_order' => (int) $destination->sequence_order,
-            'planned_departure_time' => substr((string) $destination->planned_departure_time, 0, 5),
-            'planned_arrival_time' => substr((string) $destination->planned_arrival_time, 0, 5),
             'special_notes' => (string) $destination->special_notes,
             'registered' => (int) $destination->registered_beneficiaries, 'confirmed' => (int) $destination->confirmed_beneficiaries,
             'small' => (int) $destination->small_portions, 'large' => (int) $destination->large_portions,

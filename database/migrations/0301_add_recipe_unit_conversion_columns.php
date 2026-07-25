@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -54,6 +54,12 @@ return new class extends Migration
                 DB::table('recipe_ingredients')
                     ->whereNull('measurement_unit_id')
                     ->update(['measurement_unit_id' => $gramUnitId]);
+            }
+
+            // Fresh SQLite test databases have no recipe rows to backfill and do
+            // not support MySQL's UPDATE ... LEFT JOIN syntax.
+            if (DB::connection()->getDriverName() === 'sqlite') {
+                return;
             }
 
             DB::statement("\n                UPDATE recipe_ingredients ri\n                LEFT JOIN measurement_units mu ON mu.id = ri.measurement_unit_id\n                SET\n                    ri.input_unit_code_snapshot = COALESCE(ri.input_unit_code_snapshot, mu.code, 'g'),\n                    ri.input_unit_name_snapshot = COALESCE(ri.input_unit_name_snapshot, CONCAT(COALESCE(mu.name, 'Gram'), CASE WHEN mu.symbol IS NULL OR mu.symbol = '' THEN '' ELSE CONCAT(' (', mu.symbol, ')') END)),\n                    ri.grams_per_unit_snapshot = COALESCE(ri.grams_per_unit_snapshot, mu.to_base_factor, 1),\n                    ri.input_quantity_small = COALESCE(ri.input_quantity_small, CASE WHEN COALESCE(mu.to_base_factor, 1) > 0 THEN ri.quantity_small_grams / COALESCE(mu.to_base_factor, 1) ELSE ri.quantity_small_grams END),\n                    ri.input_quantity_large = COALESCE(ri.input_quantity_large, CASE WHEN COALESCE(mu.to_base_factor, 1) > 0 THEN ri.quantity_large_grams / COALESCE(mu.to_base_factor, 1) ELSE ri.quantity_large_grams END),\n                    ri.input_quantity_toddler = COALESCE(ri.input_quantity_toddler, CASE WHEN COALESCE(mu.to_base_factor, 1) > 0 THEN ri.quantity_toddler_grams / COALESCE(mu.to_base_factor, 1) ELSE ri.quantity_toddler_grams END),\n                    ri.input_quantity_maternal = COALESCE(ri.input_quantity_maternal, CASE WHEN COALESCE(mu.to_base_factor, 1) > 0 THEN ri.quantity_maternal_grams / COALESCE(mu.to_base_factor, 1) ELSE ri.quantity_maternal_grams END)\n            ");

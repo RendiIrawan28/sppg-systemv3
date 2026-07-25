@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -24,7 +23,6 @@ class ProcessingBatch extends Model
         'sppg_unit_id',
         'field_distribution_plan_id',
         'menu_cycle_day_id',
-        'preparation_material_handover_id',
         'batch_number',
         'batch_year',
         'sequence_number',
@@ -51,6 +49,8 @@ class ProcessingBatch extends Model
         'updated_by',
         'submitted_by',
         'submitted_at',
+        'division_approved_by',
+        'division_approved_at',
         'verified_by',
         'verified_at',
         'review_notes',
@@ -77,6 +77,7 @@ class ProcessingBatch extends Model
             'state' => ProcessingBatchState::class,
             'status' => OperationalReportStatus::class,
             'submitted_at' => 'datetime',
+            'division_approved_at' => 'datetime',
             'verified_at' => 'datetime',
             'legacy_created_at' => 'datetime',
         ];
@@ -118,11 +119,6 @@ class ProcessingBatch extends Model
         return $this->belongsTo(MenuCycleDay::class);
     }
 
-    public function preparationMaterialHandover(): BelongsTo
-    {
-        return $this->belongsTo(PreparationMaterialHandover::class);
-    }
-
     public function petugas(): BelongsTo
     {
         return $this->belongsTo(User::class, 'petugas_id');
@@ -148,11 +144,9 @@ class ProcessingBatch extends Model
         return $this->belongsTo(User::class, 'verified_by');
     }
 
-    public function destinations(): HasMany
+    public function divisionApprover(): BelongsTo
     {
-        return $this->hasMany(ProcessingBatchDestination::class)
-            ->orderBy('sequence_order')
-            ->orderBy('id');
+        return $this->belongsTo(User::class, 'division_approved_by');
     }
 
     public function materialUsages(): HasMany
@@ -169,30 +163,11 @@ class ProcessingBatch extends Model
             ->orderBy('id');
     }
 
-    public function steps(): HasMany
-    {
-        return $this->hasMany(ProcessingStep::class)
-            ->orderBy('sort_order')
-            ->orderBy('id');
-    }
-
     public function documentations(): HasMany
     {
         return $this->hasMany(ProcessingDocumentation::class)
             ->orderBy('sort_order')
             ->orderBy('id');
-    }
-
-    public function deviations(): HasMany
-    {
-        return $this->hasMany(ProcessingDeviation::class)
-            ->orderBy('detected_at')
-            ->orderBy('id');
-    }
-
-    public function handover(): HasOne
-    {
-        return $this->hasOne(ProcessingHandover::class);
     }
 
     public function histories(): HasMany
@@ -216,7 +191,7 @@ class ProcessingBatch extends Model
     public function canBeSubmitted(): bool
     {
         return $this->isReportEditable()
-            && $this->state === ProcessingBatchState::HandedOver;
+            && $this->state === ProcessingBatchState::Completed;
     }
 
     public function canBeDeleted(): bool

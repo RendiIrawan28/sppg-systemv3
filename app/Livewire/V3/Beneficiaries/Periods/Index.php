@@ -50,6 +50,6 @@ class Index extends Component
             'periods' => $query->orderByDesc('start_date')->paginate(12),
             'activePeriod' => BeneficiaryPeriod::query()->where('sppg_unit_id', $unit->getKey())->where('status', 'active')->first(),
             'periodCount' => BeneficiaryPeriod::query()->where('sppg_unit_id', $unit->getKey())->count(),
-        ])->layout('layouts.v3', ['title' => 'Periode Penerima']);
+        ])->layout('layouts.v3', ['title' => 'Jumlah Penerima']);
     }
 }

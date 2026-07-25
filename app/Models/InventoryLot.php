@@ -9,15 +9,24 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class InventoryLot extends Model
 {
     public const AVAILABLE = 'available';
+
     public const QUARANTINE = 'quarantine';
+
     public const REJECTED = 'rejected';
+
     public const DEPLETED = 'depleted';
 
-    protected $fillable = ['sppg_unit_id', 'ingredient_id', 'stock_receipt_item_id', 'lot_number', 'expired_date', 'location_name', 'status', 'initial_quantity_kg', 'balance_quantity_kg'];
+    protected $fillable = ['sppg_unit_id', 'ingredient_id', 'stock_receipt_item_id', 'unit_snapshot', 'initial_quantity', 'balance_quantity', 'lot_number', 'expired_date', 'location_name', 'storage_type', 'status', 'initial_quantity_kg', 'balance_quantity_kg'];
 
     protected function casts(): array
     {
-        return ['expired_date' => 'date', 'initial_quantity_kg' => 'decimal:4', 'balance_quantity_kg' => 'decimal:4'];
+        return [
+            'expired_date' => 'date',
+            'initial_quantity' => 'decimal:4',
+            'balance_quantity' => 'decimal:4',
+            'initial_quantity_kg' => 'decimal:4',
+            'balance_quantity_kg' => 'decimal:4',
+        ];
     }
 
     public function sppgUnit(): BelongsTo

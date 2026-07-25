@@ -56,6 +56,7 @@ class SppgUnit extends Model
             BeneficiaryImport::class
         );
     }
+
     public function ingredients(): HasMany
     {
         return $this->hasMany(Ingredient::class);
@@ -72,113 +73,114 @@ class SppgUnit extends Model
     {
         return $this->hasMany(Menu::class);
     }
-    public function preparationMaterialInspections(): HasMany
-    {
-        return $this->hasMany(
-            \App\Models\PreparationMaterialInspection::class
-        );
-    }
+
     public function wasteHandoverReports(): HasMany
     {
         return $this->hasMany(WasteHandoverReport::class);
     }
+
     public function processingBatches(): HasMany
     {
         return $this->hasMany(
-            \App\Models\ProcessingBatch::class
+            ProcessingBatch::class
         );
     }
+
     public function portioningSessions(): HasMany
     {
         return $this->hasMany(
-            \App\Models\PortioningSession::class
+            PortioningSession::class
         );
     }
+
     public function distributionRuns(): HasMany
     {
-        return $this->hasMany(\App\Models\DistributionRun::class);
+        return $this->hasMany(DistributionRun::class);
     }
+
     public function washingSessions(): HasMany
     {
-        return $this->hasMany(\App\Models\WashingSession::class);
+        return $this->hasMany(WashingSession::class);
     }
+
     public function fieldDistributionPlans(): HasMany
     {
         return $this->hasMany(
-            \App\Models\FieldDistributionPlan::class
+            FieldDistributionPlan::class
         );
     }
 
     public function fieldDailyReports(): HasMany
     {
         return $this->hasMany(
-            \App\Models\FieldDailyReport::class
+            FieldDailyReport::class
         );
     }
 
     public function fieldIncidents(): HasMany
     {
         return $this->hasMany(
-            \App\Models\FieldIncident::class
+            FieldIncident::class
         );
     }
+
     public function portionStandards(): HasMany
     {
-        return $this->hasMany(\App\Models\PortionStandard::class);
+        return $this->hasMany(PortionStandard::class);
     }
 
     public function menuCycles(): HasMany
     {
-        return $this->hasMany(\App\Models\MenuCycle::class);
+        return $this->hasMany(MenuCycle::class);
     }
 
     public function serviceHolidays(): HasMany
     {
-        return $this->hasMany(\App\Models\ServiceHoliday::class);
+        return $this->hasMany(ServiceHoliday::class);
     }
 
     public function menuAllergenSubstitutions(): HasMany
     {
-        return $this->hasMany(\App\Models\MenuAllergenSubstitution::class);
+        return $this->hasMany(MenuAllergenSubstitution::class);
     }
 
     public function nutritionRequirementPlans(): HasMany
     {
-        return $this->hasMany(\App\Models\NutritionRequirementPlan::class);
+        return $this->hasMany(NutritionRequirementPlan::class);
     }
 
     public function menuAcceptanceEvaluations(): HasMany
     {
-        return $this->hasMany(\App\Models\MenuAcceptanceEvaluation::class);
+        return $this->hasMany(MenuAcceptanceEvaluation::class);
     }
 
     public function nutritionDailyReports(): HasMany
     {
-        return $this->hasMany(\App\Models\NutritionDailyReport::class);
+        return $this->hasMany(NutritionDailyReport::class);
     }
 
     public function nutritionWorkflowHistories(): HasMany
     {
-        return $this->hasMany(\App\Models\NutritionWorkflowHistory::class);
+        return $this->hasMany(NutritionWorkflowHistory::class);
     }
+
     public function headApprovalTasks(): HasMany
     {
-        return $this->hasMany(\App\Models\HeadApprovalTask::class);
+        return $this->hasMany(HeadApprovalTask::class);
     }
 
     public function headExecutiveReports(): HasMany
     {
-        return $this->hasMany(\App\Models\HeadExecutiveReport::class);
+        return $this->hasMany(HeadExecutiveReport::class);
     }
-
 
     public function beneficiaryPeriods(): HasMany
     {
-        return $this->hasMany(\App\Models\BeneficiaryPeriod::class);
+        return $this->hasMany(BeneficiaryPeriod::class);
     }
 
     public function dailyBeneficiaryConfirmations(): HasMany
     {
-        return $this->hasMany(\App\Models\DailyBeneficiaryConfirmation::class);
+        return $this->hasMany(DailyBeneficiaryConfirmation::class);
     }
 }

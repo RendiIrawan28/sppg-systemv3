@@ -84,6 +84,11 @@ class BeneficiaryPeriod extends Model
         return $this->hasMany(BeneficiaryPeriodMember::class);
     }
 
+    public function categoryTotals(): HasMany
+    {
+        return $this->hasMany(BeneficiaryPeriodCategoryTotal::class);
+    }
+
     public function activeMemberRecords(): HasMany
     {
         return $this->members()->where('is_active', true);
@@ -103,6 +108,11 @@ class BeneficiaryPeriod extends Model
     public function distributionPlans(): HasMany
     {
         return $this->hasMany(FieldDistributionPlan::class);
+    }
+
+    public function menuCycles(): HasMany
+    {
+        return $this->hasMany(MenuCycle::class);
     }
 
     public function creator(): BelongsTo

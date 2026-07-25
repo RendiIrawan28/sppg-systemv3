@@ -13,7 +13,6 @@ use App\Models\User;
 use DomainException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class BeneficiaryPeriodSnapshotService
 {
@@ -167,6 +166,7 @@ class BeneficiaryPeriodSnapshotService
 
                     if ($grade === null || ! in_array($level, ['SD', 'SMP', 'SMA'], true)) {
                         $skipped++;
+
                         continue;
                     }
 
@@ -183,6 +183,7 @@ class BeneficiaryPeriodSnapshotService
                             'notes' => trim(($member->notes ? $member->notes."\n" : '').'Dinonaktifkan otomatis karena kelas akhir pada pergantian periode.'),
                         ]));
                         $graduated++;
+
                         continue;
                     }
 
@@ -215,6 +216,20 @@ class BeneficiaryPeriodSnapshotService
 
     public function recalculate(BeneficiaryPeriod $period): void
     {
+        if ($period->categoryTotals()->exists()) {
+            $total = (int) $period->categoryTotals()->sum('total_beneficiaries');
+            $period->forceFill([
+                'destination_count' => $period->destinations()
+                    ->where('is_active', true)
+                    ->whereHas('categoryTotals', fn ($query) => $query->where('total_beneficiaries', '>', 0))
+                    ->count(),
+                'total_members' => $total,
+                'active_members' => $total,
+            ])->saveQuietly();
+
+            return;
+        }
+
         $period->forceFill([
             'destination_count' => $period->destinations()->where('is_active', true)->count(),
             'total_members' => $period->members()->count(),

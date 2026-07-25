@@ -17,17 +17,28 @@ class NutritionistPlanningService
     {
         $bufferPercent = $this->normalizeBuffer($bufferPercent);
 
-        $rows = $period->members()
-            ->active()
-            ->selectRaw("COALESCE(beneficiary_category_id, 0) AS category_id")
-            ->selectRaw("COALESCE(NULLIF(beneficiary_category_code_snapshot, ''), 'lainnya') AS category_code")
-            ->selectRaw("COALESCE(NULLIF(beneficiary_category_name_snapshot, ''), 'Lainnya') AS category_name")
-            ->selectRaw("COALESCE(NULLIF(portion_category, ''), 'small') AS portion_category")
-            ->selectRaw("COALESCE(NULLIF(menu_audience, ''), 'student') AS menu_audience")
-            ->selectRaw('COUNT(*) AS total')
-            ->groupBy('category_id', 'category_code', 'category_name', 'portion_category', 'menu_audience')
-            ->orderBy('category_name')
-            ->get();
+        $rows = $period->categoryTotals()->exists()
+            ? $period->categoryTotals()
+                ->selectRaw('COALESCE(beneficiary_category_id, 0) AS category_id')
+                ->selectRaw("COALESCE(NULLIF(beneficiary_category_code_snapshot, ''), 'lainnya') AS category_code")
+                ->selectRaw("COALESCE(NULLIF(beneficiary_category_name_snapshot, ''), 'Lainnya') AS category_name")
+                ->selectRaw("COALESCE(NULLIF(portion_category, ''), 'small') AS portion_category")
+                ->selectRaw("COALESCE(NULLIF(menu_audience, ''), 'student') AS menu_audience")
+                ->selectRaw('SUM(total_beneficiaries) AS total')
+                ->groupBy('category_id', 'category_code', 'category_name', 'portion_category', 'menu_audience')
+                ->orderBy('category_name')
+                ->get()
+            : $period->members()
+                ->active()
+                ->selectRaw('COALESCE(beneficiary_category_id, 0) AS category_id')
+                ->selectRaw("COALESCE(NULLIF(beneficiary_category_code_snapshot, ''), 'lainnya') AS category_code")
+                ->selectRaw("COALESCE(NULLIF(beneficiary_category_name_snapshot, ''), 'Lainnya') AS category_name")
+                ->selectRaw("COALESCE(NULLIF(portion_category, ''), 'small') AS portion_category")
+                ->selectRaw("COALESCE(NULLIF(menu_audience, ''), 'student') AS menu_audience")
+                ->selectRaw('COUNT(*) AS total')
+                ->groupBy('category_id', 'category_code', 'category_name', 'portion_category', 'menu_audience')
+                ->orderBy('category_name')
+                ->get();
 
         $categories = $rows->map(fn ($row): array => [
             'beneficiary_category_id' => (int) $row->category_id ?: null,

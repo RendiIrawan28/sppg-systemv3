@@ -218,8 +218,7 @@ class FieldDailyReportGenerator
             'preparation' => [
                 'name' => 'Persiapan',
                 'sources' => [
-                    ['table' => 'preparation_material_inspections', 'date' => 'report_date'],
-                    ['table' => 'waste_handover_reports', 'date' => 'report_date', 'where' => ['division_type' => 'preparation']],
+                    ['table' => 'preparation_sessions', 'date' => 'preparation_date'],
                 ],
             ],
             'processing' => [
@@ -351,10 +350,6 @@ class FieldDailyReportGenerator
         }
 
         $snapshots = $snapshots
-            ->merge($this->joinedIncidentRows(
-                'processing_deviations', 'processing_batches', 'processing_batch_id',
-                'production_date', 'processing', 'corrective_action', $unitId, $date
-            ))
             ->merge($this->joinedIncidentRows(
                 'portioning_deviations', 'portioning_sessions', 'portioning_session_id',
                 'portioning_date', 'portioning', 'corrective_action', $unitId, $date

@@ -51,8 +51,16 @@ class Index extends Component
                 ->where('status', ProcurementRequest::STATUS_ORDERED))],
         ]);
         $request = ProcurementRequest::query()->where('sppg_unit_id', $unit->getKey())->findOrFail($data['procurementId']);
-        $receipt = $service->createFromProcurementRequest($request);
-        $this->redirectRoute('v3.warehouse.receipts.show', ['receipt' => $receipt], navigate: true);
+        $receipts = $service->createGroupedFromProcurementRequest($request);
+
+        if ($receipts->count() === 1) {
+            $this->redirectRoute('v3.warehouse.receipts.show', ['receipt' => $receipts->first()], navigate: true);
+
+            return;
+        }
+
+        session()->flash('v3.status', "{$receipts->count()} dokumen penerimaan dibuat berdasarkan supplier.");
+        $this->redirectRoute('v3.warehouse.receipts.index', navigate: true);
     }
 
     public function render()
@@ -60,11 +68,12 @@ class Index extends Component
         $unit = $this->currentUnit();
         abort_unless($this->allowed('stock.view'), 403);
         $base = StockReceipt::query()->where('sppg_unit_id', $unit->getKey());
-        $query = (clone $base)->with(['procurementRequest', 'items'])
+        $query = (clone $base)->with(['procurementRequest', 'supplier', 'items'])
             ->when(trim($this->search) !== '', function ($query): void {
                 $search = trim($this->search);
                 $query->where(fn ($query) => $query->where('receipt_number', 'like', "%{$search}%")
                     ->orWhereHas('procurementRequest', fn ($query) => $query->where('request_number', 'like', "%{$search}%"))
+                    ->orWhereHas('supplier', fn ($query) => $query->where('name', 'like', "%{$search}%"))
                     ->orWhereHas('items', fn ($query) => $query->where('ingredient_name_snapshot', 'like', "%{$search}%")));
             })
             ->when($this->status !== 'all', fn ($query) => $query->where('status', $this->status));

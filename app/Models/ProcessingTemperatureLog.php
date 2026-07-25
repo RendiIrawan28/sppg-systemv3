@@ -45,6 +45,9 @@ class ProcessingTemperatureLog extends Model
     protected static function booted(): void
     {
         static::saving(function (self $log): void {
+            if ($log->measured_by && blank($log->measured_name_snapshot)) {
+                $log->measured_name_snapshot = User::query()->whereKey($log->measured_by)->value('name');
+            }
             $temperature = (float) $log->temperature_celsius;
             $minimum = $log->minimum_temperature !== null
                 ? (float) $log->minimum_temperature
