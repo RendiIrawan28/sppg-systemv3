@@ -7,12 +7,12 @@
         @page { size: A4 landscape; margin: 28px 32px 34px; }
         * { box-sizing: border-box; }
         body { margin: 0; color: #111; font-family: DejaVu Sans, sans-serif; font-size: 10px; }
-        .title { margin: 0 0 16px; text-align: center; font-size: 15px; font-weight: normal; }
-        .date { margin: 0 0 13px; font-size: 10px; }
+        .title { margin: 0 0 13px; text-align: center; font-size: 15px; font-weight: normal; }
+        .date { margin: 0 0 10px; font-size: 10px; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        th, td { border: .7px solid #222; padding: 5px; vertical-align: top; }
-        th { height: 34px; text-align: center; vertical-align: middle; font-size: 9px; }
-        td { height: 48px; }
+        th, td { border: .7px solid #222; padding: 3px 4px; vertical-align: middle; }
+        th { height: 28px; text-align: center; font-size: 9px; }
+        td { height: 30px; }
         .center { text-align: center; vertical-align: middle; }
         .no { width: 5%; }
         .menu { width: 14%; }
@@ -23,9 +23,9 @@
         .start { width: 12%; }
         .result { width: 11%; }
         .result-unit { width: 7%; }
-        .footer { margin-top: 16px; width: 100%; }
-        .signature { width: 30%; text-align: center; font-size: 9px; }
-        .signature-space { height: 42px; }
+        .footer { margin-top: 12px; width: 100%; }
+        .signature { width: 32%; text-align: center; font-size: 9px; }
+        .signature-space { height: 38px; }
     </style>
 </head>
 <body>
@@ -57,8 +57,8 @@
                 @php($material = $materials->get($index))
                 <tr>
                     <td class="center">{{ $index + 1 }}</td>
-                    <td>{{ $index === 0 ? $batch->menu_name_snapshot : '' }}</td>
-                    <td>{{ $material?->material_name ?: '' }}</td>
+                    <td class="center">{{ $index === 0 ? $batch->menu_name_snapshot : '' }}</td>
+                    <td class="center">{{ $material?->material_name ?: '' }}</td>
                     <td class="center">{{ $material ? number_format((float) $material->quantity, 3, ',', '.') : '' }}</td>
                     <td class="center">{{ $material?->unit_name ?: '' }}</td>
                     <td class="center">{{ $index === 0 && $batch->duration_minutes !== null ? $batch->duration_minutes.' menit' : '' }}</td>
@@ -77,9 +77,9 @@
         <tr>
             <td style="border:0"></td>
             <td class="signature" style="border:0">
-                Petugas Pengolahan
+                Kepala Divisi Pengolahan
                 <div class="signature-space"></div>
-                ( {{ $batch->petugas?->name ?: $batch->petugas_name_snapshot ?: '.................................' }} )
+                ( {{ $batch->divisionApprover?->name ?: '.................................' }} )
             </td>
         </tr>
     </table>

@@ -5,9 +5,7 @@ namespace App\Services\V3;
 use App\Models\CleaningArea;
 use App\Models\CleaningSession;
 use App\Models\DistributionRun;
-use App\Models\FieldDistributionPlan;
 use App\Models\PortioningSession;
-use App\Models\ProcessingBatch;
 use App\Models\User;
 use App\Models\WashingSession;
 use Illuminate\Support\Facades\Schema;
@@ -17,63 +15,11 @@ final class OperationalRecordInitializer
     public function initialize(object $record, User $actor): void
     {
         match (true) {
-            $record instanceof ProcessingBatch => $this->processing($record, $actor),
-            $record instanceof PortioningSession => $this->portioning($record, $actor),
             $record instanceof DistributionRun => $this->distribution($record),
             $record instanceof WashingSession => $this->washing($record),
             $record instanceof CleaningSession => $this->cleaning($record),
             default => null,
         };
-    }
-
-    private function processing(ProcessingBatch $batch, User $actor): void
-    {
-        $batch->forceFill([
-            'petugas_name_snapshot' => $batch->petugas?->name ?: $actor->name,
-        ])->saveQuietly();
-    }
-
-    private function portioning(PortioningSession $session, User $actor): void
-    {
-        $session->forceFill([
-            'petugas_name_snapshot' => $session->petugas?->name ?: $actor->name,
-        ])->saveQuietly();
-
-        if (! $session->processing_batch_id || $session->routeAllocations()->exists()) {
-            return;
-        }
-
-        $batch = ProcessingBatch::query()->find($session->processing_batch_id);
-        $plan = $batch?->field_distribution_plan_id
-            ? FieldDistributionPlan::query()->with('destinations')->find($batch->field_distribution_plan_id)
-            : null;
-
-        foreach ($plan?->destinations ?? [] as $destination) {
-            $allocation = $session->routeAllocations()->make([
-                'route_name' => $destination->route_name ?: $destination->destination_name_snapshot,
-                'destination_name' => $destination->destination_name_snapshot,
-                'destination_type' => $destination->destination_type,
-                'address' => $destination->address_snapshot,
-                'contact_name' => $destination->contact_name_snapshot,
-                'contact_phone' => $destination->contact_phone_snapshot,
-                'planned_arrival_at' => $destination->planned_arrival_at,
-                'planned_departure_at' => $destination->planned_departure_at,
-                'latitude' => $destination->latitude_snapshot,
-                'longitude' => $destination->longitude_snapshot,
-                'target_small_portions' => (int) $destination->small_portions,
-                'target_large_portions' => (int) $destination->large_portions,
-                'actual_small_portions' => 0,
-                'actual_large_portions' => 0,
-                'sort_order' => (int) $destination->sequence_order,
-                'notes' => "Tujuan: {$destination->destination_name_snapshot}",
-            ]);
-            if (Schema::hasColumn('portioning_route_allocations', 'field_distribution_plan_destination_id')) {
-                $allocation->field_distribution_plan_destination_id = $destination->getKey();
-            }
-            $allocation->save();
-        }
-
-        $session->recalculateTotals();
     }
 
     private function distribution(DistributionRun $run): void
@@ -84,8 +30,8 @@ final class OperationalRecordInitializer
 
         $session = PortioningSession::query()->with('routeAllocations')->find($run->portioning_session_id);
         foreach ($session?->routeAllocations ?? [] as $index => $route) {
-            $small = (int) $route->actual_small_portions > 0 ? (int) $route->actual_small_portions : (int) $route->target_small_portions;
-            $large = (int) $route->actual_large_portions > 0 ? (int) $route->actual_large_portions : (int) $route->target_large_portions;
+            $small = (int) $route->target_small_portions;
+            $large = (int) $route->target_large_portions;
             $stop = $run->stops()->make([
                 'route_name' => $route->route_name,
                 'destination_name' => $route->destination_name ?: $route->route_name,

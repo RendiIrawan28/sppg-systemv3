@@ -54,11 +54,6 @@ class ProcessingBatch extends Model
         'verified_by',
         'verified_at',
         'review_notes',
-        'source_system',
-        'legacy_id',
-        'legacy_sheet_name',
-        'legacy_created_at',
-        'import_batch_id',
     ];
 
     protected function casts(): array
@@ -79,7 +74,6 @@ class ProcessingBatch extends Model
             'submitted_at' => 'datetime',
             'division_approved_at' => 'datetime',
             'verified_at' => 'datetime',
-            'legacy_created_at' => 'datetime',
         ];
     }
 
@@ -89,7 +83,6 @@ class ProcessingBatch extends Model
             $batch->uuid ??= (string) Str::uuid();
             $batch->state ??= ProcessingBatchState::Planned;
             $batch->status ??= OperationalReportStatus::Draft;
-            $batch->source_system ??= 'laravel_v2';
             $batch->assignBatchSequence();
             $batch->batch_number ??= $batch->buildBatchNumber();
         });

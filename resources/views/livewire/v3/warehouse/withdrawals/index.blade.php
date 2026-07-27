@@ -29,6 +29,19 @@
                 <form wire:submit="submit" class="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <h3 class="font-bold text-slate-950">Catat barang yang diambil</h3>
 
+                    <label class="mt-4 block">
+                        <span class="text-xs font-semibold text-slate-700">Rencana/batch aktif</span>
+                        <select wire:model="referenceId" class="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                            <option value="">Pilih rencana produksi</option>
+                            @forelse ($references as $reference)
+                                <option value="{{ $reference['value'] }}">{{ $reference['label'] }}</option>
+                            @empty
+                                <option value="" disabled>Belum ada rencana produksi aktif</option>
+                            @endforelse
+                        </select>
+                        @error('referenceId') <span class="text-xs text-rose-600">{{ $message }}</span> @enderror
+                    </label>
+
                     <div class="mt-4 space-y-3">
                         @foreach ($rows as $i => $row)
                             <div class="rounded-xl border border-slate-200 bg-slate-50 p-3" wire:key="row-{{ $i }}">
@@ -63,6 +76,11 @@
                     </div>
 
                     <button type="button" wire:click="addRow" class="mt-3 text-xs font-bold text-sky-700">+ Tambah barang/lot</button>
+                    <label class="mt-4 block">
+                        <span class="text-xs font-semibold text-slate-700">Catatan pengambilan bahan</span>
+                        <textarea wire:model="notes" rows="2" class="mt-1 w-full rounded-xl border border-slate-200 p-3 text-sm" placeholder="Opsional"></textarea>
+                        @error('notes') <span class="text-xs text-rose-600">{{ $message }}</span> @enderror
+                    </label>
                     <button class="mt-4 h-11 w-full rounded-xl bg-sky-600 text-xs font-bold text-white">Catat pengambilan</button>
                 </form>
             @else

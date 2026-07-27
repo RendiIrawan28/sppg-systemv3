@@ -6,17 +6,21 @@ use App\Enums\OperationalReportStatus;
 use App\Enums\ProcessingBatchState;
 use App\Enums\ProcessingTemperatureCheckpoint;
 use App\Enums\UserRole;
+use App\Livewire\V3\Processing\Index as ProcessingIndex;
 use App\Models\Ingredient;
 use App\Models\InventoryLot;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingReturn;
 use App\Models\SppgUnit;
 use App\Models\User;
-use App\Services\ProcessingWorkflow;
 use App\Services\ProcessingReturnService;
+use App\Services\ProcessingWorkflow;
 use App\Services\WarehouseWithdrawalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
@@ -77,7 +81,7 @@ class ProcessingWorkflowTest extends TestCase
         $this->assertSame(0, $batch->temperatureLogs()->count());
     }
 
-    public function test_processing_completion_requires_final_temperature_and_photo_for_each_cooked_product(): void
+    public function test_processing_completion_requires_temperature_and_finished_output_documentations(): void
     {
         [$unit, $ingredient, $staff] = $this->baseData();
         $batch = $this->readyInProgressBatch($unit, $ingredient, $staff);
@@ -89,6 +93,78 @@ class ProcessingWorkflowTest extends TestCase
             'processing_batch_id' => $batch->id,
             'action' => 'production_completed',
         ]);
+    }
+
+    public function test_processing_completion_rejects_missing_temperature_photo(): void
+    {
+        [$unit, $ingredient, $staff] = $this->baseData();
+        $batch = $this->readyInProgressBatch($unit, $ingredient, $staff);
+        $batch->temperatureLogs()->update(['photo_path' => null]);
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('foto pengukuran suhu');
+
+        app(ProcessingWorkflow::class)->complete($batch, $staff);
+    }
+
+    public function test_processing_completion_rejects_missing_finished_output_photo(): void
+    {
+        [$unit, $ingredient, $staff] = $this->baseData();
+        $batch = $this->readyInProgressBatch($unit, $ingredient, $staff);
+        $batch->documentations()->delete();
+
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('Foto berat atau jumlah makanan jadi');
+
+        app(ProcessingWorkflow::class)->complete($batch, $staff);
+    }
+
+    public function test_processing_form_stores_temperature_and_finished_output_documentations_separately(): void
+    {
+        Storage::fake('public');
+        [$unit, $ingredient, $staff] = $this->baseData();
+        $batch = $this->batch($unit, $staff);
+        $batch->update([
+            'state' => ProcessingBatchState::InProgress,
+            'started_at' => now()->subHour(),
+        ]);
+        $batch->materialUsages()->create([
+            'ingredient_id' => $ingredient->id,
+            'material_name' => $ingredient->name,
+            'quantity' => 5,
+            'unit_name' => 'kg',
+            'condition_status' => 'good',
+        ]);
+
+        Livewire::actingAs($staff)
+            ->test(ProcessingIndex::class)
+            ->call('select', $batch->id)
+            ->set('actualOutputQuantity', '24')
+            ->set('actualOutputUnit', 'loyang')
+            ->set('cookedProducts.0.product_name', 'Ayam Matang')
+            ->set('cookedProducts.0.temperature_celsius', '76')
+            ->set('temperaturePhotos.0', UploadedFile::fake()->image('foto-suhu.jpg'))
+            ->set('outputPhoto', UploadedFile::fake()->image('hasil-24-loyang.jpg'))
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $batch->refresh();
+        $temperature = $batch->temperatureLogs()->sole();
+        $outputDocumentation = $batch->documentations()
+            ->where('documentation_type', 'finished_output')
+            ->sole();
+
+        $this->assertSame('24.000', $batch->actual_output_quantity);
+        $this->assertSame('loyang', $batch->actual_output_unit);
+        $this->assertStringStartsWith('processing/temperature/', $temperature->photo_path);
+        $this->assertStringStartsWith('processing/finished-output/', $outputDocumentation->photo_path);
+        $this->assertSame('Hasil akhir 24 loyang', $outputDocumentation->caption);
+        $this->assertDatabaseMissing('processing_documentations', [
+            'processing_batch_id' => $batch->id,
+            'documentation_type' => 'after',
+        ]);
+        Storage::disk('public')->assertExists($temperature->photo_path);
+        Storage::disk('public')->assertExists($outputDocumentation->photo_path);
     }
 
     public function test_processing_report_uses_division_head_then_sppg_head_approval(): void
@@ -160,7 +236,7 @@ class ProcessingWorkflowTest extends TestCase
             'is_active' => true,
         ]);
 
-        return [$unit, $ingredient, $this->userWithPermission('processing.update', 'processing.submit', 'preparation.update')];
+        return [$unit, $ingredient, $this->userWithPermission('processing.view', 'processing.update', 'processing.submit', 'preparation.update')];
     }
 
     private function batch(SppgUnit $unit, User $staff): ProcessingBatch
@@ -200,11 +276,12 @@ class ProcessingWorkflowTest extends TestCase
             'product_name' => 'Ayam Matang',
             'temperature_celsius' => 75,
             'measured_by' => $staff->id,
+            'photo_path' => 'test/temperature.jpg',
         ]);
         $batch->documentations()->create([
-            'documentation_type' => 'after',
-            'caption' => 'Ayam Matang',
-            'photo_path' => 'test/after.jpg',
+            'documentation_type' => 'finished_output',
+            'caption' => 'Hasil akhir 100 porsi',
+            'photo_path' => 'test/finished-output.jpg',
             'captured_at' => now(),
         ]);
 
@@ -229,7 +306,7 @@ class ProcessingWorkflowTest extends TestCase
 
     private function userWithPermission(string ...$permissions): User
     {
-        $user = User::factory()->create();
+        $user = User::factory()->create(['is_active' => true]);
         foreach ($permissions as $permission) {
             $user->givePermissionTo(Permission::findOrCreate($permission));
         }

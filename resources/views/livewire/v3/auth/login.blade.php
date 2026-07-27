@@ -29,14 +29,6 @@
             <p class="mt-6 max-w-lg text-base leading-7 text-slate-300">
                 Dari perencanaan penerima sampai laporan operasional, setiap divisi bekerja pada data unit yang sama dan jejak proses yang jelas.
             </p>
-            <div class="mt-10 grid grid-cols-3 gap-3">
-                @foreach ([['01', 'Terintegrasi'], ['02', 'Berbasis peran'], ['03', 'Siap bertumbuh']] as [$number, $label])
-                    <div class="rounded-2xl border border-white/10 bg-white/[.05] p-4 backdrop-blur-sm">
-                        <p class="text-xs font-bold text-cyan-300">{{ $number }}</p>
-                        <p class="mt-3 text-sm font-medium text-slate-200">{{ $label }}</p>
-                    </div>
-                @endforeach
-            </div>
         </div>
 
         <p class="text-xs text-slate-500">Badan Gizi Nasional · Sistem SPPG</p>

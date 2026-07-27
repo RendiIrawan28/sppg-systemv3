@@ -46,8 +46,8 @@ it('memiliki route utama untuk rollout V3', function (): void {
         ->and(route('v3.field.plans.index'))->toEndWith('/v3/lapangan/rencana')
         ->and(route('v3.field.daily-reports'))->toEndWith('/v3/lapangan/laporan-harian')
         ->and(route('v3.field.incidents.index'))->toEndWith('/v3/lapangan/insiden')
-        ->and(route('v3.operations.index', 'pengolahan'))->toEndWith('/v3/operasional/pengolahan')
-        ->and(route('v3.operations.index', 'pemorsian'))->toEndWith('/v3/operasional/pemorsian')
+        ->and(route('v3.processing.index'))->toEndWith('/v3/operasional/pengolahan')
+        ->and(route('v3.portioning.index'))->toEndWith('/v3/operasional/pemorsian')
         ->and(route('v3.operations.index', 'distribusi'))->toEndWith('/v3/operasional/distribusi')
         ->and(route('v3.operations.index', 'pencucian'))->toEndWith('/v3/operasional/pencucian')
         ->and(route('v3.operations.index', 'kebersihan'))->toEndWith('/v3/operasional/kebersihan')
@@ -106,6 +106,15 @@ it('mendaftarkan seluruh modul operasional native V3', function (): void {
     expect(app(OperationalModuleRegistry::class)->slugs())
         ->toBe(['pengolahan', 'pemorsian', 'distribusi', 'pencucian', 'kebersihan']);
 });
+
+it('tidak membuka kembali formulir generik lama untuk Pengolahan dan Pemorsian', function (string $url): void {
+    $this->get($url)->assertNotFound();
+})->with([
+    '/v3/operasional/pengolahan/tambah',
+    '/v3/operasional/pengolahan/1',
+    '/v3/operasional/pemorsian/tambah',
+    '/v3/operasional/pemorsian/1',
+]);
 
 it('menonaktifkan panel V2 dan permission tenant', function (): void {
     expect(config('permission.teams'))->toBeFalse()

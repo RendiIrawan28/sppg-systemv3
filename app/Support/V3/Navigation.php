@@ -115,8 +115,8 @@ final class Navigation
                         active: request()->routeIs('v3.processing.*'), visible: $this->allowed($user, 'processing.view'),
                     ),
                     $this->item(
-                        label: 'Pemorsian', icon: 'calculator', url: route('v3.operations.index', ['module' => 'pemorsian']),
-                        active: request()->routeIs('v3.operations.*') && request()->route('module') === 'pemorsian', visible: $this->allowed($user, 'portioning.view'),
+                        label: 'Pemorsian', icon: 'calculator', url: route('v3.portioning.index'),
+                        active: request()->routeIs('v3.portioning.*'), visible: $this->allowed($user, 'portioning.view'),
                     ),
                     $this->item(
                         label: 'Distribusi', icon: 'arrow-up-right', url: route('v3.operations.index', ['module' => 'distribusi']),

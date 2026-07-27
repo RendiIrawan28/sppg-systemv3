@@ -351,10 +351,6 @@ class FieldDailyReportGenerator
 
         $snapshots = $snapshots
             ->merge($this->joinedIncidentRows(
-                'portioning_deviations', 'portioning_sessions', 'portioning_session_id',
-                'portioning_date', 'portioning', 'corrective_action', $unitId, $date
-            ))
-            ->merge($this->joinedIncidentRows(
                 'distribution_incidents', 'distribution_runs', 'distribution_run_id',
                 'distribution_date', 'distribution', 'immediate_action', $unitId, $date
             ))

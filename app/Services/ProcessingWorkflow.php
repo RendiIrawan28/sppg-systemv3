@@ -76,8 +76,6 @@ class ProcessingWorkflow
                 ProcessingBatchState::Completed->value,
             );
 
-            app(PortioningInputService::class)->syncProcessingCompletion($batch->fresh(), $actor);
-
             return $batch->refresh();
         });
     }
@@ -253,17 +251,14 @@ class ProcessingWorkflow
             $errors['temperatureLogs'] = 'Minimal satu suhu makanan setelah matang wajib dicatat.';
         }
 
-        $documentedProducts = $batch->documentations
-            ->where('documentation_type', 'after')
-            ->filter(fn ($documentation): bool => filled($documentation->caption) && filled($documentation->photo_path))
-            ->pluck('caption')
-            ->map(fn ($name): string => mb_strtolower(trim((string) $name)));
-        $missingPhotos = $finalTemperatures
-            ->pluck('product_name')
-            ->map(fn ($name): string => mb_strtolower(trim((string) $name)))
-            ->diff($documentedProducts);
-        if ($missingPhotos->isNotEmpty()) {
-            $errors['documentations'] = 'Setiap makanan matang wajib memiliki satu foto hasil.';
+        if ($finalTemperatures->contains(fn ($temperature): bool => blank($temperature->photo_path))) {
+            $errors['temperatureDocumentations'] = 'Setiap makanan matang wajib memiliki foto pengukuran suhu.';
+        }
+        $hasFinishedOutputPhoto = $batch->documentations
+            ->where('documentation_type', 'finished_output')
+            ->contains(fn ($documentation): bool => filled($documentation->photo_path));
+        if (! $hasFinishedOutputPhoto) {
+            $errors['outputDocumentation'] = 'Foto berat atau jumlah makanan jadi wajib dilampirkan.';
         }
 
         if ($errors !== []) {

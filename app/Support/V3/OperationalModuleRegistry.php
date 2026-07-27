@@ -5,8 +5,6 @@ namespace App\Support\V3;
 use App\Enums\CleaningFindingSeverity;
 use App\Enums\CleaningFindingStatus;
 use App\Enums\DistributionStopStatus;
-use App\Enums\PortioningDeviationSeverity;
-use App\Enums\PortioningDeviationStatus;
 use App\Enums\WashingDeviationSeverity;
 use App\Enums\WashingDeviationStatus;
 use App\Models\CleaningArea;
@@ -25,6 +23,12 @@ final class OperationalModuleRegistry
     public function slugs(): array
     {
         return array_keys($this->definitions());
+    }
+
+    /** @return array<int, string> */
+    public function genericWebSlugs(): array
+    {
+        return ['distribusi', 'pencucian', 'kebersihan'];
     }
 
     /** @return array<string, mixed> */
@@ -72,66 +76,42 @@ final class OperationalModuleRegistry
                 ],
             ],
             'pemorsian' => [
-                'label' => 'Pemorsian', 'description' => 'Alokasi rute, kontrol berat, sisa makanan, dokumentasi, dan serah-terima.',
+                'label' => 'Pemorsian', 'description' => 'Jumlah porsi otomatis dari rencana, dokumentasi hasil, dan pencatatan sisa makanan.',
                 'model' => PortioningSession::class, 'permission' => 'portioning', 'number' => 'session_number',
                 'date' => 'portioning_date', 'pdf' => 'portioning-sessions.pdf',
                 'fields' => [
-                    $this->field('portioning_date', 'Tanggal pemorsian', 'date', true), $this->field('processing_batch_id', 'Batch pengolahan', 'select', false, 'processing_batches'),
-                    $this->field('menu_name_snapshot', 'Menu', 'text', true), $this->field('petugas_id', 'Penanggung jawab', 'select', true, 'users'),
+                    $this->field('portioning_date', 'Tanggal pemorsian', 'date', true),
+                    $this->field('menu_name_snapshot', 'Menu', 'text', true),
                     $this->field('target_small_portions', 'Target kecil', 'number'), $this->field('target_large_portions', 'Target besar', 'number'),
-                    $this->field('actual_small_portions', 'Realisasi kecil', 'number'), $this->field('actual_large_portions', 'Realisasi besar', 'number'),
-                    $this->field('input_variance_notes', 'Penjelasan selisih hasil/target/realisasi', 'textarea'),
                     $this->field('notes', 'Catatan', 'textarea'),
                 ],
                 'relations' => [
-                    'supplies' => $this->relation('Perlengkapan dari Gudang', [
-                        $this->field('supply_name', 'Nama barang', 'text', true), $this->field('quantity', 'Jumlah', 'number', true),
-                        $this->field('unit_name', 'Satuan', 'text', true), $this->field('source_reference', 'Referensi sumber'),
-                        $this->field('condition_status', 'Kondisi', 'select', true, ['good' => 'Baik', 'accepted' => 'Layak setelah pemeriksaan', 'damaged' => 'Rusak', 'rejected' => 'Ditolak']),
+                    'routeAllocations' => $this->relation('Pembagian porsi per rute', [
+                        $this->field('route_name', 'Rute', 'text', true),
+                        $this->field('destination_name', 'Tujuan', 'text', true),
+                        $this->field('target_small_portions', 'Target kecil', 'number'), $this->field('target_large_portions', 'Target besar', 'number'),
+                    ]),
+                    'routeRecords' => $this->relation('Hasil Pemorsian per rute', [
+                        $this->field('route_name', 'Nama rute', 'text', true),
+                        $this->field('small_portions', 'Porsi kecil', 'number', true),
+                        $this->field('large_portions', 'Porsi besar', 'number', true),
+                        $this->field('completed_at', 'Waktu selesai', 'datetime', true),
+                        $this->field('photo_path', 'Dokumentasi rute', 'file', true),
                         $this->field('notes', 'Catatan', 'textarea'),
                     ]),
-                    'routeAllocations' => $this->relation('Pembagian porsi per rute', [
-                        $this->field('route_name', 'Rute', 'text', true), $this->field('destination_name', 'Tujuan', 'text', true),
-                        $this->field('destination_type', 'Jenis tujuan', 'select', true, ['school' => 'Sekolah', 'posyandu' => 'Posyandu']),
-                        $this->field('target_small_portions', 'Target kecil', 'number'), $this->field('target_large_portions', 'Target besar', 'number'),
-                        $this->field('actual_small_portions', 'Realisasi kecil', 'number'), $this->field('actual_large_portions', 'Realisasi besar', 'number'),
-                        $this->field('planned_departure_at', 'Rencana berangkat', 'datetime'), $this->field('planned_arrival_at', 'Rencana tiba', 'datetime'),
-                        $this->field('contact_name', 'Kontak'), $this->field('contact_phone', 'Telepon'), $this->field('address', 'Alamat', 'textarea'),
-                        $this->field('portioned_at', 'Waktu selesai porsi', 'datetime'), $this->field('sort_order', 'Urutan', 'number'), $this->field('notes', 'Catatan', 'textarea'),
+                    'leftoverRecords' => $this->relation('Sisa makanan setelah Pemorsian', [
+                        $this->field('food_type', 'Menu makanan', 'text', true),
+                        $this->field('quantity', 'Jumlah', 'number', true),
+                        $this->field('unit_name', 'Satuan', 'text', true),
+                        $this->field('photo_path', 'Dokumentasi sisa', 'file', true),
+                        $this->field('notes', 'Keterangan', 'textarea'),
                     ]),
-                    'weightSamples' => $this->relation('Sampel berat porsi', [
-                        $this->field('portion_size', 'Kategori porsi', 'select', true, ['small' => 'Kecil', 'large' => 'Besar']),
-                        $this->field('component_name', 'Komponen', 'text', true), $this->field('sample_number', 'Nomor sampel', 'number', true),
-                        $this->field('target_weight_grams', 'Target gram', 'number', true), $this->field('actual_weight_grams', 'Aktual gram', 'number', true),
-                        $this->field('tolerance_grams', 'Toleransi gram', 'number'), $this->field('checked_at', 'Waktu cek', 'datetime', true),
-                        $this->field('checked_by', 'Diperiksa oleh', 'select', false, 'users'), $this->field('corrective_action', 'Tindakan koreksi', 'textarea'), $this->field('notes', 'Catatan', 'textarea'),
-                    ]),
-                    'checklistItems' => $this->relation('Checklist higiene dan proses', [
-                        $this->field('category', 'Kategori', 'text', true), $this->field('item_name', 'Pemeriksaan', 'text', true),
-                        $this->field('result', 'Hasil', 'select', true, ['pending' => 'Belum diperiksa', 'pass' => 'Lulus', 'fail' => 'Tidak lulus', 'not_applicable' => 'Tidak berlaku']),
-                        $this->field('notes', 'Catatan', 'textarea'), $this->field('sort_order', 'Urutan', 'number'),
-                    ]),
-                    'temperatureLogs' => $this->relation('Pemantauan suhu', [
-                        $this->field('checked_at', 'Waktu ukur', 'datetime', true),
-                        $this->field('checkpoint', 'Titik ukur', 'select', true, ['receiving' => 'Penerimaan dari Pengolahan', 'during_portioning' => 'Saat pemorsian', 'before_handover' => 'Sebelum Distribusi']),
-                        $this->field('temperature_celsius', 'Suhu aktual °C', 'number', true),
-                        $this->field('minimum_temperature', 'Batas minimum', 'number'), $this->field('maximum_temperature', 'Batas maksimum', 'number'),
-                        $this->field('measured_by', 'Diukur oleh', 'select', false, 'users'), $this->field('corrective_action', 'Tindakan koreksi', 'textarea'),
-                        $this->field('photo_path', 'Foto', 'file'), $this->field('notes', 'Catatan', 'textarea'),
-                    ]),
-                    'leftoverRecords' => $this->relation('Cek sisa makanan', [
-                        $this->field('route_name', 'Rute', 'text', true), $this->field('checked_at', 'Waktu cek', 'datetime', true),
-                        $this->field('food_type', 'Jenis makanan', 'text', true), $this->field('weight_kg', 'Berat kg', 'number', true),
-                        $this->field('reason', 'Alasan', 'select', true, ['taste' => 'Rasa', 'portion' => 'Porsi', 'late' => 'Terlambat', 'other' => 'Lainnya']),
-                        $this->field('photo_path', 'Foto', 'file'), $this->field('notes', 'Catatan', 'textarea'),
-                    ]),
-                    'documentations' => $this->documentationRelation(),
-                    'deviations' => $this->relation('Penyimpangan pemorsian', [
-                        $this->field('detected_at', 'Waktu temuan', 'datetime', true), $this->field('category', 'Kategori', 'text', true),
-                        $this->field('severity', 'Tingkat', 'select', true, PortioningDeviationSeverity::class), $this->field('status', 'Status', 'select', true, PortioningDeviationStatus::class),
-                        $this->field('description', 'Deskripsi', 'textarea', true), $this->field('immediate_action', 'Tindakan langsung', 'textarea'),
-                        $this->field('corrective_action', 'Tindakan koreksi', 'textarea'), $this->field('photo_path', 'Foto', 'file'),
-                        $this->field('resolved_at', 'Waktu selesai', 'datetime'), $this->field('resolved_by', 'Diselesaikan oleh', 'select', false, 'users'),
+                    'supplies' => $this->relation('Barang yang diambil dari Gudang', [
+                        $this->field('supply_name', 'Barang', 'text', true),
+                        $this->field('quantity', 'Jumlah', 'number', true),
+                        $this->field('unit_name', 'Satuan', 'text', true),
+                        $this->field('source_reference', 'Referensi pengambilan'),
+                        $this->field('notes', 'Catatan', 'textarea'),
                     ]),
                 ],
             ],

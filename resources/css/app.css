@@ -227,7 +227,8 @@ select {
 .dark .v3-theme [class~="ring-indigo-200"] {
     --tw-ring-color: rgb(129 140 248 / 24%) !important;
 }
-.dark .v3-theme [class~="bg-emerald-50/40"] {
+.dark .v3-theme [class~="bg-emerald-50/40"],
+.dark .v3-theme [class~="bg-emerald-50/50"] {
     background-color: rgb(16 185 129 / 10%) !important;
 }
 

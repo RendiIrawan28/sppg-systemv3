@@ -104,7 +104,6 @@ class AccessControlDefinitionTest extends TestCase
             'field_daily_reports.view',
             'preparation.approve',
             'processing.approve',
-            'portioning.approve',
             'distribution.approve',
             'washing.approve',
             'cleaning.approve',
@@ -114,6 +113,12 @@ class AccessControlDefinitionTest extends TestCase
         ] as $permission) {
             $this->assertContains($permission, $permissions);
         }
+
+        $this->assertNotContains('portioning.approve', $permissions);
+        $this->assertContains(
+            'portioning.approve',
+            AccessControl::permissionsForRole(UserRole::AsistenLapangan->value),
+        );
 
         foreach ([
             'units.view',

@@ -28,6 +28,7 @@ use App\Livewire\V3\Nutrition\Requirements\Show as NutritionRequirementShow;
 use App\Livewire\V3\Nutrition\Standards;
 use App\Livewire\V3\Operations\Form as OperationalForm;
 use App\Livewire\V3\Operations\Index as OperationalIndex;
+use App\Livewire\V3\Portioning\Index as PortioningIndex;
 use App\Livewire\V3\Preparation\Index as PreparationIndex;
 use App\Livewire\V3\Processing\Index as ProcessingIndex;
 use App\Livewire\V3\Procurement\Index as ProcurementIndex;
@@ -75,6 +76,7 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/gudang/kontrol-stok', WarehouseControlIndex::class)->name('warehouse.controls.index');
             Route::get('/operasional/persiapan', PreparationIndex::class)->name('preparation.index');
             Route::get('/operasional/pengolahan', ProcessingIndex::class)->name('processing.index');
+            Route::get('/operasional/pemorsian', PortioningIndex::class)->name('portioning.index');
             Route::get('/lapangan/rencana', FieldPlanIndex::class)->name('field.plans.index');
             Route::get('/lapangan/rencana/tambah', FieldPlanForm::class)->name('field.plans.create');
             Route::get('/lapangan/rencana/{plan}', FieldPlanForm::class)->name('field.plans.show');
@@ -86,13 +88,13 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/keamanan/insiden/tambah', SecurityIncidentForm::class)->name('security.incidents.create');
             Route::get('/keamanan/insiden/{incident}', SecurityIncidentForm::class)->name('security.incidents.show');
             Route::get('/operasional/{module}', OperationalIndex::class)
-                ->whereIn('module', app(OperationalModuleRegistry::class)->slugs())
+                ->whereIn('module', app(OperationalModuleRegistry::class)->genericWebSlugs())
                 ->name('operations.index');
             Route::get('/operasional/{module}/tambah', OperationalForm::class)
-                ->whereIn('module', app(OperationalModuleRegistry::class)->slugs())
+                ->whereIn('module', app(OperationalModuleRegistry::class)->genericWebSlugs())
                 ->name('operations.create');
             Route::get('/operasional/{module}/{record}', OperationalForm::class)
-                ->whereIn('module', app(OperationalModuleRegistry::class)->slugs())
+                ->whereIn('module', app(OperationalModuleRegistry::class)->genericWebSlugs())
                 ->whereNumber('record')
                 ->name('operations.show');
             Route::get('/master-data', MasterDataHub::class)->name('master-data.index');

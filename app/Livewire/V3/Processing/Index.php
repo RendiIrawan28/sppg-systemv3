@@ -8,12 +8,10 @@ use App\Enums\ProcessingTemperatureCheckpoint;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingDocumentation;
-use App\Models\ProcessingReturn;
 use App\Services\ProcessingReturnService;
 use App\Services\ProcessingWorkflow;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -37,7 +35,13 @@ class Index extends Component
     public array $cookedProducts = [];
 
     /** @var array<int, TemporaryUploadedFile|null> */
-    public array $cookedPhotos = [];
+    public array $temperaturePhotos = [];
+
+    public mixed $outputPhoto = null;
+
+    public ?int $outputDocumentationId = null;
+
+    public ?string $outputPhotoPath = null;
 
     public array $returnQuantities = [];
 
@@ -64,27 +68,24 @@ class Index extends Component
         $this->actualOutputUnit = (string) ($batch->actual_output_unit ?: $batch->target_output_unit);
         $this->notes = (string) $batch->notes;
         $this->reviewNotes = (string) $batch->review_notes;
+        $outputDocumentation = $batch->documentations
+            ->firstWhere('documentation_type', 'finished_output');
+        $this->outputDocumentationId = $outputDocumentation?->id;
+        $this->outputPhotoPath = $outputDocumentation?->photo_path;
+        $this->outputPhoto = null;
         $this->cookedProducts = $batch->temperatureLogs
             ->where('checkpoint', ProcessingTemperatureCheckpoint::Final)
             ->values()
-            ->map(function ($temperature) use ($batch): array {
-                $documentation = $batch->documentations->first(
-                    fn ($photo): bool => Str::lower(trim((string) $photo->caption))
-                        === Str::lower(trim((string) $temperature->product_name)),
-                );
-
-                return [
-                    'temperature_id' => $temperature->id,
-                    'documentation_id' => $documentation?->id,
-                    'product_name' => $temperature->product_name,
-                    'temperature_celsius' => $temperature->temperature_celsius,
-                    'cooked_at' => $temperature->checked_at?->format('Y-m-d\TH:i'),
-                    'photo_path' => $documentation?->photo_path,
-                    'notes' => $temperature->notes,
-                ];
-            })
+            ->map(fn ($temperature): array => [
+                'temperature_id' => $temperature->id,
+                'product_name' => $temperature->product_name,
+                'temperature_celsius' => $temperature->temperature_celsius,
+                'cooked_at' => $temperature->checked_at?->format('Y-m-d\TH:i'),
+                'temperature_photo_path' => $temperature->photo_path,
+                'notes' => $temperature->notes,
+            ])
             ->all();
-        $this->cookedPhotos = [];
+        $this->temperaturePhotos = [];
         if ($batch->state === ProcessingBatchState::InProgress && $this->cookedProducts === []) {
             $this->addCookedProduct();
         }
@@ -94,20 +95,19 @@ class Index extends Component
     {
         $this->cookedProducts[] = [
             'temperature_id' => null,
-            'documentation_id' => null,
             'product_name' => '',
             'temperature_celsius' => '',
             'cooked_at' => now()->format('Y-m-d\TH:i'),
-            'photo_path' => null,
+            'temperature_photo_path' => null,
             'notes' => '',
         ];
     }
 
     public function removeCookedProduct(int $index): void
     {
-        unset($this->cookedProducts[$index], $this->cookedPhotos[$index]);
+        unset($this->cookedProducts[$index], $this->temperaturePhotos[$index]);
         $this->cookedProducts = array_values($this->cookedProducts);
-        $this->cookedPhotos = array_values($this->cookedPhotos);
+        $this->temperaturePhotos = array_values($this->temperaturePhotos);
     }
 
     public function save(): void
@@ -125,103 +125,131 @@ class Index extends Component
             'cookedProducts.*.temperature_celsius' => ['required', 'numeric', 'between:-30,150'],
             'cookedProducts.*.cooked_at' => ['required', 'date'],
             'cookedProducts.*.notes' => ['nullable', 'string', 'max:1000'],
-            'cookedPhotos.*' => ['nullable', 'image', 'max:5120'],
+            'temperaturePhotos.*' => ['nullable', 'image', 'max:5120'],
+            'outputPhoto' => ['nullable', 'image', 'max:5120'],
         ]);
 
         foreach ($this->cookedProducts as $index => $product) {
-            if (blank($product['photo_path'] ?? null)
-                && ! (($this->cookedPhotos[$index] ?? null) instanceof TemporaryUploadedFile)) {
+            if (blank($product['temperature_photo_path'] ?? null)
+                && ! (($this->temperaturePhotos[$index] ?? null) instanceof TemporaryUploadedFile)) {
                 throw ValidationException::withMessages([
-                    "cookedPhotos.$index" => 'Foto makanan matang wajib dipilih.',
+                    "temperaturePhotos.$index" => 'Foto pengukuran suhu makanan wajib dipilih.',
                 ]);
             }
         }
-
-        DB::transaction(function () use ($batch): void {
-            $batch->update([
-                'actual_output_quantity' => $this->actualOutputQuantity,
-                'actual_output_unit' => trim($this->actualOutputUnit),
-                'product_name' => collect($this->cookedProducts)
-                    ->pluck('product_name')
-                    ->filter()
-                    ->implode(', '),
-                'notes' => filled($this->notes) ? trim($this->notes) : null,
-                'petugas_id' => $batch->petugas_id ?: auth()->id(),
-                'petugas_name_snapshot' => $batch->petugas_name_snapshot ?: auth()->user()->name,
-                'updated_by' => auth()->id(),
+        if (blank($this->outputPhotoPath) && ! ($this->outputPhoto instanceof TemporaryUploadedFile)) {
+            throw ValidationException::withMessages([
+                'outputPhoto' => 'Foto berat atau jumlah makanan jadi wajib dipilih.',
             ]);
+        }
 
-            $keptTemperatures = [];
-            $keptDocumentations = [];
-            foreach ($this->cookedProducts as $index => $product) {
-                $temperature = $batch->temperatureLogs()->updateOrCreate(
-                    ['id' => $product['temperature_id'] ?: null],
-                    [
-                        'checked_at' => $product['cooked_at'],
-                        'checkpoint' => ProcessingTemperatureCheckpoint::Final,
-                        'product_name' => trim($product['product_name']),
-                        'temperature_celsius' => $product['temperature_celsius'],
-                        'minimum_temperature' => null,
-                        'maximum_temperature' => null,
-                        'corrective_action' => null,
-                        'measured_by' => auth()->id(),
-                        'measured_name_snapshot' => auth()->user()->name,
-                        'notes' => filled($product['notes'] ?? null) ? trim($product['notes']) : null,
-                        'sort_order' => $index + 1,
-                    ],
-                );
-                $keptTemperatures[] = $temperature->id;
+        $newPaths = [];
+        $oldPaths = [];
+        try {
+            DB::transaction(function () use ($batch, &$newPaths, &$oldPaths): void {
+                $batch->update([
+                    'actual_output_quantity' => $this->actualOutputQuantity,
+                    'actual_output_unit' => trim($this->actualOutputUnit),
+                    'product_name' => collect($this->cookedProducts)
+                        ->pluck('product_name')
+                        ->filter()
+                        ->implode(', '),
+                    'notes' => filled($this->notes) ? trim($this->notes) : null,
+                    'petugas_id' => $batch->petugas_id ?: auth()->id(),
+                    'petugas_name_snapshot' => $batch->petugas_name_snapshot ?: auth()->user()->name,
+                    'updated_by' => auth()->id(),
+                ]);
 
-                $oldDocumentation = filled($product['documentation_id'] ?? null)
-                    ? $batch->documentations()->find($product['documentation_id'])
-                    : null;
-                $newPhoto = $this->cookedPhotos[$index] ?? null;
-                $path = $product['photo_path'] ?? null;
-                if ($newPhoto instanceof TemporaryUploadedFile) {
-                    $path = $newPhoto->store(
-                        'processing/'.now()->format('Y/m/d'),
-                        'public',
-                    );
-                }
+                $keptTemperatures = [];
+                foreach ($this->cookedProducts as $index => $product) {
+                    $oldTemperature = filled($product['temperature_id'] ?? null)
+                        ? $batch->temperatureLogs()->find($product['temperature_id'])
+                        : null;
+                    $newTemperaturePhoto = $this->temperaturePhotos[$index] ?? null;
+                    $temperaturePhotoPath = $product['temperature_photo_path'] ?? null;
+                    if ($newTemperaturePhoto instanceof TemporaryUploadedFile) {
+                        $temperaturePhotoPath = $newTemperaturePhoto->store(
+                            'processing/temperature/'.now()->format('Y/m/d'),
+                            'public',
+                        );
+                        $newPaths[] = $temperaturePhotoPath;
+                        if ($oldTemperature?->photo_path && $oldTemperature->photo_path !== $temperaturePhotoPath) {
+                            $oldPaths[] = $oldTemperature->photo_path;
+                        }
+                    }
 
-                try {
-                    $documentation = $batch->documentations()->updateOrCreate(
-                        ['id' => $product['documentation_id'] ?: null],
+                    $temperature = $batch->temperatureLogs()->updateOrCreate(
+                        ['id' => $product['temperature_id'] ?: null],
                         [
-                            'documentation_type' => 'after',
-                            'caption' => trim($product['product_name']),
-                            'photo_path' => $path,
-                            'captured_at' => $product['cooked_at'],
-                            'created_by' => auth()->id(),
+                            'checked_at' => $product['cooked_at'],
+                            'checkpoint' => ProcessingTemperatureCheckpoint::Final,
+                            'product_name' => trim($product['product_name']),
+                            'temperature_celsius' => $product['temperature_celsius'],
+                            'minimum_temperature' => null,
+                            'maximum_temperature' => null,
+                            'corrective_action' => null,
+                            'measured_by' => auth()->id(),
+                            'measured_name_snapshot' => auth()->user()->name,
+                            'photo_path' => $temperaturePhotoPath,
+                            'notes' => filled($product['notes'] ?? null) ? trim($product['notes']) : null,
                             'sort_order' => $index + 1,
                         ],
                     );
-                } catch (Throwable $exception) {
-                    if ($newPhoto instanceof TemporaryUploadedFile && $path) {
-                        Storage::disk('public')->delete($path);
-                    }
-                    throw $exception;
+                    $keptTemperatures[] = $temperature->id;
                 }
 
-                if ($newPhoto instanceof TemporaryUploadedFile
-                    && $oldDocumentation?->photo_path
-                    && $oldDocumentation->photo_path !== $path) {
-                    Storage::disk('public')->delete($oldDocumentation->photo_path);
-                }
-                $keptDocumentations[] = $documentation->id;
-            }
+                $batch->temperatureLogs()
+                    ->whereNotIn('id', $keptTemperatures)
+                    ->get()
+                    ->each(function ($temperature) use (&$oldPaths): void {
+                        if ($temperature->photo_path) {
+                            $oldPaths[] = $temperature->photo_path;
+                        }
+                        $temperature->delete();
+                    });
 
-            $batch->temperatureLogs()->whereNotIn('id', $keptTemperatures)->delete();
-            $batch->documentations()
-                ->whereNotIn('id', $keptDocumentations)
-                ->get()
-                ->each(function (ProcessingDocumentation $documentation): void {
-                    if ($documentation->photo_path) {
-                        Storage::disk('public')->delete($documentation->photo_path);
+                $oldOutputDocumentation = $this->outputDocumentationId
+                    ? $batch->documentations()->find($this->outputDocumentationId)
+                    : null;
+                $outputPhotoPath = $this->outputPhotoPath;
+                if ($this->outputPhoto instanceof TemporaryUploadedFile) {
+                    $outputPhotoPath = $this->outputPhoto->store(
+                        'processing/finished-output/'.now()->format('Y/m/d'),
+                        'public',
+                    );
+                    $newPaths[] = $outputPhotoPath;
+                    if ($oldOutputDocumentation?->photo_path && $oldOutputDocumentation->photo_path !== $outputPhotoPath) {
+                        $oldPaths[] = $oldOutputDocumentation->photo_path;
                     }
-                    $documentation->delete();
-                });
-        });
+                }
+
+                $outputDocumentation = $batch->documentations()->updateOrCreate(
+                    ['id' => $this->outputDocumentationId],
+                    [
+                        'documentation_type' => 'finished_output',
+                        'caption' => 'Hasil akhir '.$this->actualOutputQuantity.' '.trim($this->actualOutputUnit),
+                        'photo_path' => $outputPhotoPath,
+                        'captured_at' => collect($this->cookedProducts)->pluck('cooked_at')->filter()->max() ?: now(),
+                        'created_by' => auth()->id(),
+                        'sort_order' => 1,
+                    ],
+                );
+                $batch->documentations()
+                    ->where('documentation_type', 'finished_output')
+                    ->where('id', '!=', $outputDocumentation->id)
+                    ->get()
+                    ->each(function (ProcessingDocumentation $documentation) use (&$oldPaths): void {
+                        if ($documentation->photo_path) {
+                            $oldPaths[] = $documentation->photo_path;
+                        }
+                        $documentation->delete();
+                    });
+            });
+        } catch (Throwable $exception) {
+            Storage::disk('public')->delete(array_values(array_unique($newPaths)));
+            throw $exception;
+        }
+        Storage::disk('public')->delete(array_values(array_unique(array_diff($oldPaths, $newPaths))));
 
         $this->select($batch->id);
         session()->flash('v3.status', 'Data hasil Pengolahan disimpan.');
@@ -240,7 +268,7 @@ class Index extends Component
         $this->select($batch->id);
         session()->flash(
             'v3.status',
-            'Pengolahan selesai. Hasil sudah tersedia otomatis di Divisi Pemorsian.',
+            'Pengolahan selesai. Data suhu dan hasil akhir telah tersimpan.',
         );
     }
 

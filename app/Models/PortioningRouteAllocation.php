@@ -25,9 +25,6 @@ class PortioningRouteAllocation extends Model
         'longitude',
         'target_small_portions',
         'target_large_portions',
-        'actual_small_portions',
-        'actual_large_portions',
-        'portioned_at',
         'sort_order',
         'notes',
     ];
@@ -41,9 +38,6 @@ class PortioningRouteAllocation extends Model
             'longitude' => 'decimal:7',
             'target_small_portions' => 'integer',
             'target_large_portions' => 'integer',
-            'actual_small_portions' => 'integer',
-            'actual_large_portions' => 'integer',
-            'portioned_at' => 'datetime',
             'sort_order' => 'integer',
         ];
     }
@@ -58,4 +52,3 @@ class PortioningRouteAllocation extends Model
         return $this->belongsTo(FieldDistributionPlanDestination::class);
     }
 }
-

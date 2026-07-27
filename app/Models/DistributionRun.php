@@ -22,7 +22,6 @@ class DistributionRun extends Model
         'uuid',
         'sppg_unit_id',
         'portioning_session_id',
-        'portioning_handover_id',
         'field_distribution_plan_id',
         'run_number',
         'run_year',
@@ -121,11 +120,6 @@ class DistributionRun extends Model
     public function portioningSession(): BelongsTo
     {
         return $this->belongsTo(PortioningSession::class);
-    }
-
-    public function portioningHandover(): BelongsTo
-    {
-        return $this->belongsTo(PortioningHandover::class);
     }
 
     public function petugas(): BelongsTo

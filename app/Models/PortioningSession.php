@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -33,11 +32,6 @@ class PortioningSession extends Model
         'target_large_portions',
         'actual_small_portions',
         'actual_large_portions',
-        'received_output_quantity',
-        'received_output_unit',
-        'received_temperature_celsius',
-        'received_by',
-        'received_at',
         'started_at',
         'completed_at',
         'duration_minutes',
@@ -45,7 +39,7 @@ class PortioningSession extends Model
         'petugas_id',
         'petugas_name_snapshot',
         'notes',
-        'input_variance_notes',
+        'leftover_mode',
         'status',
         'created_by',
         'updated_by',
@@ -56,11 +50,6 @@ class PortioningSession extends Model
         'verified_by',
         'verified_at',
         'review_notes',
-        'source_system',
-        'legacy_id',
-        'legacy_sheet_name',
-        'legacy_created_at',
-        'import_batch_id',
     ];
 
     protected function casts(): array
@@ -71,9 +60,6 @@ class PortioningSession extends Model
             'target_large_portions' => 'integer',
             'actual_small_portions' => 'integer',
             'actual_large_portions' => 'integer',
-            'received_output_quantity' => 'decimal:3',
-            'received_temperature_celsius' => 'decimal:2',
-            'received_at' => 'datetime',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
             'duration_minutes' => 'integer',
@@ -84,7 +70,6 @@ class PortioningSession extends Model
             'submitted_at' => 'datetime',
             'division_approved_at' => 'datetime',
             'verified_at' => 'datetime',
-            'legacy_created_at' => 'datetime',
         ];
     }
 
@@ -94,7 +79,6 @@ class PortioningSession extends Model
             $session->uuid ??= (string) Str::uuid();
             $session->state ??= PortioningSessionState::Planned;
             $session->status ??= OperationalReportStatus::Draft;
-            $session->source_system ??= 'laravel_v2';
             $session->assignSequence();
             $session->session_number ??= $session->buildSessionNumber();
         });
@@ -134,6 +118,11 @@ class PortioningSession extends Model
         return $this->belongsTo(User::class, 'verified_by');
     }
 
+    public function divisionApprover(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'division_approved_by');
+    }
+
     public function routeAllocations(): HasMany
     {
         return $this->hasMany(PortioningRouteAllocation::class)
@@ -141,10 +130,10 @@ class PortioningSession extends Model
             ->orderBy('id');
     }
 
-    public function weightSamples(): HasMany
+    public function routeRecords(): HasMany
     {
-        return $this->hasMany(PortioningWeightSample::class)
-            ->orderBy('checked_at')
+        return $this->hasMany(PortioningRouteRecord::class)
+            ->orderBy('completed_at')
             ->orderBy('id');
     }
 
@@ -158,35 +147,6 @@ class PortioningSession extends Model
     public function supplies(): HasMany
     {
         return $this->hasMany(PortioningSupply::class)->orderBy('sort_order')->orderBy('id');
-    }
-
-    public function checklistItems(): HasMany
-    {
-        return $this->hasMany(PortioningChecklistItem::class)->orderBy('sort_order')->orderBy('id');
-    }
-
-    public function temperatureLogs(): HasMany
-    {
-        return $this->hasMany(PortioningTemperatureLog::class)->orderBy('checked_at')->orderBy('id');
-    }
-
-    public function documentations(): HasMany
-    {
-        return $this->hasMany(PortioningDocumentation::class)
-            ->orderBy('sort_order')
-            ->orderBy('id');
-    }
-
-    public function deviations(): HasMany
-    {
-        return $this->hasMany(PortioningDeviation::class)
-            ->orderBy('detected_at')
-            ->orderBy('id');
-    }
-
-    public function handover(): HasOne
-    {
-        return $this->hasOne(PortioningHandover::class);
     }
 
     public function histories(): HasMany
@@ -225,7 +185,7 @@ class PortioningSession extends Model
     public function canBeSubmitted(): bool
     {
         return $this->isReportEditable()
-            && $this->state === PortioningSessionState::HandedOver;
+            && $this->state === PortioningSessionState::Completed;
     }
 
     public function canBeDeleted(): bool
@@ -237,12 +197,13 @@ class PortioningSession extends Model
     public function recalculateTotals(): void
     {
         $routes = $this->routeAllocations()->get();
+        $records = $this->routeRecords()->get();
 
         $this->updateQuietly([
             'target_small_portions' => (int) $routes->sum('target_small_portions'),
             'target_large_portions' => (int) $routes->sum('target_large_portions'),
-            'actual_small_portions' => (int) $routes->sum('actual_small_portions'),
-            'actual_large_portions' => (int) $routes->sum('actual_large_portions'),
+            'actual_small_portions' => (int) $records->sum('small_portions'),
+            'actual_large_portions' => (int) $records->sum('large_portions'),
         ]);
 
         $this->refresh();

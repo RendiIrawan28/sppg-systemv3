@@ -8,13 +8,62 @@ use App\Models\PortioningSession;
 use App\Models\ProcessingBatch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
 
 class FieldOperationalPlanGenerator
 {
+    public function generateProcessingBatch(FieldDistributionPlan $plan, User $actor): ProcessingBatch
+    {
+        $plan->load('menuCycleDay');
+
+        return DB::transaction(function () use ($plan, $actor): ProcessingBatch {
+            $batch = $this->syncProcessingBatch($plan, $actor);
+            if (! $batch) {
+                throw new RuntimeException('Modul Pengolahan belum tersedia.');
+            }
+
+            $plan->forceFill([
+                'processing_batch_id' => $batch->getKey(),
+                'updated_by' => $actor->getKey(),
+            ])->save();
+
+            return $batch->refresh();
+        });
+    }
+
+    public function generatePortioningSession(FieldDistributionPlan $plan, User $actor): PortioningSession
+    {
+        $plan->load(['destinations', 'menuCycleDay']);
+
+        if ($this->enumValue($plan->status) !== 'activated') {
+            throw new RuntimeException('Rencana distribusi belum aktif.');
+        }
+
+        if ($plan->destinations->isEmpty()) {
+            throw new RuntimeException('Rencana tidak memiliki tujuan distribusi.');
+        }
+
+        return DB::transaction(function () use ($plan, $actor): PortioningSession {
+            $batch = $this->syncProcessingBatch($plan, $actor);
+            $session = $this->syncPortioningSession($plan, $batch, $actor);
+
+            if (! $session) {
+                throw new RuntimeException('Modul Pemorsian belum tersedia.');
+            }
+
+            $plan->forceFill([
+                'processing_batch_id' => $batch?->getKey(),
+                'portioning_session_id' => $session->getKey(),
+                'updated_by' => $actor->getKey(),
+            ])->save();
+
+            return $session->refresh();
+        });
+    }
+
     public function generate(FieldDistributionPlan $plan, User $actor): array
     {
         $plan->load(['destinations', 'menuCycleDay']);
@@ -60,7 +109,7 @@ class FieldOperationalPlanGenerator
             ->where('field_distribution_plan_id', $plan->getKey())
             ->first();
         $isNew = ! $batch;
-        $batch ??= new ProcessingBatch();
+        $batch ??= new ProcessingBatch;
 
         if (! $isNew && ! $this->canSynchronize($batch)) {
             return $batch;
@@ -137,7 +186,7 @@ class FieldOperationalPlanGenerator
             ->where('field_distribution_plan_id', $plan->getKey())
             ->first();
         $isNew = ! $session;
-        $session ??= new PortioningSession();
+        $session ??= new PortioningSession;
 
         if (! $isNew && ! $this->canSynchronize($session)) {
             return $session;
@@ -154,7 +203,7 @@ class FieldOperationalPlanGenerator
             // Petugas operasional ditetapkan oleh divisi saat pekerjaan dimulai.
             'petugas_id' => null,
             'petugas_name_snapshot' => null,
-            'notes' => "Dibuat dari rencana distribusi {$plan->plan_number}.",
+            'notes' => null,
             'updated_by' => $actor->getKey(),
         ];
 
@@ -181,8 +230,6 @@ class FieldOperationalPlanGenerator
                     'longitude' => $destination->longitude_snapshot,
                     'target_small_portions' => $destination->small_portions,
                     'target_large_portions' => $destination->large_portions,
-                    'actual_small_portions' => 0,
-                    'actual_large_portions' => 0,
                     'sort_order' => $destination->sequence_order,
                     'notes' => "Tujuan: {$destination->destination_name_snapshot}",
                 ]);
@@ -215,7 +262,7 @@ class FieldOperationalPlanGenerator
             ->where('field_distribution_plan_id', $plan->getKey())
             ->first();
         $isNew = ! $run;
-        $run ??= new DistributionRun();
+        $run ??= new DistributionRun;
 
         if (! $isNew && ! $this->canSynchronize($run)) {
             return $run;

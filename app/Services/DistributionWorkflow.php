@@ -7,6 +7,7 @@ use App\Enums\DistributionIncidentStatus;
 use App\Enums\DistributionRunState;
 use App\Enums\DistributionStopStatus;
 use App\Enums\OperationalReportStatus;
+use App\Enums\PortioningSessionState;
 use App\Models\DistributionRun;
 use App\Models\DistributionStop;
 use App\Models\User;
@@ -37,9 +38,12 @@ class DistributionWorkflow
                 ]);
             }
 
-            if ($run->portioning_session_id && ! $run->portioning_handover_id) {
+            if ($run->portioning_session_id
+                && ! in_array($run->portioningSession?->state, [
+                    PortioningSessionState::Completed,
+                ], true)) {
                 throw ValidationException::withMessages([
-                    'portioning_handover_id' => 'Muatan belum diserahkan secara resmi oleh Divisi Pemorsian.',
+                    'portioning_session_id' => 'Pemorsian belum selesai.',
                 ]);
             }
 

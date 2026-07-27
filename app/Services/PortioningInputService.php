@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Enums\PortioningSessionState;
 use App\Models\PortioningSession;
-use App\Models\ProcessingBatch;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
 use Illuminate\Support\Facades\DB;
@@ -12,47 +11,6 @@ use Illuminate\Validation\ValidationException;
 
 class PortioningInputService
 {
-    public function syncProcessingCompletion(ProcessingBatch $batch, User $actor): ?PortioningSession
-    {
-        return DB::transaction(function () use ($batch, $actor): ?PortioningSession {
-            $batch = ProcessingBatch::query()
-                ->with('temperatureLogs')
-                ->lockForUpdate()
-                ->findOrFail($batch->id);
-            if ($batch->state->value !== 'completed') {
-                throw ValidationException::withMessages([
-                    'state' => 'Hasil Pengolahan belum selesai.',
-                ]);
-            }
-            $session = PortioningSession::query()
-                ->where('sppg_unit_id', $batch->sppg_unit_id)
-                ->where('processing_batch_id', $batch->id)
-                ->lockForUpdate()
-                ->first();
-            if (! $session) {
-                return null;
-            }
-            if ($session->state !== PortioningSessionState::Planned) {
-                throw ValidationException::withMessages([
-                    'state' => 'Sesi Pemorsian sudah berjalan dan tidak dapat menerima perubahan hasil Pengolahan.',
-                ]);
-            }
-
-            $temperature = $batch->temperatureLogs->sortByDesc('checked_at')->first();
-            $session->update([
-                'received_output_quantity' => $batch->actual_output_quantity,
-                'received_output_unit' => $batch->actual_output_unit,
-                'received_temperature_celsius' => $temperature?->temperature_celsius,
-                'received_by' => null,
-                'received_at' => $batch->completed_at ?? now(),
-            ]);
-            $this->ensureChecklist($session);
-            $this->history($session, $actor, 'processing_output_available', $batch->batch_number);
-
-            return $session->refresh();
-        });
-    }
-
     public function syncWarehouseWithdrawal(WarehouseWithdrawal $withdrawal, User $actor): ?PortioningSession
     {
         if ($withdrawal->division_code !== 'pemorsian'
@@ -99,7 +57,6 @@ class PortioningInputService
                     'sort_order' => $session->supplies()->count() + $index + 1,
                 ]);
             }
-            $this->ensureChecklist($session);
             $this->history(
                 $session,
                 $actor,
@@ -111,32 +68,6 @@ class PortioningInputService
         });
     }
 
-    public function ensureChecklist(PortioningSession $session): void
-    {
-        if ($session->checklistItems()->exists()) {
-            return;
-        }
-        $items = [
-            ['hygiene', 'Petugas memakai APD lengkap dan telah mencuci tangan'],
-            ['sanitation', 'Meja, alat saji, wadah, dan timbangan dalam kondisi bersih'],
-            ['cross_contamination', 'Produk matang terlindung dari kontaminasi silang'],
-            ['portion_standard', 'Porsi kecil dan besar mengikuti standar menu yang aktif'],
-            ['special_diet', 'Menu khusus/alergen dipisahkan dan diberi penanda yang jelas'],
-            ['packaging', 'Wadah tertutup, bersih, dan tidak rusak sebelum distribusi'],
-            ['time_temperature', 'Waktu dan suhu selama pemorsian berada dalam batas aman'],
-            ['reconciliation', 'Jumlah porsi per rute telah direkonsiliasi'],
-        ];
-        foreach ($items as $index => [$category, $name]) {
-            $session->checklistItems()->create([
-                'category' => $category,
-                'item_name' => $name,
-                'is_mandatory' => true,
-                'result' => 'pending',
-                'sort_order' => $index + 1,
-            ]);
-        }
-    }
-
     private function history(PortioningSession $session, User $actor, string $action, string $reference): void
     {
         $session->histories()->create([
@@ -145,7 +76,7 @@ class PortioningInputService
             'previous_state' => $session->state->value,
             'new_state' => $session->state->value,
             'notes' => $reference,
-            'snapshot' => $session->fresh(['supplies', 'checklistItems'])->toArray(),
+            'snapshot' => $session->fresh('supplies')->toArray(),
         ]);
     }
 }

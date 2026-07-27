@@ -8,6 +8,7 @@ use App\Models\InventoryLot;
 use App\Models\PortioningSession;
 use App\Models\ProcessingBatch;
 use App\Models\WarehouseWithdrawal;
+use App\Services\FieldOperationalPlanGenerator;
 use App\Services\WarehouseWithdrawalService;
 use App\Support\DivisionRole;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,10 @@ use Throwable;
 class Index extends Component
 {
     use InteractsWithV3Shell, WithFileUploads, WithPagination;
+
+    public string $referenceId = '';
+
+    public string $notes = '';
 
     public array $rows = [];
 
@@ -51,18 +56,15 @@ class Index extends Component
         abort_unless($this->canTake(), 403);
         $unit = $this->currentUnit();
         $data = $this->validate([
+            'referenceId' => ['required', 'string', 'regex:/^(record|plan):[1-9][0-9]*$/'],
+            'notes' => ['nullable', 'string', 'max:2000'],
             'rows' => ['required', 'array', 'min:1'], 'rows.*.inventory_lot_id' => ['required', 'integer'],
             'rows.*.quantity' => ['required', 'numeric', 'gt:0'],
             'rows.*.pickup_temperature_celsius' => ['nullable', 'numeric', 'between:-40,40'],
             'rows.*.photo' => ['required', 'image', 'max:5120'],
         ]);
         $division = $this->divisionCode();
-        $reference = $this->activeReference();
-        if (! $reference) {
-            throw ValidationException::withMessages([
-                'rows' => 'Belum ada pekerjaan aktif untuk Divisi '.ucfirst((string) $division).'.',
-            ]);
-        }
+        $referenceId = $this->resolveManualReference($data['referenceId']);
         $storedPaths = [];
         try {
             foreach ($data['rows'] as $index => $row) {
@@ -75,9 +77,9 @@ class Index extends Component
                 unitId: $unit->id,
                 divisionCode: (string) $division,
                 referenceType: $this->referenceType(),
-                referenceId: (int) $reference->getKey(),
+                referenceId: $referenceId,
                 purposeReference: '',
-                notes: null,
+                notes: filled($data['notes']) ? trim($data['notes']) : null,
                 rows: $data['rows'],
                 actor: auth()->user(),
             );
@@ -85,6 +87,7 @@ class Index extends Component
             Storage::disk('public')->delete($storedPaths);
             throw $exception;
         }
+        $this->reset('referenceId', 'notes');
         $this->rows = [];
         $this->addRow();
         session()->flash('v3.status', 'Pengambilan tercatat dan bahan langsung tersedia di halaman divisi. Gudang tetap perlu memverifikasi stok.');
@@ -152,6 +155,7 @@ class Index extends Component
 
         return view('livewire.v3.warehouse.withdrawals.index', [
             ...$this->shellData($unit), 'lots' => $lots, 'records' => $records, 'canTake' => $this->canTake(),
+            'references' => $this->references(),
             'canVerify' => $this->allowed('stock.update') || $this->allowed('stock.create'),
             'pendingToday' => WarehouseWithdrawal::query()->where('sppg_unit_id', $unit->id)
                 ->where('status', WarehouseWithdrawal::WAITING)->count(),
@@ -191,24 +195,118 @@ class Index extends Component
         };
     }
 
-    private function activeReference(): FieldDistributionPlan|ProcessingBatch|PortioningSession|null
+    /** @return array<int, array{value: string, label: string}> */
+    private function references(): array
     {
         $unitId = $this->currentUnit()->id;
-        $today = today()->toDateString();
 
         return match ($this->divisionCode()) {
-            'persiapan' => FieldDistributionPlan::query()->where('sppg_unit_id', $unitId)->where('status', 'activated')
-                ->orderByRaw('CASE WHEN production_date = ? THEN 0 ELSE 1 END', [$today])
-                ->orderByDesc('production_date')->orderByDesc('id')->first(),
-            'pengolahan' => ProcessingBatch::query()->where('sppg_unit_id', $unitId)->whereIn('state', ['planned', 'in_progress'])
-                ->orderByRaw("CASE WHEN state = 'in_progress' THEN 0 ELSE 1 END")
-                ->orderByRaw('CASE WHEN production_date = ? THEN 0 ELSE 1 END', [$today])
-                ->orderByDesc('production_date')->orderByDesc('id')->first(),
-            'pemorsian' => PortioningSession::query()->where('sppg_unit_id', $unitId)->whereIn('state', ['planned', 'in_progress'])
-                ->orderByRaw("CASE WHEN state = 'in_progress' THEN 0 ELSE 1 END")
-                ->orderByRaw('CASE WHEN portioning_date = ? THEN 0 ELSE 1 END', [$today])
-                ->orderByDesc('portioning_date')->orderByDesc('id')->first(),
-            default => null,
+            'persiapan' => FieldDistributionPlan::query()
+                ->where('sppg_unit_id', $unitId)
+                ->where('status', 'activated')
+                ->orderByDesc('production_date')
+                ->orderByDesc('id')
+                ->get()
+                ->map(fn (FieldDistributionPlan $plan): array => [
+                    'value' => "record:{$plan->id}",
+                    'label' => "{$plan->plan_number} · {$plan->menu_name_snapshot} · {$plan->production_date?->format('d-m-Y')}",
+                ])->all(),
+            'pengolahan' => $this->processingReferences($unitId),
+            'pemorsian' => $this->portioningReferences($unitId),
+            default => [],
+        };
+    }
+
+    /** @return array<int, array{value: string, label: string}> */
+    private function processingReferences(int $unitId): array
+    {
+        $batches = ProcessingBatch::query()
+            ->where('sppg_unit_id', $unitId)
+            ->whereIn('state', ['planned', 'in_progress'])
+            ->orderByRaw("CASE WHEN state = 'in_progress' THEN 0 ELSE 1 END")
+            ->orderByDesc('production_date')
+            ->orderByDesc('id')
+            ->get();
+        $references = $batches->map(fn (ProcessingBatch $batch): array => [
+            'value' => "record:{$batch->id}",
+            'label' => "{$batch->batch_number} · {$batch->product_name} · {$batch->production_date?->format('d-m-Y')}",
+        ]);
+        $batchPlanIds = $batches->pluck('field_distribution_plan_id')->filter()->map(fn ($id): int => (int) $id);
+        $plans = FieldDistributionPlan::query()
+            ->where('sppg_unit_id', $unitId)
+            ->where('status', 'activated')
+            ->when($batchPlanIds->isNotEmpty(), fn ($query) => $query->whereNotIn('id', $batchPlanIds))
+            ->orderByDesc('production_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (FieldDistributionPlan $plan): array => [
+                'value' => "plan:{$plan->id}",
+                'label' => "{$plan->plan_number} · {$plan->menu_name_snapshot} · {$plan->production_date?->format('d-m-Y')} (buat batch Pengolahan)",
+            ]);
+
+        return $references->concat($plans)->values()->all();
+    }
+
+    /** @return array<int, array{value: string, label: string}> */
+    private function portioningReferences(int $unitId): array
+    {
+        $sessions = PortioningSession::query()
+            ->where('sppg_unit_id', $unitId)
+            ->whereIn('state', ['planned', 'in_progress'])
+            ->orderByRaw("CASE WHEN state = 'in_progress' THEN 0 ELSE 1 END")
+            ->orderByDesc('portioning_date')
+            ->orderByDesc('id')
+            ->get();
+        $references = $sessions->map(fn (PortioningSession $session): array => [
+            'value' => "record:{$session->id}",
+            'label' => "{$session->session_number} · {$session->menu_name_snapshot} · {$session->portioning_date?->format('d-m-Y')}",
+        ]);
+        $linkedPlanIds = PortioningSession::query()
+            ->where('sppg_unit_id', $unitId)
+            ->whereNotNull('field_distribution_plan_id')
+            ->pluck('field_distribution_plan_id');
+        $plans = FieldDistributionPlan::query()
+            ->where('sppg_unit_id', $unitId)
+            ->where('status', 'activated')
+            ->when($linkedPlanIds->isNotEmpty(), fn ($query) => $query->whereNotIn('id', $linkedPlanIds))
+            ->orderByDesc('production_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (FieldDistributionPlan $plan): array => [
+                'value' => "plan:{$plan->id}",
+                'label' => "{$plan->plan_number} · {$plan->menu_name_snapshot} · {$plan->distribution_date?->format('d-m-Y')} (buat sesi Pemorsian)",
+            ]);
+
+        return $references->concat($plans)->values()->all();
+    }
+
+    private function resolveManualReference(string $selection): int
+    {
+        [$type, $id] = explode(':', $selection, 2);
+        if ($type === 'record') {
+            return (int) $id;
+        }
+        $division = $this->divisionCode();
+        if ($type !== 'plan' || ! in_array($division, ['pengolahan', 'pemorsian'], true)) {
+            throw ValidationException::withMessages([
+                'referenceId' => 'Rencana/batch yang dipilih tidak sesuai dengan divisi.',
+            ]);
+        }
+        $plan = FieldDistributionPlan::query()
+            ->where('sppg_unit_id', $this->currentUnit()->id)
+            ->where('status', 'activated')
+            ->find($id);
+        if (! $plan) {
+            throw ValidationException::withMessages([
+                'referenceId' => 'Rencana produksi tidak aktif atau tidak ditemukan.',
+            ]);
+        }
+
+        $generator = app(FieldOperationalPlanGenerator::class);
+
+        return match ($division) {
+            'pengolahan' => $generator->generateProcessingBatch($plan, auth()->user())->getKey(),
+            'pemorsian' => $generator->generatePortioningSession($plan, auth()->user())->getKey(),
         };
     }
 }

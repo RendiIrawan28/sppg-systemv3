@@ -2,13 +2,13 @@
 
 namespace Tests\Feature;
 
-use App\Enums\OperationalReportStatus;
-use App\Enums\ProcessingBatchState;
 use App\Enums\UserRole;
 use App\Livewire\V3\Warehouse\Withdrawals\Index as WithdrawalIndex;
 use App\Models\FieldDistributionPlan;
+use App\Models\FieldDistributionPlanDestination;
 use App\Models\Ingredient;
 use App\Models\InventoryLot;
+use App\Models\PortioningSession;
 use App\Models\PreparationSession;
 use App\Models\ProcessingBatch;
 use App\Models\SppgUnit;
@@ -173,43 +173,26 @@ class WarehouseWithdrawalFlowTest extends TestCase
         ], $actor);
     }
 
-    public function test_withdrawal_form_hides_manual_reference_fields_and_uses_the_active_division_job(): void
+    public function test_processing_withdrawal_uses_manual_plan_selection_and_creates_only_the_selected_batch(): void
     {
         Storage::fake('public');
-        [$unit, $ingredient] = $this->baseData();
+        [$unit, $ingredient, , , $plan] = $this->baseData();
+        $plan->update([
+            'menu_name_snapshot' => 'Nasi dan Ayam',
+            'planned_total_portions' => 100,
+        ]);
         $actor = User::factory()->create(['is_active' => true]);
         $actor->assignRole(Role::findOrCreate(UserRole::PetugasPengolahan->value));
-        $lot = $this->lot($unit, $ingredient, 'LOT-AUTO', today()->addDays(3), 10);
-
-        ProcessingBatch::query()->create([
-            'sppg_unit_id' => $unit->id,
-            'production_date' => today(),
-            'menu_name_snapshot' => 'Pekerjaan Terencana',
-            'product_name' => 'Pekerjaan Terencana',
-            'target_output_quantity' => 100,
-            'target_output_unit' => 'porsi',
-            'state' => ProcessingBatchState::Planned,
-            'status' => OperationalReportStatus::Draft,
-            'created_by' => $actor->id,
-        ]);
-        $activeBatch = ProcessingBatch::query()->create([
-            'sppg_unit_id' => $unit->id,
-            'production_date' => today()->subDay(),
-            'menu_name_snapshot' => 'Pekerjaan Berjalan',
-            'product_name' => 'Pekerjaan Berjalan',
-            'target_output_quantity' => 100,
-            'target_output_unit' => 'porsi',
-            'state' => ProcessingBatchState::InProgress,
-            'status' => OperationalReportStatus::Draft,
-            'created_by' => $actor->id,
-        ]);
+        $lot = $this->lot($unit, $ingredient, 'LOT-MANUAL', today()->addDays(3), 10);
 
         $component = Livewire::actingAs($actor)->test(WithdrawalIndex::class);
-        $component->assertDontSee('Rencana/batch aktif');
-        $component->assertDontSee('Keterangan tambahan');
-        $component->assertDontSee('Catatan opsional');
+        $component->assertSee('Rencana/batch aktif');
+        $component->assertSee('Catatan pengambilan bahan');
+        $component->assertSee('buat batch Pengolahan');
         $withdrawalForm = app(WithdrawalIndex::class);
         $withdrawalForm->mount();
+        $withdrawalForm->referenceId = "plan:{$plan->id}";
+        $withdrawalForm->notes = 'Bahan diambil untuk produksi pagi.';
         $withdrawalForm->rows = [[
             'inventory_lot_id' => (string) $lot->id,
             'quantity' => '2',
@@ -218,18 +201,93 @@ class WarehouseWithdrawalFlowTest extends TestCase
         ]];
         $withdrawalForm->submit(app(WarehouseWithdrawalService::class));
 
+        $activeBatch = ProcessingBatch::query()
+            ->where('field_distribution_plan_id', $plan->id)
+            ->firstOrFail();
         $this->assertDatabaseHas('warehouse_withdrawals', [
             'division_code' => 'pengolahan',
             'reference_type' => 'processing_batch',
             'reference_id' => $activeBatch->id,
             'reference_number_snapshot' => $activeBatch->batch_number,
             'purpose_reference' => $activeBatch->batch_number,
+            'notes' => 'Bahan diambil untuk produksi pagi.',
         ]);
+        $this->assertSame($activeBatch->id, $plan->fresh()->processing_batch_id);
+        $this->assertDatabaseCount('portioning_sessions', 0);
+        $this->assertDatabaseCount('distribution_runs', 0);
         $this->assertDatabaseHas('processing_material_usages', [
             'processing_batch_id' => $activeBatch->id,
             'inventory_lot_id' => $lot->id,
             'quantity' => 2,
         ]);
+    }
+
+    public function test_portioning_withdrawal_can_create_its_session_from_an_active_plan(): void
+    {
+        Storage::fake('public');
+        [$unit, $ingredient, , , $plan] = $this->baseData();
+        $plan->update(['menu_name_snapshot' => 'Nasi dan Ayam']);
+        FieldDistributionPlanDestination::query()->create([
+            'field_distribution_plan_id' => $plan->id,
+            'destination_type' => 'school',
+            'destination_id' => 101,
+            'destination_name_snapshot' => 'SD Negeri Harapan',
+            'route_name' => 'Rute 1',
+            'sequence_order' => 1,
+            'registered_beneficiaries' => 100,
+            'confirmed_beneficiaries' => 100,
+            'small_portions' => 40,
+            'large_portions' => 60,
+            'confirmation_status' => 'confirmed',
+            'confirmed_at' => now(),
+        ]);
+        $actor = User::factory()->create(['is_active' => true]);
+        $actor->assignRole(Role::findOrCreate(UserRole::PetugasPemorsian->value));
+        $lot = $this->lot($unit, $ingredient, 'LOT-PORTIONING', today()->addDays(3), 10);
+
+        Livewire::actingAs($actor)
+            ->test(WithdrawalIndex::class)
+            ->assertSee('buat sesi Pemorsian');
+
+        $withdrawalForm = app(WithdrawalIndex::class);
+        $withdrawalForm->mount();
+        $withdrawalForm->referenceId = "plan:{$plan->id}";
+        $withdrawalForm->notes = 'Kemasan untuk pemorsian.';
+        $withdrawalForm->rows = [[
+            'inventory_lot_id' => (string) $lot->id,
+            'quantity' => '2',
+            'pickup_temperature_celsius' => '',
+            'photo' => UploadedFile::fake()->image('kemasan.jpg'),
+        ]];
+        $withdrawalForm->submit(app(WarehouseWithdrawalService::class));
+
+        $session = PortioningSession::query()
+            ->where('field_distribution_plan_id', $plan->id)
+            ->firstOrFail();
+        $batch = ProcessingBatch::query()
+            ->where('field_distribution_plan_id', $plan->id)
+            ->firstOrFail();
+
+        $this->assertSame($batch->id, $session->processing_batch_id);
+        $this->assertSame($session->id, $plan->fresh()->portioning_session_id);
+        $this->assertDatabaseHas('portioning_route_allocations', [
+            'portioning_session_id' => $session->id,
+            'route_name' => 'Rute 1',
+            'target_small_portions' => 40,
+            'target_large_portions' => 60,
+        ]);
+        $this->assertDatabaseHas('warehouse_withdrawals', [
+            'division_code' => 'pemorsian',
+            'reference_type' => 'portioning_session',
+            'reference_id' => $session->id,
+            'notes' => 'Kemasan untuk pemorsian.',
+        ]);
+        $this->assertDatabaseHas('portioning_supplies', [
+            'portioning_session_id' => $session->id,
+            'inventory_lot_id' => $lot->id,
+            'quantity' => 2,
+        ]);
+        $this->assertDatabaseCount('distribution_runs', 0);
     }
 
     /** @return array{SppgUnit, Ingredient, User, User, FieldDistributionPlan} */

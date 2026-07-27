@@ -10,7 +10,7 @@
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
             <p class="text-xs font-bold uppercase tracking-widest text-cyan-200">Kontrol Pengolahan</p>
             <h2 class="mt-2 text-2xl font-bold">Catat makanan matang dan tekan Selesai.</h2>
-            <p class="mt-2 max-w-3xl text-sm text-slate-300">Bahan muncul langsung setelah diambil dari Gudang. Catat hasil akhir, suhu setelah matang, dan satu foto untuk setiap makanan. Setelah selesai, hasil otomatis tersedia di Pemorsian tanpa serah-terima.</p>
+            <p class="mt-2 max-w-3xl text-sm text-slate-300">Bahan muncul langsung setelah diambil dari Gudang. Lengkapi dokumentasi suhu serta dokumentasi berat atau jumlah makanan jadi.</p>
         </section>
 
         <div class="grid gap-5 xl:grid-cols-[350px_minmax(0,1fr)]">
@@ -94,34 +94,51 @@
 
                     <div class="rounded-2xl border border-slate-200 bg-white p-5">
                         <div class="flex flex-wrap items-end justify-between gap-3">
-                            <div><h3 class="font-bold">Makanan matang</h3><p class="mt-1 text-xs text-slate-500">Satu baris untuk setiap makanan yang selesai dimasak.</p></div>
+                            <div><h3 class="font-bold">1. Dokumentasi suhu makanan</h3><p class="mt-1 text-xs text-slate-500">Catat suhu setelah matang dan lampirkan foto pengukurannya untuk setiap makanan.</p></div>
                             @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
                                 <button wire:click="addCookedProduct" class="rounded-lg border border-sky-200 px-3 py-2 text-xs font-bold text-sky-700">+ Tambah makanan</button>
                             @endif
                         </div>
                         <div class="mt-4 space-y-3">
                             @foreach($cookedProducts as $index => $product)
-                                <div class="rounded-xl border border-slate-200 bg-slate-50 p-4" wire:key="cooked-product-{{ $index }}">
-                                    <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Nama makanan</span><input wire:model="cookedProducts.{{ $index }}.product_name" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="Contoh: Ayam bumbu kuning"></label>
-                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Suhu setelah matang (°C)</span><input wire:model="cookedProducts.{{ $index }}.temperature_celsius" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) type="number" step=".1" class="h-10 w-full rounded-lg border px-3 text-sm"></label>
-                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Waktu matang</span><input wire:model="cookedProducts.{{ $index }}.cooked_at" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) type="datetime-local" class="h-10 w-full rounded-lg border px-3 text-sm"></label>
-                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Catatan</span><input wire:model="cookedProducts.{{ $index }}.notes" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="Opsional"></label>
-                                    </div>
-                                    <div class="mt-3 flex flex-wrap items-center gap-2">
-                                        @if($product['photo_path'] ?? null)
-                                            <x-v3.documentation-button :url="Storage::disk('public')->url($product['photo_path'])" :title="'Hasil Pengolahan · '.($product['product_name'] ?: 'Makanan matang')" label="Lihat foto hasil" />
-                                        @endif
+                                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:p-5" wire:key="cooked-product-{{ $index }}">
+                                    <div class="mb-4 flex items-center justify-between gap-3">
+                                        <p class="text-xs font-bold uppercase tracking-wide text-slate-500">Makanan {{ $index + 1 }}</p>
                                         @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
-                                            <label class="inline-flex h-10 cursor-pointer items-center rounded-xl bg-sky-600 px-4 text-xs font-bold text-white">
-                                                <span>{{ ($product['photo_path'] ?? null) ? 'Ganti foto' : 'Pilih foto' }}</span>
-                                                <input wire:model="cookedPhotos.{{ $index }}" type="file" accept="image/*" capture="environment" class="sr-only">
-                                            </label>
-                                            @if(($cookedPhotos[$index] ?? null) instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile)
-                                                <span class="max-w-xs truncate text-xs text-slate-500">{{ $cookedPhotos[$index]->getClientOriginalName() }}</span>
-                                            @endif
-                                            <button wire:click="removeCookedProduct({{ $index }})" class="ml-auto text-xs font-bold text-rose-600">Hapus makanan</button>
+                                            <button type="button" wire:click="removeCookedProduct({{ $index }})" class="rounded-lg px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50">Hapus makanan</button>
                                         @endif
+                                    </div>
+
+                                    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                                        <label><span class="mb-1 block text-xs font-semibold text-slate-600">Nama makanan</span><input wire:model="cookedProducts.{{ $index }}.product_name" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Contoh: Ayam bumbu kuning"></label>
+                                        <label><span class="mb-1 block text-xs font-semibold text-slate-600">Suhu setelah matang (°C)</span><input wire:model="cookedProducts.{{ $index }}.temperature_celsius" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) type="number" step=".1" class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Contoh: 75"></label>
+                                        <label><span class="mb-1 block text-xs font-semibold text-slate-600">Waktu matang</span><input wire:model="cookedProducts.{{ $index }}.cooked_at" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) type="datetime-local" class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"></label>
+                                        <label><span class="mb-1 block text-xs font-semibold text-slate-600">Catatan makanan</span><input wire:model="cookedProducts.{{ $index }}.notes" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Opsional"></label>
+                                    </div>
+
+                                    <div class="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                                        <div class="flex flex-wrap items-center justify-between gap-3">
+                                            <div>
+                                                <p class="text-xs font-semibold text-slate-700">Foto pengukuran suhu <span class="text-rose-500">*</span></p>
+                                                <p class="mt-0.5 text-[11px] text-slate-500">Foto termometer saat mengukur makanan ini, maksimal 5 MB.</p>
+                                            </div>
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                @if($product['temperature_photo_path'] ?? null)
+                                                    <x-v3.documentation-button :url="Storage::disk('public')->url($product['temperature_photo_path'])" :title="'Dokumentasi suhu · '.($product['product_name'] ?: 'Makanan matang')" label="Lihat foto suhu" />
+                                                @endif
+                                                @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
+                                                    <input id="temperature-photo-{{ $index }}" wire:model="temperaturePhotos.{{ $index }}" type="file" accept="image/*" capture="environment" class="hidden" style="display: none;">
+                                                    <label for="temperature-photo-{{ $index }}" class="inline-flex h-10 cursor-pointer items-center rounded-xl bg-sky-600 px-4 text-xs font-bold text-white hover:bg-sky-700">
+                                                        {{ ($product['temperature_photo_path'] ?? null) ? 'Ganti foto suhu' : 'Pilih foto suhu' }}
+                                                    </label>
+                                                @endif
+                                            </div>
+                                        </div>
+                                        @if(($temperaturePhotos[$index] ?? null) instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile)
+                                            <p class="mt-2 truncate rounded-lg bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-700">Foto suhu dipilih: {{ $temperaturePhotos[$index]->getClientOriginalName() }}</p>
+                                        @endif
+                                        <p wire:loading wire:target="temperaturePhotos.{{ $index }}" class="mt-2 text-xs font-semibold text-sky-600">Mengunggah foto suhu...</p>
+                                        @error("temperaturePhotos.$index") <p class="mt-2 text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
                                     </div>
                                 </div>
                             @endforeach
@@ -130,19 +147,54 @@
                             @endif
                         </div>
 
-                        <div class="mt-5 grid gap-3 md:grid-cols-[1fr_220px]">
-                            <label><span class="mb-1 block text-xs font-semibold text-slate-600">Jumlah hasil akhir</span><input wire:model="actualOutputQuantity" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) type="number" min="0" step=".001" class="h-11 w-full rounded-xl border px-3 text-sm"></label>
-                            <label><span class="mb-1 block text-xs font-semibold text-slate-600">Satuan</span><input wire:model="actualOutputUnit" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) class="h-11 w-full rounded-xl border px-3 text-sm" placeholder="porsi, kg, loyang, dll."></label>
+                        <div class="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4 sm:p-5">
+                            <div>
+                                <h3 class="font-bold text-slate-900">2. Dokumentasi berat/jumlah makanan jadi</h3>
+                                <p class="mt-1 text-xs text-slate-500">Masukkan total hasil akhir dan lampirkan foto timbangan atau susunan jumlah pack, loyang, maupun pcs.</p>
+                            </div>
+                            <div class="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
+                                <label><span class="mb-1 block text-xs font-semibold text-slate-600">Berat/jumlah hasil akhir</span><input wire:model="actualOutputQuantity" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) type="number" min="0" step=".001" class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Contoh: 120"></label>
+                                <label><span class="mb-1 block text-xs font-semibold text-slate-600">Satuan hasil</span><input wire:model="actualOutputUnit" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="pack, loyang, pcs, kg"></label>
+                            </div>
+                            <div class="mt-4 rounded-xl border border-emerald-200 bg-white p-3">
+                                <div class="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <p class="text-xs font-semibold text-slate-700">Foto berat/jumlah hasil akhir <span class="text-rose-500">*</span></p>
+                                        <p class="mt-0.5 text-[11px] text-slate-500">Foto timbangan atau keseluruhan makanan jadi, maksimal 5 MB.</p>
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-2">
+                                        @if($outputPhotoPath)
+                                            <x-v3.documentation-button :url="Storage::disk('public')->url($outputPhotoPath)" title="Dokumentasi berat/jumlah makanan jadi" label="Lihat foto hasil akhir" />
+                                        @endif
+                                        @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
+                                            <input id="output-photo" wire:model="outputPhoto" type="file" accept="image/*" capture="environment" class="hidden" style="display: none;">
+                                            <label for="output-photo" class="inline-flex h-10 cursor-pointer items-center rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white hover:bg-emerald-700">
+                                                {{ $outputPhotoPath ? 'Ganti foto hasil' : 'Pilih foto hasil' }}
+                                            </label>
+                                        @endif
+                                    </div>
+                                </div>
+                                @if($outputPhoto instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile)
+                                    <p class="mt-2 truncate rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">Foto hasil dipilih: {{ $outputPhoto->getClientOriginalName() }}</p>
+                                @endif
+                                <p wire:loading wire:target="outputPhoto" class="mt-2 text-xs font-semibold text-emerald-700">Mengunggah foto hasil...</p>
+                                @error('outputPhoto') <p class="mt-2 text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
+                            </div>
                         </div>
-                        <textarea wire:model="notes" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) class="mt-3 w-full rounded-xl border p-3 text-sm" placeholder="Catatan Pengolahan (opsional)"></textarea>
+                        <label class="mt-4 block">
+                            <span class="mb-1 block text-xs font-semibold text-slate-600">Catatan Pengolahan</span>
+                            <textarea wire:model="notes" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) rows="3" class="w-full rounded-xl border p-3 text-sm" placeholder="Opsional"></textarea>
+                        </label>
                         @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
-                            <button wire:click="save" class="mt-3 rounded-xl border px-4 py-2 text-xs font-bold">Simpan data</button>
+                            <div class="mt-5 flex flex-col gap-3 border-t border-slate-200 pt-4">
+                                <p class="text-xs text-slate-500">Simpan sementara jika data belum lengkap, atau selesaikan setelah seluruh hasil dicatat.</p>
+                                <div class="flex flex-wrap justify-end gap-2">
+                                    <button type="button" wire:click="save" class="h-11 rounded-xl border border-slate-300 bg-white px-5 text-xs font-bold text-slate-700 hover:bg-slate-50">Simpan sementara</button>
+                                    <button type="button" wire:click="complete" wire:confirm="Selesaikan seluruh pekerjaan Pengolahan?" class="h-11 rounded-xl bg-emerald-600 px-5 text-xs font-bold text-white hover:bg-emerald-700">Selesaikan Pengolahan</button>
+                                </div>
+                            </div>
                         @endif
                     </div>
-
-                    @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
-                        <div class="flex justify-end"><button wire:click="complete" wire:confirm="Selesaikan Pengolahan dan tampilkan hasil di Pemorsian?" class="rounded-xl bg-emerald-600 px-5 py-3 text-xs font-bold text-white">Selesaikan Pengolahan</button></div>
-                    @endif
 
                     @if($canSubmit && $selected->state === \App\Enums\ProcessingBatchState::Completed && in_array($selected->status, [\App\Enums\OperationalReportStatus::Draft, \App\Enums\OperationalReportStatus::RevisionRequired], true))
                         <div class="flex justify-end"><button wire:click="submit" class="rounded-xl bg-sky-700 px-5 py-3 text-xs font-bold text-white">Ajukan laporan Pengolahan</button></div>

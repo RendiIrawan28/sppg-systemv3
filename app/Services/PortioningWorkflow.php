@@ -3,15 +3,11 @@
 namespace App\Services;
 
 use App\Enums\OperationalReportStatus;
-use App\Enums\PortioningDeviationSeverity;
-use App\Enums\PortioningDeviationStatus;
 use App\Enums\PortioningSessionState;
-use App\Enums\PortionSize;
+use App\Enums\UserRole;
 use App\Models\DistributionRun;
-use App\Models\PortioningHandover;
 use App\Models\PortioningSession;
 use App\Models\User;
-use App\Models\WarehouseWithdrawal;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -21,14 +17,6 @@ class PortioningWorkflow
     {
         abort_unless($actor->can('portioning.update'), 403);
 
-        if ((float) $session->received_output_quantity <= 0
-            && $session->processingBatch?->state?->value === 'completed') {
-            app(PortioningInputService::class)->syncProcessingCompletion(
-                $session->processingBatch,
-                $actor,
-            );
-        }
-
         return DB::transaction(function () use ($session, $actor): PortioningSession {
             $session = $this->lockedSession($session);
 
@@ -37,14 +25,9 @@ class PortioningWorkflow
                     'state' => 'Sesi pemorsian tidak dapat dimulai pada kondisi saat ini.',
                 ]);
             }
-            if ((float) $session->received_output_quantity <= 0 || blank($session->received_output_unit)) {
-                throw ValidationException::withMessages(['input' => 'Sesi belum menerima hasil produksi dari Divisi Pengolahan.']);
-            }
             if ($session->routeAllocations->isEmpty()) {
                 throw ValidationException::withMessages(['routeAllocations' => 'Pembagian rute belum tersedia.']);
             }
-            app(PortioningInputService::class)->ensureChecklist($session);
-
             $previousState = $session->state->value;
             $session->update([
                 'state' => PortioningSessionState::InProgress,
@@ -70,15 +53,6 @@ class PortioningWorkflow
                     'state' => 'Sesi pemorsian tidak sedang dikerjakan.',
                 ]);
             }
-            $pendingWithdrawalIds = $session->supplies
-                ->where('source_type', 'warehouse_withdrawal')
-                ->pluck('source_id')
-                ->filter();
-            if ($pendingWithdrawalIds->isNotEmpty()
-                && WarehouseWithdrawal::query()->whereIn('id', $pendingWithdrawalIds)->where('status', '!=', WarehouseWithdrawal::VERIFIED)->exists()) {
-                throw ValidationException::withMessages(['supplies' => 'Pemorsian dapat berjalan, tetapi belum dapat diselesaikan sampai pengambilan diverifikasi Gudang.']);
-            }
-
             $session->recalculateTotals();
             $session = $this->lockedSession($session);
             $this->validateBeforeComplete($session);
@@ -91,79 +65,7 @@ class PortioningWorkflow
             ]);
 
             $this->writeHistory($session, $actor, 'completed', $previousState, $session->state->value);
-
-            return $session->refresh();
-        });
-    }
-
-    public function handover(PortioningSession $session, User $actor, array $data): PortioningSession
-    {
-        abort_unless($actor->can('portioning.update'), 403);
-
-        return DB::transaction(function () use ($session, $actor, $data): PortioningSession {
-            $session = $this->lockedSession($session);
-
-            if (! $session->isReportEditable() || $session->state !== PortioningSessionState::Completed) {
-                throw ValidationException::withMessages([
-                    'state' => 'Pemorsian harus diselesaikan sebelum diserahkan ke Distribusi.',
-                ]);
-            }
-
-            $session->recalculateTotals();
-            $session = $this->lockedSession($session);
-
-            $small = (int) ($data['small_portions'] ?? 0);
-            $large = (int) ($data['large_portions'] ?? 0);
-
-            if ($small !== (int) $session->actual_small_portions || $large !== (int) $session->actual_large_portions) {
-                throw ValidationException::withMessages([
-                    'small_portions' => 'Jumlah serah-terima harus sama dengan realisasi pemorsian per rute.',
-                ]);
-            }
-
-            if (blank($data['received_by_name'] ?? null) || blank($data['photo_path'] ?? null)) {
-                throw ValidationException::withMessages([
-                    'received_by_name' => 'Nama penerima dan foto serah-terima Distribusi wajib diisi.',
-                ]);
-            }
-            $handoverTemperature = $session->temperatureLogs->firstWhere('checkpoint', 'before_handover');
-            if (! $handoverTemperature || ($handoverTemperature->minimum_temperature === null && $handoverTemperature->maximum_temperature === null)) {
-                throw ValidationException::withMessages(['temperatureLogs' => 'Suhu sebelum Distribusi beserta batas amannya wajib dicatat.']);
-            }
-            if (! $handoverTemperature->is_within_limit && blank($handoverTemperature->corrective_action)) {
-                throw ValidationException::withMessages(['temperatureLogs' => 'Suhu sebelum Distribusi di luar batas wajib memiliki tindakan koreksi.']);
-            }
-
-            $handover = $session->handover()->updateOrCreate(
-                ['portioning_session_id' => $session->getKey()],
-                [
-                    'handed_over_at' => $data['handed_over_at'] ?? now(),
-                    'small_portions' => $small,
-                    'large_portions' => $large,
-                    'received_by_user_id' => $data['received_by_user_id'] ?? null,
-                    'received_by_name' => $data['received_by_name'],
-                    'photo_path' => $data['photo_path'] ?? null,
-                    'notes' => $data['notes'] ?? null,
-                    'created_by' => $actor->getKey(),
-                ],
-            );
-
-            $this->syncDistributionRun($session, $handover, $handoverTemperature->temperature_celsius, $actor);
-
-            $previousState = $session->state->value;
-            $session->update([
-                'state' => PortioningSessionState::HandedOver,
-                'updated_by' => $actor->getKey(),
-            ]);
-
-            $this->writeHistory(
-                $session,
-                $actor,
-                'handed_over',
-                $previousState,
-                $session->state->value,
-                $data['notes'] ?? null,
-            );
+            $this->syncDistributionRun($session, $actor);
 
             return $session->refresh();
         });
@@ -171,8 +73,6 @@ class PortioningWorkflow
 
     private function syncDistributionRun(
         PortioningSession $session,
-        PortioningHandover $handover,
-        float $temperature,
         User $actor,
     ): void {
         $run = DistributionRun::query()
@@ -184,37 +84,7 @@ class PortioningWorkflow
             return;
         }
 
-        $allocations = $session->routeAllocations()->get();
-        foreach ($allocations as $allocation) {
-            $stopQuery = $run->stops();
-            if ($allocation->field_distribution_plan_destination_id) {
-                $stopQuery->where('field_distribution_plan_destination_id', $allocation->field_distribution_plan_destination_id);
-            } else {
-                $stopQuery
-                    ->where('route_name', $allocation->route_name)
-                    ->where('destination_name', $allocation->destination_name);
-            }
-
-            $stop = $stopQuery->first();
-            if (! $stop) {
-                continue;
-            }
-
-            $small = (int) $allocation->actual_small_portions;
-            $large = (int) $allocation->actual_large_portions;
-            $stop->update([
-                'small_portions' => $small,
-                'large_portions' => $large,
-                'containers_sent' => $small + $large,
-            ]);
-        }
-
-        $run->update([
-            'portioning_handover_id' => $handover->getKey(),
-            'departure_temperature_celsius' => $temperature,
-            'updated_by' => $actor->getKey(),
-        ]);
-        $run->recalculateTotals();
+        $run->update(['updated_by' => $actor->getKey()]);
     }
 
     public function submit(PortioningSession $session, User $actor, ?string $notes = null): PortioningSession
@@ -226,7 +96,7 @@ class PortioningWorkflow
 
             if (! $session->canBeSubmitted()) {
                 throw ValidationException::withMessages([
-                    'status' => 'Sesi belum dapat diajukan. Selesaikan pemorsian dan serah-terima terlebih dahulu.',
+                    'status' => 'Sesi belum dapat diajukan. Selesaikan Pemorsian terlebih dahulu.',
                 ]);
             }
 
@@ -242,6 +112,8 @@ class PortioningWorkflow
                 'status' => OperationalReportStatus::Submitted,
                 'submitted_by' => $actor->getKey(),
                 'submitted_at' => now(),
+                'division_approved_by' => null,
+                'division_approved_at' => null,
                 'verified_by' => null,
                 'verified_at' => null,
                 'review_notes' => null,
@@ -276,9 +148,14 @@ class PortioningWorkflow
                 ]);
             }
 
+            $this->assertCanReviewStage($session->status, $actor);
             $previousStatus = $session->status->value;
-            $nextStatus = app(OperationalReportApprovalService::class)->nextApprovedStatus($session->status, $actor);
-            $action = app(OperationalReportApprovalService::class)->reviewActionName($nextStatus);
+            $nextStatus = $session->status === OperationalReportStatus::Submitted
+                ? OperationalReportStatus::DivisionApproved
+                : OperationalReportStatus::Verified;
+            $action = $nextStatus === OperationalReportStatus::DivisionApproved
+                ? 'division_approved'
+                : 'field_assistant_verified';
 
             $updates = [
                 'status' => $nextStatus,
@@ -314,7 +191,7 @@ class PortioningWorkflow
         return DB::transaction(function () use ($session, $actor, $notes): PortioningSession {
             $session = $this->lockedSession($session);
 
-            app(OperationalReportApprovalService::class)->assertCanReviewStage($session->status, $actor);
+            $this->assertCanReviewStage($session->status, $actor);
             if (blank($notes)) {
                 throw ValidationException::withMessages(['reviewNotes' => 'Alasan revisi wajib diisi.']);
             }
@@ -346,124 +223,105 @@ class PortioningWorkflow
     public function submissionIssues(PortioningSession $session): array
     {
         $session = PortioningSession::query()
-            ->with(['routeAllocations', 'weightSamples', 'checklistItems', 'temperatureLogs', 'documentations', 'deviations', 'handover'])
+            ->with(['routeRecords', 'leftoverRecords'])
             ->findOrFail($session->getKey());
 
         $issues = [];
 
-        if ($session->state !== PortioningSessionState::HandedOver) {
-            $issues[] = 'Serah-terima ke Distribusi belum dilakukan.';
+        if (! in_array($session->state, [
+            PortioningSessionState::Completed,
+        ], true)) {
+            $issues[] = 'Pemorsian belum diselesaikan.';
         }
 
-        if ($session->routeAllocations->isEmpty()) {
-            $issues[] = 'Minimal satu rute pemorsian wajib tersedia.';
+        if ($session->routeRecords->isEmpty()) {
+            $issues[] = 'Minimal satu rute Pemorsian wajib disimpan.';
         }
 
-        if ($session->weightSamples->isEmpty()) {
-            $issues[] = 'Minimal satu sampel berat porsi wajib tersedia.';
+        if ($session->routeRecords->contains(
+            fn ($route): bool => (int) $route->small_portions + (int) $route->large_portions <= 0
+                || blank($route->photo_path)
+                || $route->completed_at === null,
+        )) {
+            $issues[] = 'Jumlah, dokumentasi, dan waktu setiap rute wajib lengkap.';
         }
 
-        $requiredChecklistCategories = ['hygiene', 'sanitation', 'cross_contamination', 'portion_standard', 'special_diet', 'packaging', 'time_temperature', 'reconciliation'];
-        $completedChecklistCategories = $session->checklistItems->where('result', 'pass')->pluck('category')->all();
-        if (array_diff($requiredChecklistCategories, $completedChecklistCategories) !== []) {
-            $issues[] = 'Seluruh checklist wajib Pemorsian harus dinyatakan lulus.';
+        $hasVariance = (int) $session->actual_small_portions !== (int) $session->target_small_portions
+            || (int) $session->actual_large_portions !== (int) $session->target_large_portions;
+        if ($hasVariance && ! $this->hasMeaningfulSessionNotes($session)) {
+            $issues[] = 'Catatan wajib diisi karena total Pemorsian belum sesuai target harian.';
         }
 
-        foreach (['before', 'after'] as $phase) {
-            if ($session->documentations->where('phase', $phase)->isEmpty()) {
-                $issues[] = 'Foto sebelum dan sesudah Pemorsian wajib tersedia.';
-                break;
+        if (! in_array($session->leftover_mode, ['none', 'present'], true)) {
+            $issues[] = 'Status sisa makanan belum dipilih.';
+        } elseif ($session->leftover_mode === 'present') {
+            if ($session->leftoverRecords->isEmpty()) {
+                $issues[] = 'Data sisa makanan wajib diisi.';
+            } elseif ($session->leftoverRecords->contains(
+                fn ($leftover): bool => (float) $leftover->quantity <= 0
+                    || blank($leftover->unit_name)
+                    || blank($leftover->photo_path),
+            )) {
+                $issues[] = 'Jumlah, satuan, dan foto setiap sisa makanan wajib diisi.';
             }
         }
 
-        if ($session->weightSamples->contains(fn ($sample): bool => ! $sample->is_within_tolerance && blank($sample->corrective_action))) {
-            $issues[] = 'Sampel berat di luar toleransi wajib memiliki tindakan koreksi.';
-        }
-
-        if ($session->documentations->isEmpty()) {
-            $issues[] = 'Minimal satu foto dokumentasi wajib tersedia.';
-        }
-
-        if (! $session->handover) {
-            $issues[] = 'Data serah-terima ke Distribusi belum tersedia.';
-        }
-
-        $blockingDeviation = $session->deviations->first(function ($deviation): bool {
-            return in_array($deviation->severity, [
-                PortioningDeviationSeverity::High,
-                PortioningDeviationSeverity::Critical,
-            ], true) && $deviation->status !== PortioningDeviationStatus::Resolved;
-        });
-
-        if ($blockingDeviation) {
-            $issues[] = 'Penyimpangan tinggi atau kritis harus diselesaikan.';
-        }
-
         return $issues;
+    }
+
+    private function assertCanReviewStage(OperationalReportStatus $status, User $actor): void
+    {
+        if ($status === OperationalReportStatus::Submitted
+            && ! $actor->hasRole(UserRole::KepalaDivisiPemorsian->value)) {
+            throw ValidationException::withMessages([
+                'status' => 'Laporan harus diperiksa Kepala Divisi Pemorsian terlebih dahulu.',
+            ]);
+        }
+
+        if ($status === OperationalReportStatus::DivisionApproved
+            && ! $actor->hasRole(UserRole::AsistenLapangan->value)) {
+            throw ValidationException::withMessages([
+                'status' => 'Hanya Asisten Lapangan yang dapat melakukan verifikasi akhir laporan Pemorsian.',
+            ]);
+        }
     }
 
     private function validateBeforeComplete(PortioningSession $session): void
     {
         $errors = [];
 
-        if ($session->routeAllocations->isEmpty()) {
-            $errors['routeAllocations'] = 'Minimal satu rute pemorsian harus dicatat.';
+        if ($session->routeRecords->isEmpty()) {
+            $errors['routeRecords'] = 'Minimal satu rute Pemorsian wajib disimpan.';
         }
 
         if ($session->actual_total <= 0) {
             $errors['routeAllocations'] = 'Jumlah realisasi porsi harus lebih dari nol.';
         }
 
-        if ($session->weightSamples->isEmpty()) {
-            $errors['weightSamples'] = 'Minimal satu sampel berat porsi wajib dicatat.';
+        if ($session->routeRecords->contains(
+            fn ($route): bool => (int) $route->small_portions + (int) $route->large_portions <= 0
+                || blank($route->photo_path)
+                || $route->completed_at === null,
+        )) {
+            $errors['routeRecords'] = 'Jumlah, dokumentasi, dan waktu setiap rute wajib lengkap.';
         }
 
-        if ($session->weightSamples->contains(fn ($sample): bool => ! $sample->is_within_tolerance && blank($sample->corrective_action))) {
-            $errors['weightSamples'] = 'Sampel berat di luar toleransi wajib memiliki tindakan koreksi.';
+        $hasVariance = (int) $session->actual_small_portions !== (int) $session->target_small_portions
+            || (int) $session->actual_large_portions !== (int) $session->target_large_portions;
+        if ($hasVariance && ! $this->hasMeaningfulSessionNotes($session)) {
+            $errors['notes'] = 'Catatan wajib diisi karena total Pemorsian belum sesuai target harian.';
         }
 
-        $requiredSizes = collect([
-            (int) $session->target_small_portions > 0 ? PortionSize::Small : null,
-            (int) $session->target_large_portions > 0 ? PortionSize::Large : null,
-        ])->filter();
-        foreach ($requiredSizes as $size) {
-            if ($session->weightSamples->where('portion_size', $size)->isEmpty()) {
-                $errors['weightSamples'] = 'Setiap kategori porsi aktif wajib memiliki sampel berat.';
-            }
-        }
-
-        $requiredChecklistCategories = ['hygiene', 'sanitation', 'cross_contamination', 'portion_standard', 'special_diet', 'packaging', 'time_temperature', 'reconciliation'];
-        $completedChecklistCategories = $session->checklistItems->where('result', 'pass')->pluck('category')->all();
-        if (array_diff($requiredChecklistCategories, $completedChecklistCategories) !== []) {
-            $errors['checklistItems'] = 'Seluruh checklist wajib Pemorsian harus dinyatakan lulus.';
-        }
-
-        $processTemperature = $session->temperatureLogs->firstWhere('checkpoint', 'during_portioning');
-        if (! $processTemperature || ($processTemperature->minimum_temperature === null && $processTemperature->maximum_temperature === null)) {
-            $errors['temperatureLogs'] = 'Suhu saat pemorsian beserta batas amannya wajib dicatat.';
-        } elseif (! $processTemperature->is_within_limit && blank($processTemperature->corrective_action)) {
-            $errors['temperatureLogs'] = 'Suhu pemorsian di luar batas wajib memiliki tindakan koreksi.';
-        }
-
-        foreach (['before', 'after'] as $phase) {
-            if ($session->documentations->where('phase', $phase)->isEmpty()) {
-                $errors['documentations'] = 'Foto sebelum dan sesudah Pemorsian wajib tersedia.';
-            }
-        }
-
-        $hasQuantityVariance = $session->actual_total !== $session->target_total
-            || (strtolower((string) $session->received_output_unit) === 'porsi'
-                && $session->actual_total !== (int) $session->received_output_quantity);
-        if ($hasQuantityVariance && blank($session->input_variance_notes)) {
-            $errors['input_variance_notes'] = 'Perbedaan hasil Pengolahan, target, dan realisasi porsi wajib dijelaskan.';
-        }
-
-        $blockingDeviation = $session->deviations->first(function ($deviation): bool {
-            return in_array($deviation->severity, [PortioningDeviationSeverity::High, PortioningDeviationSeverity::Critical], true)
-                && $deviation->status !== PortioningDeviationStatus::Resolved;
-        });
-        if ($blockingDeviation) {
-            $errors['deviations'] = 'Penyimpangan tinggi atau kritis harus diselesaikan sebelum Pemorsian ditutup.';
+        if (! in_array($session->leftover_mode, ['none', 'present'], true)) {
+            $errors['leftovers'] = 'Pilih apakah terdapat sisa makanan.';
+        } elseif ($session->leftover_mode === 'present'
+            && ($session->leftoverRecords->isEmpty()
+                || $session->leftoverRecords->contains(
+                    fn ($leftover): bool => (float) $leftover->quantity <= 0
+                        || blank($leftover->unit_name)
+                        || blank($leftover->photo_path),
+                ))) {
+            $errors['leftovers'] = 'Lengkapi jumlah, satuan, dan foto sisa makanan.';
         }
 
         if ($errors !== []) {
@@ -476,17 +334,18 @@ class PortioningWorkflow
         return PortioningSession::query()
             ->with([
                 'routeAllocations',
-                'weightSamples',
+                'routeRecords',
                 'leftoverRecords',
                 'supplies',
-                'checklistItems',
-                'temperatureLogs',
-                'documentations',
-                'deviations',
-                'handover',
             ])
             ->lockForUpdate()
             ->findOrFail($session->getKey());
+    }
+
+    private function hasMeaningfulSessionNotes(PortioningSession $session): bool
+    {
+        return filled($session->notes)
+            && ! str_starts_with((string) $session->notes, 'Dibuat dari rencana distribusi ');
     }
 
     private function writeHistory(
@@ -509,11 +368,8 @@ class PortioningWorkflow
             'notes' => $notes,
             'snapshot' => $session->load([
                 'routeAllocations',
-                'weightSamples',
+                'routeRecords',
                 'leftoverRecords',
-                'documentations',
-                'deviations',
-                'handover',
             ])->toArray(),
         ]);
     }

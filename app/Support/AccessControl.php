@@ -152,11 +152,11 @@ final class AccessControl
             ...self::module('field_daily_reports', ['view', 'export']),
             ...self::module('field_incidents', ['view']),
 
-            // Kepala SPPG memberi persetujuan akhir laporan enam divisi,
+            // Kepala SPPG memberi persetujuan akhir laporan divisi selain Pemorsian,
             // tetapi tidak boleh membuat atau mengubah transaksi operasional.
             ...self::module('preparation', ['view', 'approve', 'export']),
             ...self::module('processing', ['view', 'approve', 'export']),
-            ...self::module('portioning', ['view', 'approve', 'export']),
+            ...self::module('portioning', ['view', 'export']),
             ...self::module('distribution', ['view', 'approve', 'export']),
             ...self::module('washing', ['view', 'approve', 'export']),
             ...self::module('cleaning', ['view', 'approve', 'export']),
@@ -218,6 +218,7 @@ final class AccessControl
             ...self::module('field_incidents', ['view', 'create', 'update', 'resolve']),
             ...self::module('incidents', ['view', 'create', 'update']),
             ...self::operationalViewPermissions(),
+            ...self::module('portioning', ['approve', 'export']),
             ...self::module('sanitation', ['view', 'manage', 'verify']),
             ...self::module('security', ['view']),
         ];

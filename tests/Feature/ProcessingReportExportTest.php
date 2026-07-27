@@ -48,6 +48,21 @@ class ProcessingReportExportTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_production_report_centers_menu_and_material_and_is_signed_by_processing_head(): void
+    {
+        [, $batch] = $this->reportFixture(OperationalReportStatus::Verified);
+        $batch->load(['materialUsages', 'divisionApprover']);
+
+        $html = view('reports.processing-monitoring-production-pdf', [
+            'batch' => $batch,
+        ])->render();
+
+        $this->assertStringContainsString('<td class="center">Nasi Kuning</td>', $html);
+        $this->assertStringContainsString('<td class="center">Beras</td>', $html);
+        $this->assertStringContainsString('Kepala Divisi Pengolahan', $html);
+        $this->assertStringContainsString('( Kepala Pengolahan )', $html);
+    }
+
     /** @return array{User, ProcessingBatch} */
     private function reportFixture(OperationalReportStatus $status): array
     {
@@ -59,6 +74,10 @@ class ProcessingReportExportTest extends TestCase
         ]);
         $user = User::factory()->create([
             'name' => 'Petugas Pengolahan',
+            'is_active' => true,
+        ]);
+        $processingHead = User::factory()->create([
+            'name' => 'Kepala Pengolahan',
             'is_active' => true,
         ]);
         $ingredient = Ingredient::query()->create([
@@ -83,6 +102,8 @@ class ProcessingReportExportTest extends TestCase
             'status' => $status,
             'petugas_id' => $user->id,
             'petugas_name_snapshot' => $user->name,
+            'division_approved_by' => $processingHead->id,
+            'division_approved_at' => now(),
             'created_by' => $user->id,
         ]);
         $batch->materialUsages()->create([

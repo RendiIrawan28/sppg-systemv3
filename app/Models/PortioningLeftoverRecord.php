@@ -12,13 +12,13 @@ class PortioningLeftoverRecord extends Model
 
     protected $fillable = [
         'portioning_session_id',
-        'route_name',
         'checked_at',
         'food_type',
-        'weight_kg',
-        'reason',
+        'quantity',
+        'unit_name',
         'notes',
         'photo_path',
+        'photo_original_name',
         'created_by',
     ];
 
@@ -26,7 +26,7 @@ class PortioningLeftoverRecord extends Model
     {
         return [
             'checked_at' => 'datetime',
-            'weight_kg' => 'decimal:3',
+            'quantity' => 'decimal:3',
         ];
     }
 
