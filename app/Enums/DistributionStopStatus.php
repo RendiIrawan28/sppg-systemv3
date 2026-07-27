@@ -14,10 +14,10 @@ enum DistributionStopStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::Planned => 'Direncanakan',
-            self::InTransit => 'Dalam Perjalanan',
-            self::Arrived => 'Tiba di Tujuan',
-            self::Delivered => 'Terkirim',
+            self::Planned => 'Menunggu Rute Berangkat',
+            self::InTransit => 'Menunggu Pengantaran',
+            self::Arrived => 'Tiba',
+            self::Delivered => 'Selesai',
             self::Partial => 'Terkirim Sebagian',
             self::Failed => 'Gagal Dikirim',
         };

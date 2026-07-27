@@ -2,7 +2,10 @@
 
 namespace App\Livewire\V3\Operations;
 
+use App\Enums\DistributionRunState;
+use App\Enums\DistributionStopStatus;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Models\DistributionRun;
 use App\Models\User;
 use App\Services\CleaningWorkflow;
 use App\Services\DistributionWorkflow;
@@ -144,9 +147,13 @@ class Form extends Component
 
         $this->runAction(function () use ($action): string {
             $record = $this->record();
-            if ($this->isEditable($record) && ! in_array($action, ['verify', 'revision'], true)) {
+            $shouldPersist = $this->isEditable($record)
+                && ! in_array($action, ['claim', 'verify', 'revision'], true);
+
+            if ($shouldPersist) {
                 $record = $this->persist();
             }
+
             $service = $this->workflowService();
             $actor = auth()->user();
             $notes = trim($this->workflowNotes) ?: null;
@@ -155,9 +162,14 @@ class Form extends Component
             }
             match ($this->module) {
                 'distribusi' => match ($action) {
-                    'load' => $service->prepareLoad($record, $actor, $this->data), 'depart' => $service->depart($record, $actor, $this->data),
-                    'finish' => $service->finish($record, $actor, ['notes' => $notes]), 'submit' => $service->submit($record, $actor, $notes),
-                    'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
+                    'claim' => $service->claimRoute($record, $actor, $this->data),
+                    'release' => $service->releaseRoute($record, $actor, $notes),
+                    'load' => $service->startLoading($record, $actor),
+                    'depart' => $service->depart($record, $actor, $this->data),
+                    'finish' => $service->finish($record, $actor, [...$this->data, 'notes' => $notes]),
+                    'submit' => $service->submit($record, $actor, $notes),
+                    'verify' => $service->verify($record, $actor, $notes),
+                    'revision' => $service->requestRevision($record, $actor, $notes),
                 },
                 'pencucian' => match ($action) {
                     'receive' => $service->receive($record, $actor, [...$this->data, 'notes' => $notes]),
@@ -184,7 +196,7 @@ class Form extends Component
     public function distributionStopWorkflow(int $index, string $action): void
     {
         abort_unless($this->module === 'distribusi' && $this->allowed('distribution.update'), 403);
-        abort_unless(in_array($action, ['arrive', 'deliver', 'fail'], true), 404);
+        abort_unless(in_array($action, ['deliver', 'fail'], true), 404);
 
         $this->runAction(function () use ($index, $action): string {
             $run = $this->persist();
@@ -193,7 +205,6 @@ class Form extends Component
             $workflow = app(DistributionWorkflow::class);
 
             match ($action) {
-                'arrive' => $workflow->arriveAtStop($run, $stop, auth()->user()),
                 'deliver' => $workflow->completeStop($run, $stop, auth()->user()),
                 'fail' => $workflow->failStop($run, $stop, auth()->user()),
             };
@@ -201,7 +212,6 @@ class Form extends Component
             $this->fillFromRecord($run->refresh());
 
             return match ($action) {
-                'arrive' => 'Waktu tiba di tujuan berhasil dicatat.',
                 'deliver' => 'Penyerahan makanan berhasil dicatat.',
                 'fail' => 'Kegagalan penyerahan dan porsi kembali berhasil dicatat.',
             };
@@ -229,6 +239,7 @@ class Form extends Component
             'canUpdate' => $this->allowed($definition['permission'].'.update'),
             'canSubmit' => $this->allowed($definition['permission'].'.submit'),
             'canApprove' => $this->allowed($definition['permission'].'.approve'),
+            'canOperateRoute' => $record ? $this->canOperateRoute($record) : false,
             'actions' => $record ? $this->availableActions($record) : [],
         ])->layout('layouts.v3', ['title' => ($record ? 'Rincian ' : 'Tambah ').$definition['label']]);
     }
@@ -239,11 +250,38 @@ class Form extends Component
         abort_unless($this->allowed($definition['permission'].($this->recordId ? '.update' : '.create')), 403);
         $record = $this->recordId ? $this->record() : new $definition['model'];
         abort_unless(! $this->recordId || $this->isEditable($record), 403);
+
+        if ($this->module === 'distribusi' && $record->exists) {
+            $state = $record->state instanceof BackedEnum ? $record->state->value : $record->state;
+            $isSupervisor = auth()->user()?->can('distribution.approve') ?? false;
+            $isOwner = (int) $record->petugas_id === (int) auth()->id();
+
+            if ($state === DistributionRunState::Planned->value) {
+                abort_unless($isSupervisor, 403);
+            } else {
+                abort_unless($isOwner || $isSupervisor, 403);
+            }
+        }
+
         $this->validate($this->rulesForDefinition($definition));
 
         return DB::transaction(function () use ($definition, $record): Model {
             $values = $this->cleanValues($this->data, $definition['fields']);
             $actor = auth()->user();
+
+            if ($this->module === 'distribusi') {
+                $values = array_intersect_key($values, array_flip([
+                    'vehicle_name',
+                    'vehicle_plate',
+                    'kernet_name',
+                    'departure_temperature_celsius',
+                    'containers_returned',
+                    'containers_damaged',
+                    'containers_lost',
+                    'notes',
+                ]));
+            }
+
             $values['sppg_unit_id'] = $this->currentUnit()->getKey();
             $values['updated_by'] = $actor->getKey();
             if (! $record->exists) {
@@ -262,6 +300,18 @@ class Form extends Component
                 $kept = [];
                 foreach ($this->relations[$name] ?? [] as $index => $row) {
                     $values = $this->cleanValues($row, $relationDefinition['fields']);
+
+                    if ($this->module === 'distribusi' && $name === 'stops') {
+                        $values = array_intersect_key($values, array_flip([
+                            'delivered_small_portions',
+                            'delivered_large_portions',
+                            'recipient_name',
+                            'recipient_position',
+                            'handover_photo_path',
+                            'failure_reason',
+                        ]));
+                    }
+
                     foreach ($relationDefinition['fields'] as $field) {
                         if ($field['type'] !== 'file') {
                             continue;
@@ -272,13 +322,21 @@ class Form extends Component
                         }
                     }
                     $id = isset($row['_id']) && $row['_id'] ? (int) $row['_id'] : null;
+
+                    if ($this->module === 'distribusi' && $name === 'stops') {
+                        abort_unless($id !== null, 403);
+                    }
+
                     $child = $id ? $relation->whereKey($id)->firstOrFail() : $relation->make();
                     if (! (bool) ($row['_locked'] ?? false)) {
                         $child->fill($values)->save();
                     }
                     $kept[] = $child->getKey();
                 }
-                $relation->when($kept !== [], fn ($query) => $query->whereNotIn('id', $kept))->delete();
+
+                if (! ($this->module === 'distribusi' && $name === 'stops')) {
+                    $relation->when($kept !== [], fn ($query) => $query->whereNotIn('id', $kept))->delete();
+                }
             }
 
             if (method_exists($record, 'recalculateTotals')) {
@@ -300,6 +358,13 @@ class Form extends Component
         foreach ($definition['fields'] as $field) {
             $this->data[$field['name']] = $this->inputValue($record->{$field['name']}, $field['type']);
         }
+
+        if ($this->module === 'distribusi'
+            && $record->state === DistributionRunState::Planned
+            && array_key_exists('driver_name', $this->data)) {
+            $this->data['driver_name'] = auth()->user()?->name ?? '';
+        }
+
         $this->relations = [];
         foreach ($definition['relations'] as $name => $relation) {
             $this->relations[$name] = $record->{$name}->map(function ($child) use ($relation): array {
@@ -406,12 +471,26 @@ class Form extends Component
 
     private function isEditable(Model $record): bool
     {
-        if ($this->module === 'distribusi'
-            && ($record->state instanceof BackedEnum ? $record->state->value : $record->state) === 'returned') {
-            return false;
+        return ! method_exists($record, 'isReportEditable') || $record->isReportEditable();
+    }
+
+    private function canOperateRoute(Model $record): bool
+    {
+        if ($this->module !== 'distribusi') {
+            return true;
         }
 
-        return ! method_exists($record, 'isReportEditable') || $record->isReportEditable();
+        if (auth()->user()?->can('distribution.approve')) {
+            return true;
+        }
+
+        $state = $record->state instanceof BackedEnum ? $record->state->value : $record->state;
+
+        if ($state === DistributionRunState::Planned->value) {
+            return true;
+        }
+
+        return (int) $record->petugas_id === (int) auth()->id();
     }
 
     private function workflowService(): object
@@ -429,20 +508,55 @@ class Form extends Component
         $status = $record->status instanceof BackedEnum ? $record->status->value : $record->status;
         $actions = match ($this->module) {
             'distribusi' => match ($state) {
-                'planned' => ['load' => 'Mulai memuat'], 'loaded' => ['depart' => 'Mulai perjalanan'], 'departed' => ['finish' => 'Kembali ke SPPG'], default => []
+                DistributionRunState::Planned->value => [
+                    'claim' => 'Pilih rute ini',
+                ],
+                DistributionRunState::Assigned->value => [
+                    'release' => 'Lepas rute',
+                    'load' => 'Mulai memuat',
+                ],
+                DistributionRunState::Loaded->value => [
+                    'release' => 'Lepas rute',
+                    'depart' => 'Berangkat',
+                ],
+                DistributionRunState::DestinationsCompleted->value => [
+                    'finish' => 'Sudah kembali ke SPPG',
+                ],
+                default => [],
             },
             'pencucian' => match ($state) {
-                'planned' => ['receive' => 'Terima ompreng'], 'received' => ['start' => 'Mulai pencucian'], 'washing' => ['complete' => 'Selesaikan pencucian'], 'completed' => ['ready' => 'Tandai siap digunakan'], default => []
+                'planned' => ['receive' => 'Terima ompreng'],
+                'received' => ['start' => 'Mulai pencucian'],
+                'washing' => ['complete' => 'Selesaikan pencucian'],
+                'completed' => ['ready' => 'Tandai siap digunakan'],
+                default => [],
             },
             'kebersihan' => match ($state) {
-                'planned' => ['start' => 'Mulai kebersihan'], 'in_progress' => ['complete' => 'Selesaikan kebersihan'], 'completed' => ['ready' => 'Tandai area siap'], default => []
+                'planned' => ['start' => 'Mulai kebersihan'],
+                'in_progress' => ['complete' => 'Selesaikan kebersihan'],
+                'completed' => ['ready' => 'Tandai area siap'],
+                default => [],
             },
         };
+
+        if ($this->module === 'distribusi'
+            && $state === DistributionRunState::Returned->value
+            && in_array($status, ['draft', 'revision_required'], true)
+            && $record instanceof DistributionRun
+            && $record->allRoutesReturned()) {
+            $actions['submit'] = 'Ajukan laporan seluruh rute';
+        }
+
         if ($this->module !== 'distribusi'
             && $state === 'ready'
             && in_array($status, ['draft', 'revision_required'], true)) {
             $actions['submit'] = 'Ajukan laporan';
         }
+
+        if ($this->module === 'distribusi' && ! $this->canOperateRoute($record)) {
+            $actions = [];
+        }
+
         $approvalService = app(OperationalReportApprovalService::class);
         $actor = auth()->user();
         $canReviewStage = $actor !== null && (
@@ -450,8 +564,8 @@ class Form extends Component
             || ($status === 'division_approved' && $approvalService->isHeadSppg($actor))
         );
         if ($canReviewStage) {
-            $actions['verify'] = 'Setujui / verifikasi';
-            $actions['revision'] = 'Minta revisi';
+            $actions['verify'] = 'Setujui laporan seluruh rute';
+            $actions['revision'] = 'Minta revisi seluruh rute';
         }
 
         return $actions;

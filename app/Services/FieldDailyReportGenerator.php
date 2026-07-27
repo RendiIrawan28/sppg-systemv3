@@ -205,9 +205,18 @@ class FieldDailyReportGenerator
             ->where('stops.delay_minutes', '>', 0)
             ->count();
         $summary['containers_sent'] = (int) (clone $stops)->sum('stops.containers_sent');
-        $summary['containers_returned'] = (int) (clone $stops)->sum('stops.containers_returned');
-        $summary['containers_damaged'] = (int) (clone $stops)->sum('stops.containers_damaged');
-        $summary['containers_lost'] = (int) (clone $stops)->sum('stops.containers_lost');
+
+        // Alur Distribusi baru merekonsiliasi ompreng saat satu rute kembali ke SPPG.
+        // Gunakan kolom tingkat rute jika tersedia, dengan fallback ke data tujuan lama.
+        if (Schema::hasColumn('distribution_runs', 'containers_returned')) {
+            $summary['containers_returned'] = (int) (clone $runs)->sum('containers_returned');
+            $summary['containers_damaged'] = (int) (clone $runs)->sum('containers_damaged');
+            $summary['containers_lost'] = (int) (clone $runs)->sum('containers_lost');
+        } else {
+            $summary['containers_returned'] = (int) (clone $stops)->sum('stops.containers_returned');
+            $summary['containers_damaged'] = (int) (clone $stops)->sum('stops.containers_damaged');
+            $summary['containers_lost'] = (int) (clone $stops)->sum('stops.containers_lost');
+        }
 
         return $summary;
     }

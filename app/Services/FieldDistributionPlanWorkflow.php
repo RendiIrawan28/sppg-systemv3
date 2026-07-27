@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\DistributionRunState;
 use App\Enums\FieldDistributionPlanStatus;
 use App\Models\FieldDistributionPlan;
 use App\Models\User;
@@ -72,6 +73,10 @@ class FieldDistributionPlanWorkflow
                 $issues[] = "{$label}: rute distribusi belum diisi.";
             }
 
+            if (! $destination->planned_arrival_at && blank($destination->planned_arrival_time)) {
+                $issues[] = "{$label}: jam diminta tiba belum diisi.";
+            }
+
             if (! in_array($destination->confirmation_status, ['confirmed', 'changed'], true)) {
                 $issues[] = "{$label}: konfirmasi penerima belum selesai.";
             }
@@ -84,6 +89,20 @@ class FieldDistributionPlanWorkflow
                 && ! $destination->confirmed_at) {
                 $issues[] = "{$label}: waktu konfirmasi belum diisi.";
             }
+        }
+
+        $duplicateSequences = $plan->destinations
+            ->groupBy(fn ($destination): string => trim((string) $destination->route_name))
+            ->flatMap(function ($destinations, string $routeName) {
+                return $destinations
+                    ->groupBy('sequence_order')
+                    ->filter(fn ($items): bool => $items->count() > 1)
+                    ->keys()
+                    ->map(fn ($sequence): string => "{$routeName} urutan {$sequence}");
+            });
+
+        if ($duplicateSequences->isNotEmpty()) {
+            $issues[] = 'Urutan tujuan dalam satu rute tidak boleh sama: '.$duplicateSequences->implode(', ').'.';
         }
 
         if ($plan->planned_total_portions !== $plan->confirmed_beneficiaries) {
@@ -134,7 +153,14 @@ class FieldDistributionPlanWorkflow
                 ]
             );
 
-            return ['operational_documents' => 'manual'];
+            $runs = app(FieldOperationalPlanGenerator::class)
+                ->generateDistributionRuns($plan->refresh(), $actor);
+
+            return [
+                'operational_documents' => [
+                    'distribution_runs' => $runs->pluck('run_number')->all(),
+                ],
+            ];
         });
     }
 
@@ -147,6 +173,17 @@ class FieldDistributionPlanWorkflow
     {
         if ($plan->status !== FieldDistributionPlanStatus::Activated) {
             throw new DomainException('Hanya rencana yang sudah diproses divisi yang dapat diselesaikan.');
+        }
+
+        $hasOpenDistributionRoute = $plan->distributionRuns()
+            ->whereNotIn('state', [
+                DistributionRunState::Returned->value,
+                DistributionRunState::Cancelled->value,
+            ])
+            ->exists();
+
+        if ($hasOpenDistributionRoute) {
+            throw new DomainException('Rencana belum dapat diselesaikan karena masih ada rute Distribusi yang belum kembali ke SPPG.');
         }
 
         DB::transaction(function () use ($plan, $actor, $notes): void {

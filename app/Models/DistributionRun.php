@@ -23,6 +23,7 @@ class DistributionRun extends Model
         'sppg_unit_id',
         'portioning_session_id',
         'field_distribution_plan_id',
+        'route_name',
         'run_number',
         'run_year',
         'sequence_number',
@@ -36,8 +37,14 @@ class DistributionRun extends Model
         'delivered_large_portions',
         'returned_small_portions',
         'returned_large_portions',
+        'containers_returned',
+        'containers_damaged',
+        'containers_lost',
         'planned_departure_at',
+        'assigned_at',
+        'loading_started_at',
         'actual_departure_at',
+        'destinations_completed_at',
         'returned_at',
         'duration_minutes',
         'state',
@@ -76,8 +83,14 @@ class DistributionRun extends Model
             'delivered_large_portions' => 'integer',
             'returned_small_portions' => 'integer',
             'returned_large_portions' => 'integer',
+            'containers_returned' => 'integer',
+            'containers_damaged' => 'integer',
+            'containers_lost' => 'integer',
             'planned_departure_at' => 'datetime',
+            'assigned_at' => 'datetime',
+            'loading_started_at' => 'datetime',
             'actual_departure_at' => 'datetime',
+            'destinations_completed_at' => 'datetime',
             'returned_at' => 'datetime',
             'duration_minutes' => 'integer',
             'run_year' => 'integer',
@@ -204,7 +217,32 @@ class DistributionRun extends Model
     public function canBeSubmitted(): bool
     {
         return $this->isReportEditable()
-            && $this->state === DistributionRunState::Returned;
+            && $this->state === DistributionRunState::Returned
+            && $this->allRoutesReturned();
+    }
+
+    public function isAssignedTo(User $user): bool
+    {
+        return (int) $this->petugas_id === (int) $user->getKey();
+    }
+
+    public function allRoutesReturned(): bool
+    {
+        $query = self::query()
+            ->where('sppg_unit_id', $this->sppg_unit_id);
+
+        if ($this->field_distribution_plan_id) {
+            $query->where('field_distribution_plan_id', $this->field_distribution_plan_id);
+        } else {
+            $query->whereKey($this->getKey());
+        }
+
+        return ! $query
+            ->whereNotIn('state', [
+                DistributionRunState::Returned->value,
+                DistributionRunState::Cancelled->value,
+            ])
+            ->exists();
     }
 
     public function canBeDeleted(): bool
@@ -271,9 +309,7 @@ class DistributionRun extends Model
 
     public function fieldDistributionPlan(): BelongsTo
     {
-        return $this->belongsTo(
-            FieldDistributionPlan::class
-        );
+        return $this->belongsTo(FieldDistributionPlan::class);
     }
 
     public function menuAcceptanceEvaluations(): HasMany

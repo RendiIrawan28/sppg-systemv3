@@ -8,6 +8,7 @@ use App\Models\PortioningSession;
 use App\Models\ProcessingBatch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -64,6 +65,36 @@ class FieldOperationalPlanGenerator
         });
     }
 
+    /** @return Collection<int, DistributionRun> */
+    public function generateDistributionRuns(FieldDistributionPlan $plan, User $actor): Collection
+    {
+        $plan->load(['destinations', 'menuCycleDay']);
+
+        if ($this->enumValue($plan->status) !== 'activated') {
+            throw new RuntimeException('Rencana distribusi belum aktif.');
+        }
+
+        if ($plan->destinations->isEmpty()) {
+            throw new RuntimeException('Rencana tidak memiliki tujuan distribusi.');
+        }
+
+        return DB::transaction(function () use ($plan, $actor): Collection {
+            $portioning = PortioningSession::query()
+                ->where('field_distribution_plan_id', $plan->getKey())
+                ->first();
+
+            $runs = $this->syncDistributionRuns($plan, $portioning, $actor);
+
+            $plan->forceFill([
+                // Tetap diisi untuk kompatibilitas kode lama. Sumber utama adalah relasi distributionRuns().
+                'distribution_run_id' => $runs->first()?->getKey(),
+                'updated_by' => $actor->getKey(),
+            ])->save();
+
+            return $runs->map->refresh()->values();
+        });
+    }
+
     public function generate(FieldDistributionPlan $plan, User $actor): array
     {
         $plan->load(['destinations', 'menuCycleDay']);
@@ -75,23 +106,24 @@ class FieldOperationalPlanGenerator
         return DB::transaction(function () use ($plan, $actor): array {
             $batch = $this->syncProcessingBatch($plan, $actor);
             $portioning = $this->syncPortioningSession($plan, $batch, $actor);
-            $distribution = $this->syncDistributionRun($plan, $portioning, $actor);
+            $distributionRuns = $this->syncDistributionRuns($plan, $portioning, $actor);
 
             $plan->forceFill([
                 'processing_batch_id' => $batch?->getKey(),
                 'portioning_session_id' => $portioning?->getKey(),
-                'distribution_run_id' => $distribution?->getKey(),
+                'distribution_run_id' => $distributionRuns->first()?->getKey(),
                 'updated_by' => $actor->getKey(),
             ])->save();
 
             return [
                 'processing_batch' => $batch?->batch_number,
                 'portioning_session' => $portioning?->session_number,
-                'distribution_run' => $distribution?->run_number,
+                'distribution_run' => $distributionRuns->pluck('run_number')->implode(', '),
+                'distribution_runs' => $distributionRuns->pluck('run_number')->all(),
                 'skipped' => array_values(array_filter([
                     $batch ? null : 'Modul Pengolahan belum terpasang.',
                     $portioning ? null : 'Modul Pemorsian belum terpasang.',
-                    $distribution ? null : 'Modul Distribusi belum terpasang.',
+                    $distributionRuns->isNotEmpty() ? null : 'Modul Distribusi belum terpasang.',
                 ])),
             ];
         });
@@ -247,88 +279,155 @@ class FieldOperationalPlanGenerator
         return $session->refresh();
     }
 
-    private function syncDistributionRun(
+    /** @return Collection<int, DistributionRun> */
+    private function syncDistributionRuns(
         FieldDistributionPlan $plan,
         ?PortioningSession $portioning,
         User $actor,
-    ): ?DistributionRun {
+    ): Collection {
         if (! class_exists(DistributionRun::class)
             || ! Schema::hasTable('distribution_runs')
             || ! Schema::hasColumn('distribution_runs', 'field_distribution_plan_id')) {
-            return null;
+            return collect();
         }
 
-        $run = DistributionRun::query()
+        $groupedDestinations = $plan->destinations
+            ->groupBy(fn ($destination): string => trim((string) $destination->route_name) ?: 'Rute Utama')
+            ->sortKeys();
+
+        $existingRuns = DistributionRun::query()
             ->where('field_distribution_plan_id', $plan->getKey())
-            ->first();
-        $isNew = ! $run;
-        $run ??= new DistributionRun;
+            ->orderBy('id')
+            ->get();
 
-        if (! $isNew && ! $this->canSynchronize($run)) {
-            return $run;
+        // Jangan membentuk ulang tujuan/rute ketika salah satu perjalanan sudah dipilih
+        // atau sedang berjalan. Perubahan struktur hanya aman selama seluruh rute masih Tersedia.
+        if ($existingRuns->contains(fn (DistributionRun $run): bool => ! $this->canSynchronize($run))) {
+            return $existingRuns->values();
         }
 
-        $attributes = [
-            'sppg_unit_id' => $plan->sppg_unit_id,
-            'field_distribution_plan_id' => $plan->getKey(),
-            'portioning_session_id' => $portioning?->getKey(),
-            'distribution_date' => $plan->distribution_date,
-            'menu_name_snapshot' => $plan->menu_name_snapshot,
-            'planned_small_portions' => $plan->planned_small_portions,
-            'planned_large_portions' => $plan->planned_large_portions,
-            'planned_departure_at' => $this->earliestDepartureAt($plan),
-            // Petugas operasional ditetapkan oleh divisi saat pekerjaan dimulai.
-            'petugas_id' => null,
-            'petugas_name_snapshot' => null,
-            'notes' => "Dibuat dari rencana distribusi {$plan->plan_number}.",
-            'updated_by' => $actor->getKey(),
-        ];
+        $legacyRun = $existingRuns->first(
+            fn (DistributionRun $run): bool => blank($run->route_name) && $this->canSynchronize($run)
+        );
+        $legacyUsed = false;
+        $keptIds = [];
+        $runs = collect();
 
-        if ($isNew) {
-            $attributes['created_by'] = $actor->getKey();
-        }
+        foreach ($groupedDestinations as $routeName => $destinations) {
+            $run = $existingRuns->first(
+                fn (DistributionRun $candidate): bool => trim((string) $candidate->route_name) === $routeName
+            );
 
-        $run->forceFill($attributes)->save();
-
-        if (Schema::hasTable('distribution_stops')) {
-            $run->stops()->delete();
-
-            foreach ($plan->destinations as $destination) {
-                $stop = $run->stops()->make([
-                    'route_name' => $destination->route_name,
-                    'destination_name' => $destination->destination_name_snapshot,
-                    'destination_type' => $destination->destination_type,
-                    'address' => $destination->address_snapshot,
-                    'contact_name' => $destination->contact_name_snapshot,
-                    'contact_phone' => $destination->contact_phone_snapshot,
-                    'sequence_order' => $destination->sequence_order,
-                    'planned_arrival_at' => $this->plannedDateTime($plan, $destination, 'planned_arrival_time', 'planned_arrival_at'),
-                    'small_portions' => $destination->small_portions,
-                    'large_portions' => $destination->large_portions,
-                    'containers_sent' => $destination->total_portions,
-                    'latitude' => $destination->latitude_snapshot,
-                    'longitude' => $destination->longitude_snapshot,
-                    'notes' => $destination->special_notes,
-                ]);
-
-                if (Schema::hasColumn('distribution_stops', 'field_distribution_plan_destination_id')) {
-                    $stop->forceFill([
-                        'field_distribution_plan_destination_id' => $destination->getKey(),
-                    ]);
-                }
-
-                $stop->save();
+            if (! $run && $legacyRun && ! $legacyUsed) {
+                $run = $legacyRun;
+                $legacyUsed = true;
             }
 
-            $run->recalculateTotals();
+            $isNew = ! $run;
+            $run ??= new DistributionRun;
+
+            if (! $isNew && ! $this->canSynchronize($run)) {
+                $keptIds[] = $run->getKey();
+                $runs->push($run);
+                continue;
+            }
+
+            $attributes = [
+                'sppg_unit_id' => $plan->sppg_unit_id,
+                'field_distribution_plan_id' => $plan->getKey(),
+                'portioning_session_id' => $portioning?->getKey(),
+                'route_name' => $routeName,
+                'distribution_date' => $plan->distribution_date,
+                'menu_name_snapshot' => $plan->menu_name_snapshot,
+                'planned_small_portions' => (int) $destinations->sum('small_portions'),
+                'planned_large_portions' => (int) $destinations->sum('large_portions'),
+                'planned_departure_at' => $this->earliestDepartureAtForDestinations($plan, $destinations),
+                // Driver memilih rute sendiri dari halaman Distribusi.
+                'petugas_id' => null,
+                'petugas_name_snapshot' => null,
+                'driver_name' => null,
+                'kernet_name' => null,
+                'vehicle_name' => null,
+                'vehicle_plate' => null,
+                'assigned_at' => null,
+                'loading_started_at' => null,
+                'actual_departure_at' => null,
+                'destinations_completed_at' => null,
+                'returned_at' => null,
+                'loaded_small_portions' => 0,
+                'loaded_large_portions' => 0,
+                'delivered_small_portions' => 0,
+                'delivered_large_portions' => 0,
+                'returned_small_portions' => 0,
+                'returned_large_portions' => 0,
+                'containers_returned' => 0,
+                'containers_damaged' => 0,
+                'containers_lost' => 0,
+                'state' => \App\Enums\DistributionRunState::Planned,
+                'notes' => "Rute {$routeName} dibuat dari rencana distribusi {$plan->plan_number}.",
+                'updated_by' => $actor->getKey(),
+            ];
+
+            if ($isNew) {
+                $attributes['created_by'] = $actor->getKey();
+            }
+
+            $run->forceFill($attributes)->save();
+            $keptIds[] = $run->getKey();
+
+            if (Schema::hasTable('distribution_stops')) {
+                $run->stops()->delete();
+
+                foreach ($destinations->sortBy([
+                    ['sequence_order', 'asc'],
+                    ['id', 'asc'],
+                ])->values() as $destination) {
+                    $stop = $run->stops()->make([
+                        'route_name' => $routeName,
+                        'destination_name' => $destination->destination_name_snapshot,
+                        'destination_type' => $destination->destination_type,
+                        'address' => $destination->address_snapshot,
+                        'contact_name' => $destination->contact_name_snapshot,
+                        'contact_phone' => $destination->contact_phone_snapshot,
+                        'sequence_order' => $destination->sequence_order,
+                        'planned_arrival_at' => $this->plannedDateTime($plan, $destination, 'planned_arrival_time', 'planned_arrival_at'),
+                        'small_portions' => $destination->small_portions,
+                        'large_portions' => $destination->large_portions,
+                        'containers_sent' => $destination->total_portions,
+                        'latitude' => $destination->latitude_snapshot,
+                        'longitude' => $destination->longitude_snapshot,
+                        'notes' => $destination->special_notes,
+                    ]);
+
+                    if (Schema::hasColumn('distribution_stops', 'field_distribution_plan_destination_id')) {
+                        $stop->field_distribution_plan_destination_id = $destination->getKey();
+                    }
+
+                    $stop->save();
+                }
+
+                $run->recalculateTotals();
+            }
+
+            $runs->push($run->refresh());
         }
 
-        return $run->refresh();
+        $existingRuns
+            ->filter(fn (DistributionRun $run): bool => ! in_array($run->getKey(), $keptIds, true))
+            ->filter(fn (DistributionRun $run): bool => $this->canSynchronize($run))
+            ->each->delete();
+
+        return $runs->values();
     }
 
     private function earliestDepartureAt(FieldDistributionPlan $plan): ?Carbon
     {
-        return $plan->destinations
+        return $this->earliestDepartureAtForDestinations($plan, $plan->destinations);
+    }
+
+    private function earliestDepartureAtForDestinations(FieldDistributionPlan $plan, Collection $destinations): ?Carbon
+    {
+        return $destinations
             ->map(fn ($destination): ?Carbon => $this->plannedDateTime($plan, $destination, 'planned_departure_time', 'planned_departure_at'))
             ->filter()
             ->sort()

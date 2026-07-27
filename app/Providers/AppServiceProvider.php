@@ -28,9 +28,9 @@ class AppServiceProvider extends ServiceProvider
 
         //untuk ngrok
         
-        if (str_contains(config('app.url'), 'ngrok-free.app')) {
-            URL::forceScheme('https');
-        }
+        // if (str_contains(config('app.url'), 'ngrok-free.app')) {
+        //     URL::forceScheme('https');
+        // }
 
         Relation::morphMap([
             'school' => School::class,

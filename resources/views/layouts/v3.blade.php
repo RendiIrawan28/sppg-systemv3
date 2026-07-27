@@ -55,8 +55,11 @@
         })();
     </script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+    @livewireStyles
 </head>
 <body class="v3-theme min-h-screen bg-[#f4f7fb] font-sans text-slate-950 antialiased selection:bg-sky-200 selection:text-slate-950">
     {{ $slot }}
+
+    @livewireScripts
 </body>
 </html>

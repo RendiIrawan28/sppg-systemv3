@@ -66,12 +66,21 @@ final class OperationalRecordInitializer
             $run = DistributionRun::query()->with('stops')->find($session->distribution_run_id);
             if ($run) {
                 $sent = (int) $run->stops->sum('containers_sent');
-                $damaged = (int) $run->stops->sum('containers_damaged');
-                $lost = (int) $run->stops->sum('containers_lost');
+                $returned = (int) $run->containers_returned;
+                $damaged = (int) $run->containers_damaged;
+                $lost = (int) $run->containers_lost;
+
+                // Fallback untuk perjalanan lama sebelum rekonsiliasi ompreng dipindah ke tingkat rute.
+                if (($returned + $damaged + $lost) <= 0) {
+                    $returned = (int) $run->stops->sum('containers_returned');
+                    $damaged = (int) $run->stops->sum('containers_damaged');
+                    $lost = (int) $run->stops->sum('containers_lost');
+                }
+
                 $session->updateQuietly([
                     'menu_name_snapshot' => $session->menu_name_snapshot ?: $run->menu_name_snapshot,
                     'expected_containers' => $session->expected_containers ?: $sent,
-                    'received_containers' => $session->received_containers ?: (int) $run->stops->sum('containers_returned') + $damaged,
+                    'received_containers' => $session->received_containers ?: $returned + $damaged,
                     'damaged_containers' => $session->damaged_containers ?: $damaged,
                     'missing_containers' => $session->missing_containers ?: $lost,
                 ]);

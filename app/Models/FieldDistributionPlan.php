@@ -180,6 +180,13 @@ class FieldDistributionPlan extends Model
         return $this->belongsTo(DistributionRun::class);
     }
 
+    public function distributionRuns(): HasMany
+    {
+        return $this->hasMany(DistributionRun::class)
+            ->orderBy('route_name')
+            ->orderBy('id');
+    }
+
     public function scopeForDate(Builder $query, string $date): Builder
     {
         return $query->whereDate('distribution_date', $date);

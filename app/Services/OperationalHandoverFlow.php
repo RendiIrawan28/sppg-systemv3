@@ -38,12 +38,19 @@ class OperationalHandoverFlow
             }
 
             $expected = (int) $run->stops->sum('containers_sent');
-            $returned = (int) $run->stops->sum('containers_returned');
-            $damaged = (int) $run->stops->sum('containers_damaged');
-            $lost = (int) $run->stops->sum('containers_lost');
+            $returned = (int) $run->containers_returned;
+            $damaged = (int) $run->containers_damaged;
+            $lost = (int) $run->containers_lost;
+
+            // Fallback untuk data lama sebelum jumlah ompreng dicatat pada tingkat rute.
+            if (($returned + $damaged + $lost) <= 0) {
+                $returned = (int) $run->stops->sum('containers_returned');
+                $damaged = (int) $run->stops->sum('containers_damaged');
+                $lost = (int) $run->stops->sum('containers_lost');
+            }
 
             if ($expected <= 0) {
-                $expected = (int) $run->delivered_total;
+                $expected = (int) $run->loaded_total;
             }
 
             if ($returned <= 0 && $expected > 0) {

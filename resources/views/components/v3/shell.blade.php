@@ -62,7 +62,7 @@
         </nav>
 
         <div class="relative border-t border-white/10 p-4">
-            <button wire:click="logout" class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-300 transition hover:bg-white/[.07] hover:text-white">
+            <button type="button" wire:click="logout" wire:loading.attr="disabled" wire:target="logout" class="flex w-full disabled:cursor-wait disabled:opacity-60 items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-300 transition hover:bg-white/[.07] hover:text-white">
                 <x-v3.icon name="logout" class="size-[19px]" />
                 Keluar
             </button>
@@ -97,7 +97,7 @@
                             <p class="truncate text-sm font-bold text-slate-800">{{ auth()->user()->name }}</p>
                             <p class="truncate text-xs text-slate-500">{{ auth()->user()->email }}</p>
                         </div>
-                        <button wire:click="logout" class="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50">
+                        <button type="button" wire:click="logout" wire:loading.attr="disabled" wire:target="logout" class="mt-1 flex w-full disabled:cursor-wait disabled:opacity-60 items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-rose-700 transition hover:bg-rose-50">
                             <x-v3.icon name="logout" class="size-4" />
                             Keluar dari aplikasi
                         </button>

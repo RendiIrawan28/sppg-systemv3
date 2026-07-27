@@ -129,7 +129,7 @@ class Form extends Component
     {
         $unit = $this->currentUnit();
         abort_unless($this->allowed('field_planning.view') || ! $this->planId, 403);
-        $plan = $this->planId ? $this->plan()->load(['processingBatch', 'portioningSession', 'distributionRun']) : null;
+        $plan = $this->planId ? $this->plan()->load(['processingBatch', 'portioningSession', 'distributionRun', 'distributionRuns']) : null;
         $cycleDays = MenuCycleDay::query()->with(['cycle', 'menu'])
             ->whereNotNull('menu_id')
             ->whereHas('cycle', fn ($query) => $query->where('sppg_unit_id', $unit->getKey())->whereIn('status', [NutritionRecordStatus::Approved->value, NutritionRecordStatus::Active->value]))
@@ -154,6 +154,7 @@ class Form extends Component
             'generalNotes' => ['nullable', 'string', 'max:5000'],
             'destinations' => ['array'], 'destinations.*.route_name' => ['nullable', 'string', 'max:255'],
             'destinations.*.sequence_order' => ['nullable', 'integer', 'min:1'],
+            'destinations.*.planned_arrival_time' => ['required', 'date_format:H:i'],
             'destinations.*.special_notes' => ['nullable', 'string', 'max:2000'],
             'destinations.*.groups' => ['array'], 'destinations.*.groups.*.confirmed_beneficiaries' => ['required', 'integer', 'min:0'],
             'destinations.*.groups.*.menu_audience' => ['required', 'string', 'max:100'],
@@ -197,6 +198,7 @@ class Form extends Component
                 $destination->update([
                     'route_name' => trim((string) ($row['route_name'] ?? '')) ?: null,
                     'sequence_order' => (int) ($row['sequence_order'] ?? 1),
+                    'planned_arrival_time' => $row['planned_arrival_time'],
                     'special_notes' => trim((string) ($row['special_notes'] ?? '')) ?: null,
                 ]);
                 foreach ($row['groups'] ?? [] as $groupId => $groupRow) {
@@ -226,6 +228,7 @@ class Form extends Component
             'name' => $destination->destination_name_snapshot, 'type' => $destination->destination_type,
             'address' => $destination->address_snapshot, 'contact' => $destination->contact_name_snapshot,
             'route_name' => (string) $destination->route_name, 'sequence_order' => (int) $destination->sequence_order,
+            'planned_arrival_time' => $destination->planned_arrival_at?->format('H:i') ?: substr((string) $destination->planned_arrival_time, 0, 5),
             'special_notes' => (string) $destination->special_notes,
             'registered' => (int) $destination->registered_beneficiaries, 'confirmed' => (int) $destination->confirmed_beneficiaries,
             'small' => (int) $destination->small_portions, 'large' => (int) $destination->large_portions,
