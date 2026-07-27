@@ -73,10 +73,6 @@ class FieldDistributionPlanWorkflow
                 $issues[] = "{$label}: rute distribusi belum diisi.";
             }
 
-            if (! $destination->planned_arrival_at && blank($destination->planned_arrival_time)) {
-                $issues[] = "{$label}: jam diminta tiba belum diisi.";
-            }
-
             if (! in_array($destination->confirmation_status, ['confirmed', 'changed'], true)) {
                 $issues[] = "{$label}: konfirmasi penerima belum selesai.";
             }

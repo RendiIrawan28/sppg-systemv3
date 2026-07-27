@@ -154,7 +154,7 @@ class Form extends Component
             'generalNotes' => ['nullable', 'string', 'max:5000'],
             'destinations' => ['array'], 'destinations.*.route_name' => ['nullable', 'string', 'max:255'],
             'destinations.*.sequence_order' => ['nullable', 'integer', 'min:1'],
-            'destinations.*.planned_arrival_time' => ['required', 'date_format:H:i'],
+            'destinations.*.planned_arrival_time' => ['nullable', 'date_format:H:i'],
             'destinations.*.special_notes' => ['nullable', 'string', 'max:2000'],
             'destinations.*.groups' => ['array'], 'destinations.*.groups.*.confirmed_beneficiaries' => ['required', 'integer', 'min:0'],
             'destinations.*.groups.*.menu_audience' => ['required', 'string', 'max:100'],

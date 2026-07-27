@@ -148,10 +148,10 @@
                             App\Enums\DistributionStopStatus::Partial->value,
                             App\Enums\DistributionStopStatus::Failed->value,
                         ], true);
-                        $stopCanProcess = $deliveryEditable && in_array($rowStatus, [
-                            App\Enums\DistributionStopStatus::InTransit->value,
-                            App\Enums\DistributionStopStatus::Arrived->value,
-                        ], true);
+                        $stopInTransit = $deliveryEditable
+                            && $rowStatus === App\Enums\DistributionStopStatus::InTransit->value;
+                        $stopCanProcess = $deliveryEditable
+                            && $rowStatus === App\Enums\DistributionStopStatus::Arrived->value;
                     @endphp
 
                     <details wire:key="distribution-stop-{{ $row['_id'] }}" @if($loop->first || $stopCanProcess) open @endif class="group overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/50 transition dark:border-slate-700 dark:bg-slate-800/60">
@@ -215,10 +215,15 @@
                                 <label class="sm:col-span-2">
                                     <span class="mb-1 block text-[11px] font-semibold text-slate-500 dark:text-slate-400">Dokumentasi serah-terima</span>
                                     @if (!empty($row['handover_photo_path']))
-                                        <a href="{{ asset('storage/'.$row['handover_photo_path']) }}" target="_blank" class="mb-2 inline-flex rounded-lg bg-sky-50 px-2.5 py-1.5 text-xs font-bold text-sky-700 transition hover:bg-sky-100 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20">Lihat foto tersimpan</a>
+                                        <x-v3.documentation-button
+                                            :url="\Illuminate\Support\Facades\Storage::disk('public')->url($row['handover_photo_path'])"
+                                            :title="'Dokumentasi serah-terima · '.($row['destination_name'] ?: 'Tujuan distribusi')"
+                                            label="Lihat foto tersimpan"
+                                            class="mb-2"
+                                        />
                                     @endif
                                     @if ($stopCanProcess)
-                                        <input wire:model="uploads.stops.{{ $index }}.handover_photo_path" type="file" accept="image/*" class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                                        <input wire:model="uploads.stops.{{ $index }}.handover_photo_path" type="file" accept="image/*" class="block w-full rounded-xl border border-slate-200 bg-white text-xs text-slate-700 file:mr-3 file:border-0 file:bg-sky-600 file:px-4 file:py-2.5 file:text-xs file:font-bold file:text-white hover:file:bg-sky-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:file:bg-sky-500 dark:file:text-slate-950">
                                     @endif
                                     @error('uploads.stops.'.$index.'.handover_photo_path')<span class="mt-1 block text-xs text-rose-600">{{ $message }}</span>@enderror
                                 </label>
@@ -228,12 +233,18 @@
                                 </label>
                             </div>
 
-                            @if ($stopCanProcess)
+                            @if ($stopInTransit)
+                                <div class="mt-4 flex justify-end">
+                                    <button type="button" wire:click="distributionStopWorkflow({{ $index }}, 'arrive')" wire:loading.attr="disabled" wire:target="distributionStopWorkflow" class="h-10 rounded-xl bg-amber-500 px-4 text-xs font-bold text-white transition hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400/30 disabled:cursor-wait disabled:opacity-60">
+                                        Makanan tiba di tujuan
+                                    </button>
+                                </div>
+                            @elseif ($stopCanProcess)
                                 <div class="mt-4 flex flex-wrap justify-end gap-2">
-                                    <button type="button" wire:click="distributionStopWorkflow({{ $index }}, 'fail')" wire:confirm="Tandai tujuan ini gagal dikirim?" class="h-10 rounded-xl bg-rose-600 px-4 text-xs font-bold text-white transition hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-400/30 dark:bg-rose-500 dark:text-slate-950 dark:hover:bg-rose-400">
+                                    <button type="button" wire:click="distributionStopWorkflow({{ $index }}, 'fail')" wire:confirm="Tandai tujuan ini gagal dikirim?" wire:loading.attr="disabled" wire:target="distributionStopWorkflow" class="h-10 rounded-xl bg-rose-600 px-4 text-xs font-bold text-white transition hover:bg-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-400/30 disabled:cursor-wait disabled:opacity-60 dark:bg-rose-500 dark:text-slate-950 dark:hover:bg-rose-400">
                                         Gagal dikirim
                                     </button>
-                                    <button type="button" wire:click="distributionStopWorkflow({{ $index }}, 'deliver')" class="h-10 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400">
+                                    <button type="button" wire:click="distributionStopWorkflow({{ $index }}, 'deliver')" wire:loading.attr="disabled" wire:target="distributionStopWorkflow" class="h-10 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 disabled:cursor-wait disabled:opacity-60 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400">
                                         Simpan selesai / sebagian
                                     </button>
                                 </div>
@@ -275,7 +286,7 @@
                 </p>
             </div>
 
-            @if (in_array('release', array_keys($actions), true) || in_array('finish', array_keys($actions), true) || in_array('revision', array_keys($actions), true))
+            @if ($actions !== [])
                 <label class="mt-4 block">
                     <span class="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Catatan aksi</span>
                     <textarea wire:model="workflowNotes" rows="2" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-sky-400 dark:focus:ring-sky-500/20" placeholder="Catatan opsional, wajib untuk permintaan revisi"></textarea>
@@ -295,6 +306,19 @@
             @endif
 
             <div class="mt-4 flex flex-wrap justify-end gap-2">
+                @if ($editable && $canUpdate)
+                    <button
+                        type="button"
+                        x-on:click="$wire.save()"
+                        wire:loading.attr="disabled"
+                        wire:target="save"
+                        class="h-10 rounded-xl bg-sky-600 px-5 text-xs font-bold text-white transition hover:bg-sky-700 disabled:cursor-wait disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-sky-400/30 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+                    >
+                        <span wire:loading.remove wire:target="save">Simpan data perjalanan</span>
+                        <span wire:loading wire:target="save">Menyimpan...</span>
+                    </button>
+                @endif
+
                 @foreach ($actions as $action => $label)
                     @php
                         $authorized = in_array($action, ['verify', 'revision'], true)
@@ -302,14 +326,29 @@
                             : ($action === 'submit' ? $canSubmit : $canUpdate);
                     @endphp
                     @if ($authorized)
-                        <button
-                            type="button"
-                            wire:click="workflow('{{ $action }}')"
-                            wire:confirm="Lanjutkan aksi {{ $label }}?"
-                            class="h-10 rounded-xl px-4 text-xs font-bold text-white transition focus:outline-none focus:ring-2 focus:ring-sky-400/30 {{ in_array($action, ['release', 'revision'], true) ? 'bg-rose-600 hover:bg-rose-700 dark:bg-rose-500 dark:text-slate-950 dark:hover:bg-rose-400' : (in_array($action, ['submit', 'verify'], true) ? 'bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400' : 'bg-slate-800 hover:bg-slate-900 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400') }}"
-                        >
-                            {{ $label }}
-                        </button>
+                        @if ($action === 'claim')
+                            <button
+                                type="button"
+                                x-on:click="$wire.claimRoute()"
+                                wire:loading.attr="disabled"
+                                wire:target="claimRoute"
+                                class="h-10 rounded-xl bg-slate-800 px-4 text-xs font-bold text-white transition hover:bg-slate-900 disabled:cursor-wait disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-sky-400/30 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+                            >
+                                <span wire:loading.remove wire:target="claimRoute">{{ $label }}</span>
+                                <span wire:loading wire:target="claimRoute">Memproses...</span>
+                            </button>
+                        @else
+                            <button
+                                type="button"
+                                wire:click="workflow('{{ $action }}')"
+                                wire:confirm="Lanjutkan aksi {{ $label }}?"
+                                wire:loading.attr="disabled"
+                                wire:target="workflow"
+                                class="h-10 rounded-xl px-4 text-xs font-bold text-white transition disabled:cursor-wait disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-sky-400/30 {{ in_array($action, ['release', 'revision'], true) ? 'bg-rose-600 hover:bg-rose-700 dark:bg-rose-500 dark:text-slate-950 dark:hover:bg-rose-400' : (in_array($action, ['submit', 'verify'], true) ? 'bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400' : 'bg-slate-800 hover:bg-slate-900 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400') }}"
+                            >
+                                {{ $label }}
+                            </button>
+                        @endif
                     @endif
                 @endforeach
             </div>

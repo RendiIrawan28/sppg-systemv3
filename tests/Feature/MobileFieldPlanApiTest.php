@@ -177,7 +177,8 @@ it('checks readiness and activates a complete mobile field plan', function (): v
     expect($plan->fresh()->status)->toBe(FieldDistributionPlanStatus::Activated)
         ->and($plan->fresh()->processing_batch_id)->toBeNull()
         ->and($plan->fresh()->portioning_session_id)->toBeNull()
-        ->and($plan->fresh()->distribution_run_id)->toBeNull();
+        ->and($plan->fresh()->distribution_run_id)->not->toBeNull()
+        ->and($plan->fresh()->distributionRuns()->count())->toBe(1);
 });
 
 /** @return array{User, string} */

@@ -1,8 +1,12 @@
 <?php
 
+use App\Models\User;
 use App\Support\V3\MasterDataRegistry;
 use App\Support\V3\OperationalModuleRegistry;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
+
+uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
     $this->withoutVite();
@@ -19,6 +23,20 @@ it('menampilkan halaman masuk tanpa catatan migrasi', function (): void {
         ->assertSee('sppg-theme');
 });
 
+it('menggunakan injeksi asset Livewire otomatis', function (): void {
+    expect(config('livewire.inject_assets'))->toBeTrue();
+});
+
+it('logout melalui route POST dan mengakhiri sesi', function (): void {
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->post(route('v3.logout'))
+        ->assertRedirect(route('login'));
+
+    $this->assertGuest();
+});
+
 it('melindungi ruang kerja V3 dari pengguna yang belum masuk', function (): void {
     $this->get('/v3')
         ->assertRedirect('/v3/login');
@@ -27,6 +45,7 @@ it('melindungi ruang kerja V3 dari pengguna yang belum masuk', function (): void
 it('memiliki route utama untuk rollout V3', function (): void {
     expect(route('v3.entry'))->toEndWith('/v3')
         ->and(route('login'))->toEndWith('/v3/login')
+        ->and(route('v3.logout'))->toEndWith('/v3/logout')
         ->and(route('v3.dashboard'))->toEndWith('/v3/dashboard')
         ->and(route('v3.beneficiaries.index'))->toEndWith('/v3/penerima-manfaat')
         ->and(route('v3.beneficiaries.create'))->toEndWith('/v3/penerima-manfaat/tambah')

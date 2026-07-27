@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\V3\EntryController;
+use App\Http\Controllers\V3\LogoutController;
 use App\Http\Middleware\SetV3UnitContext;
 use App\Livewire\V3\Auth\Login;
 use App\Livewire\V3\Beneficiaries\Form as BeneficiaryForm;
@@ -45,6 +46,10 @@ use App\Support\V3\OperationalModuleRegistry;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/v3/login', Login::class)->name('login');
+
+Route::post('/v3/logout', LogoutController::class)
+    ->middleware('auth')
+    ->name('v3.logout');
 
 Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
     Route::get('/', EntryController::class)->name('entry');

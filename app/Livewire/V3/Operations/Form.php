@@ -3,7 +3,6 @@
 namespace App\Livewire\V3\Operations;
 
 use App\Enums\DistributionRunState;
-use App\Enums\DistributionStopStatus;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\DistributionRun;
 use App\Models\User;
@@ -135,6 +134,12 @@ class Form extends Component
         });
     }
 
+    public function claimRoute(): void
+    {
+        abort_unless($this->module === 'distribusi', 404);
+        $this->workflow('claim');
+    }
+
     public function workflow(string $action): void
     {
         $definition = $this->definition();
@@ -196,15 +201,16 @@ class Form extends Component
     public function distributionStopWorkflow(int $index, string $action): void
     {
         abort_unless($this->module === 'distribusi' && $this->allowed('distribution.update'), 403);
-        abort_unless(in_array($action, ['deliver', 'fail'], true), 404);
+        abort_unless(in_array($action, ['arrive', 'deliver', 'fail'], true), 404);
 
         $this->runAction(function () use ($index, $action): string {
-            $run = $this->persist();
+            $run = $action === 'arrive' ? $this->record() : $this->persist();
             $stopId = (int) ($this->relations['stops'][$index]['_id'] ?? 0);
             $stop = $run->stops()->whereKey($stopId)->firstOrFail();
             $workflow = app(DistributionWorkflow::class);
 
             match ($action) {
+                'arrive' => $workflow->arriveAtStop($run, $stop, auth()->user()),
                 'deliver' => $workflow->completeStop($run, $stop, auth()->user()),
                 'fail' => $workflow->failStop($run, $stop, auth()->user()),
             };
@@ -212,6 +218,7 @@ class Form extends Component
             $this->fillFromRecord($run->refresh());
 
             return match ($action) {
+                'arrive' => 'Makanan telah tiba di tujuan.',
                 'deliver' => 'Penyerahan makanan berhasil dicatat.',
                 'fail' => 'Kegagalan penyerahan dan porsi kembali berhasil dicatat.',
             };
@@ -257,7 +264,7 @@ class Form extends Component
             $isOwner = (int) $record->petugas_id === (int) auth()->id();
 
             if ($state === DistributionRunState::Planned->value) {
-                abort_unless($isSupervisor, 403);
+                abort_unless($this->allowed('distribution.update'), 403);
             } else {
                 abort_unless($isOwner || $isSupervisor, 403);
             }

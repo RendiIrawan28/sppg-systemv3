@@ -55,11 +55,35 @@
         })();
     </script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
-    @livewireStyles
+    <script>
+        (() => {
+            const hideWarning = () => document.getElementById('livewire-load-error')?.setAttribute('hidden', 'hidden');
+            const showWarning = () => {
+                if (!window.Livewire) {
+                    document.getElementById('livewire-load-error')?.removeAttribute('hidden');
+                }
+            };
+
+            document.addEventListener('livewire:init', () => {
+                document.documentElement.dataset.livewireReady = 'true';
+                window.Livewire?.hook?.('request', () => {
+                    document.documentElement.dataset.livewireRequests = String(Number(document.documentElement.dataset.livewireRequests || 0) + 1);
+                });
+                hideWarning();
+            });
+            document.addEventListener('livewire:initialized', () => {
+                document.documentElement.dataset.livewireInitialized = 'true';
+                document.documentElement.dataset.livewireComponents = String(window.Livewire?.all?.().length ?? 0);
+            });
+            window.addEventListener('load', () => window.setTimeout(showWarning, 1500), { once: true });
+        })();
+    </script>
 </head>
 <body class="v3-theme min-h-screen bg-[#f4f7fb] font-sans text-slate-950 antialiased selection:bg-sky-200 selection:text-slate-950">
+    <div id="livewire-load-error" hidden class="fixed inset-x-4 top-4 z-[200] rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800 shadow-xl">
+        Komponen interaktif gagal dimuat. Periksa APP_URL, konfigurasi HTTPS/proxy, lalu jalankan <code>php artisan optimize:clear</code> dan muat ulang halaman.
+    </div>
     {{ $slot }}
 
-    @livewireScripts
 </body>
 </html>

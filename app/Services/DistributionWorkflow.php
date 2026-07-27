@@ -248,9 +248,9 @@ class DistributionWorkflow
             $stop = $this->lockedStop($run, $stop);
 
             if ($run->state !== DistributionRunState::Departed
-                || ! in_array($stop->status, [DistributionStopStatus::InTransit, DistributionStopStatus::Arrived], true)) {
+                || $stop->status !== DistributionStopStatus::Arrived) {
                 throw ValidationException::withMessages([
-                    'stop' => 'Tujuan tidak dapat diselesaikan pada kondisi saat ini.',
+                    'stop' => 'Tekan Makanan Tiba di Tujuan sebelum menyelesaikan pengantaran.',
                 ]);
             }
 
@@ -317,10 +317,12 @@ class DistributionWorkflow
             $stop = $this->lockedStop($run, $stop);
 
             if ($run->state !== DistributionRunState::Departed
-                || ! in_array($stop->status, [DistributionStopStatus::InTransit, DistributionStopStatus::Arrived], true)
+                || $stop->status !== DistributionStopStatus::Arrived
                 || blank($stop->failure_reason)) {
                 throw ValidationException::withMessages([
-                    'stop' => 'Alasan gagal dikirim wajib diisi.',
+                    'stop' => $stop->status !== DistributionStopStatus::Arrived
+                        ? 'Tekan Makanan Tiba di Tujuan sebelum mencatat pengantaran gagal.'
+                        : 'Alasan gagal dikirim wajib diisi.',
                 ]);
             }
 
@@ -419,6 +421,7 @@ class DistributionWorkflow
             foreach ($runs as $routeRun) {
                 if (! $routeRun->isReportEditable()) {
                     $messages[] = "{$routeRun->route_name}: laporan tidak dapat diajukan pada status saat ini.";
+
                     continue;
                 }
 

@@ -25,12 +25,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $appUrl = (string) config('app.url');
+        $forwardedProto = request()->header('x-forwarded-proto');
 
-        //untuk ngrok
-        
-        // if (str_contains(config('app.url'), 'ngrok-free.app')) {
-        //     URL::forceScheme('https');
-        // }
+        if (str_starts_with($appUrl, 'https://') || $forwardedProto === 'https') {
+            URL::forceScheme('https');
+        }
 
         Relation::morphMap([
             'school' => School::class,

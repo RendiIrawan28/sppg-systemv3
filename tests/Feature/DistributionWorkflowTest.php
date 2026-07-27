@@ -6,6 +6,7 @@ use App\Enums\DistributionRunState;
 use App\Enums\DistributionStopStatus;
 use App\Enums\FieldDistributionPlanStatus;
 use App\Enums\OperationalReportStatus;
+use App\Livewire\V3\Operations\Form as DistributionForm;
 use App\Models\DistributionRun;
 use App\Models\FieldDistributionPlan;
 use App\Models\SppgUnit;
@@ -14,13 +15,135 @@ use App\Models\WashingSession;
 use App\Services\DistributionWorkflow;
 use App\Services\FieldOperationalPlanGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
 class DistributionWorkflowTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_driver_can_claim_route_from_distribution_form(): void
+    {
+        [$run, $driver] = $this->runAndDriver();
+        $run->stops()->create([
+            'route_name' => 'Rute Timur',
+            'destination_name' => 'SD Negeri Uji',
+            'destination_type' => 'school',
+            'sequence_order' => 1,
+            'small_portions' => 40,
+            'large_portions' => 60,
+            'containers_sent' => 100,
+        ]);
+
+        Livewire::actingAs($driver)
+            ->test(DistributionForm::class, [
+                'module' => 'distribusi',
+                'record' => $run->id,
+            ])
+            ->assertSee('Pilih rute ini')
+            ->set('data.kernet_name', 'Kernet Uji')
+            ->set('data.vehicle_name', 'Mobil Box')
+            ->set('data.vehicle_plate', 'AB 1234 MBG')
+            ->call('claimRoute')
+            ->assertHasNoErrors();
+
+        $run->refresh();
+        $this->assertSame(DistributionRunState::Assigned, $run->state);
+        $this->assertSame($driver->id, $run->petugas_id);
+        $this->assertSame('AB 1234 MBG', $run->vehicle_plate);
+    }
+
+    public function test_driver_can_complete_destination_with_photo_from_distribution_form(): void
+    {
+        Storage::fake('public');
+        [$run, $driver] = $this->runAndDriver();
+        $stop = $run->stops()->create([
+            'route_name' => 'Rute Timur',
+            'destination_name' => 'SD Negeri Uji',
+            'destination_type' => 'school',
+            'sequence_order' => 1,
+            'small_portions' => 40,
+            'large_portions' => 60,
+            'containers_sent' => 100,
+        ]);
+        $workflow = app(DistributionWorkflow::class);
+        $workflow->claimRoute($run, $driver, [
+            'vehicle_name' => 'Mobil Box',
+            'vehicle_plate' => 'AB 1234 MBG',
+            'kernet_name' => 'Kernet Uji',
+        ]);
+        $workflow->startLoading($run->fresh(), $driver);
+        $workflow->depart($run->fresh(), $driver, []);
+
+        Livewire::actingAs($driver)
+            ->test(DistributionForm::class, [
+                'module' => 'distribusi',
+                'record' => $run->id,
+            ])
+            ->assertSee('Makanan tiba di tujuan')
+            ->call('distributionStopWorkflow', 0, 'arrive')
+            ->assertHasNoErrors()
+            ->set('relations.stops.0.delivered_small_portions', 40)
+            ->set('relations.stops.0.delivered_large_portions', 60)
+            ->set('relations.stops.0.recipient_name', 'Ibu Penerima')
+            ->set('uploads.stops.0.handover_photo_path', UploadedFile::fake()->image('bukti-serah.jpg'))
+            ->call('distributionStopWorkflow', 0, 'deliver')
+            ->assertHasNoErrors();
+
+        $stop->refresh();
+        $this->assertSame(DistributionStopStatus::Delivered, $stop->status);
+        $this->assertNotNull($stop->handover_photo_path);
+        Storage::disk('public')->assertExists($stop->handover_photo_path);
+    }
+
+    public function test_failed_route_claim_does_not_leave_vehicle_data_on_available_route(): void
+    {
+        [$firstRun, $driver, $unit] = $this->runAndDriver(includeUnit: true);
+        $secondRun = DistributionRun::query()->create([
+            'sppg_unit_id' => $unit->id,
+            'route_name' => 'Rute Kedua',
+            'distribution_date' => today(),
+            'menu_name_snapshot' => 'Menu Uji',
+            'state' => DistributionRunState::Planned,
+            'status' => OperationalReportStatus::Draft,
+            'created_by' => $driver->id,
+        ]);
+        $secondRun->stops()->create([
+            'route_name' => 'Rute Kedua',
+            'destination_name' => 'SD Kedua',
+            'destination_type' => 'school',
+            'sequence_order' => 1,
+            'small_portions' => 10,
+            'large_portions' => 10,
+            'containers_sent' => 20,
+        ]);
+        app(DistributionWorkflow::class)->claimRoute($firstRun, $driver, [
+            'vehicle_name' => 'Mobil Pertama',
+            'vehicle_plate' => 'AB 1 MBG',
+            'kernet_name' => 'Kernet Pertama',
+        ]);
+
+        Livewire::actingAs($driver)
+            ->test(DistributionForm::class, [
+                'module' => 'distribusi',
+                'record' => $secondRun->id,
+            ])
+            ->set('data.kernet_name', 'Kernet Kedua')
+            ->set('data.vehicle_name', 'Mobil Kedua')
+            ->set('data.vehicle_plate', 'AB 2 MBG')
+            ->call('claimRoute')
+            ->assertHasErrors('action');
+
+        $secondRun->refresh();
+        $this->assertSame(DistributionRunState::Planned, $secondRun->state);
+        $this->assertNull($secondRun->vehicle_name);
+        $this->assertNull($secondRun->vehicle_plate);
+        $this->assertNull($secondRun->kernet_name);
+    }
 
     public function test_driver_can_claim_complete_and_return_from_a_route(): void
     {
@@ -54,6 +177,8 @@ class DistributionWorkflowTest extends TestCase
         $workflow->depart($run->fresh(), $driver, []);
         $this->assertSame(DistributionRunState::Departed, $run->fresh()->state);
         $this->assertSame(DistributionStopStatus::InTransit, $stop->fresh()->status);
+        $workflow->arriveAtStop($run->fresh(), $stop->fresh(), $driver);
+        $this->assertSame(DistributionStopStatus::Arrived, $stop->fresh()->status);
 
         $stop->update([
             'delivered_small_portions' => 40,
@@ -145,6 +270,7 @@ class DistributionWorkflowTest extends TestCase
         ]);
         $workflow->startLoading($run->fresh(), $driver);
         $workflow->depart($run->fresh(), $driver, []);
+        $workflow->arriveAtStop($run->fresh(), $stop->fresh(), $driver);
 
         $stop->update([
             'delivered_small_portions' => 9,
@@ -287,8 +413,9 @@ class DistributionWorkflowTest extends TestCase
             'slug' => 'sppg-distribusi',
             'is_active' => true,
         ]);
-        $driver = User::factory()->create();
+        $driver = User::factory()->create(['is_active' => true]);
         $driver->givePermissionTo([
+            Permission::findOrCreate('distribution.view'),
             Permission::findOrCreate('distribution.update'),
             Permission::findOrCreate('distribution.submit'),
         ]);
