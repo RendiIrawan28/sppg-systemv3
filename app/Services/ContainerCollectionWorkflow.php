@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Enums\DistributionRunState;
 use App\Enums\DistributionStopStatus;
 use App\Models\ContainerCollectionItem;
 use App\Models\ContainerCollectionRun;
 use App\Models\ContainerCollectionTask;
+use App\Models\DistributionRun;
 use App\Models\DistributionStop;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -70,6 +72,25 @@ class ContainerCollectionWorkflow
         abort_unless($actor->can('distribution.update'), 403);
 
         return DB::transaction(function () use ($unitId, $actor, $data): ContainerCollectionRun {
+            User::query()->whereKey($actor->getKey())->lockForUpdate()->firstOrFail();
+
+            $hasActiveDistribution = DistributionRun::query()
+                ->where('sppg_unit_id', $unitId)
+                ->where('petugas_id', $actor->getKey())
+                ->whereIn('state', [
+                    DistributionRunState::Assigned->value,
+                    DistributionRunState::Loaded->value,
+                    DistributionRunState::Departed->value,
+                    DistributionRunState::DestinationsCompleted->value,
+                ])
+                ->exists();
+
+            if ($hasActiveDistribution) {
+                throw ValidationException::withMessages([
+                    'run' => 'Anda masih memiliki rute pengantaran makanan yang aktif. Kembali ke SPPG terlebih dahulu.',
+                ]);
+            }
+
             $hasActive = ContainerCollectionRun::query()
                 ->where('sppg_unit_id', $unitId)
                 ->where('driver_id', $actor->getKey())

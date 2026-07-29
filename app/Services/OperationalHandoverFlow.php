@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\CleaningSessionState;
 use App\Enums\DistributionRunState;
+use App\Enums\OperationalReportStatus;
 use App\Enums\WashingSessionState;
 use App\Models\CleaningArea;
 use App\Models\CleaningSession;
@@ -166,22 +167,7 @@ class OperationalHandoverFlow
                 ]);
             }
 
-            $areas = CleaningArea::query()
-                ->where('sppg_unit_id', $washingSession->sppg_unit_id)
-                ->where('is_active', true)
-                ->where(function ($query): void {
-                    $query->whereIn('category', ['washing', 'pencucian'])
-                        ->orWhere('name', 'like', '%cuci%')
-                        ->orWhere('name', 'like', '%pencucian%');
-                })
-                ->orderBy('name')
-                ->get();
-
-            if ($areas->isEmpty()) {
-                throw ValidationException::withMessages([
-                    'cleaning_area_id' => 'Belum ada master area kebersihan aktif. Tambahkan area kebersihan terlebih dahulu.',
-                ]);
-            }
+            $areas = $this->washingCleaningAreas((int) $washingSession->sppg_unit_id, $actor);
 
             $date = Carbon::parse($washingSession->completed_at ?? $washingSession->washing_date ?? now())->toDateString();
             $created = 0;
@@ -217,4 +203,138 @@ class OperationalHandoverFlow
             return $created;
         });
     }
+
+    public function createCleaningSessionsAfterAllWashingForDate(WashingSession $reference, User $actor): int
+    {
+        return DB::transaction(function () use ($reference, $actor): int {
+            $reference = WashingSession::query()
+                ->whereKey($reference->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $date = Carbon::parse($reference->washing_date ?? now())->toDateString();
+            $sessions = WashingSession::query()
+                ->where('sppg_unit_id', $reference->sppg_unit_id)
+                ->whereDate('washing_date', $date)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+
+            if ($sessions->isEmpty()) {
+                throw ValidationException::withMessages([
+                    'washing_session_id' => 'Belum ada sesi Pencucian pada tanggal tersebut.',
+                ]);
+            }
+
+            if ($sessions->contains(fn (WashingSession $session): bool => $session->state !== WashingSessionState::Ready)) {
+                throw ValidationException::withMessages([
+                    'washing_session_id' => 'Sesi Kebersihan hanya dapat dibuat setelah seluruh pencucian harian berstatus Siap Digunakan.',
+                ]);
+            }
+
+            $allowedStatuses = [
+                OperationalReportStatus::Submitted,
+                OperationalReportStatus::DivisionApproved,
+                OperationalReportStatus::Verified,
+            ];
+
+            if ($sessions->contains(fn (WashingSession $session): bool => ! in_array($session->status, $allowedStatuses, true))) {
+                throw ValidationException::withMessages([
+                    'washing_session_id' => 'Laporan Pencucian harian harus sudah diajukan sebelum sesi Kebersihan dibuat.',
+                ]);
+            }
+
+            $areas = $this->washingCleaningAreas((int) $reference->sppg_unit_id, $actor);
+            $latestReadyAt = $sessions
+                ->map(fn (WashingSession $session) => $session->ready_at ?: $session->completed_at)
+                ->filter()
+                ->sortDesc()
+                ->first();
+            $scheduledStartAt = $latestReadyAt
+                ? Carbon::parse($latestReadyAt)
+                : Carbon::parse($date.' 14:00:00');
+            $created = 0;
+
+            foreach ($areas as $area) {
+                $exists = CleaningSession::query()
+                    ->where('sppg_unit_id', $reference->sppg_unit_id)
+                    ->where('cleaning_area_id', $area->getKey())
+                    ->whereDate('scheduled_date', $date)
+                    ->where('shift', 'evening')
+                    ->exists();
+
+                if ($exists) {
+                    continue;
+                }
+
+                $session = CleaningSession::query()->create([
+                    'sppg_unit_id' => $reference->sppg_unit_id,
+                    'cleaning_area_id' => $area->getKey(),
+                    'scheduled_date' => $date,
+                    'shift' => 'evening',
+                    'scheduled_start_at' => $scheduledStartAt,
+                    'state' => CleaningSessionState::Planned,
+                    'created_by' => $actor->getKey(),
+                    'updated_by' => $actor->getKey(),
+                    'notes' => sprintf(
+                        'Sesi Kebersihan dibuat setelah seluruh %d sesi Pencucian tanggal %s diajukan.',
+                        $sessions->count(),
+                        Carbon::parse($date)->translatedFormat('d F Y'),
+                    ),
+                ]);
+
+                app(OperationalRecordInitializer::class)->initialize($session, $actor);
+                $created++;
+            }
+
+            return $created;
+        });
+    }
+
+    private function washingCleaningAreas(int $unitId, User $actor)
+    {
+        $query = fn () => CleaningArea::query()
+            ->where('sppg_unit_id', $unitId)
+            ->where('is_active', true)
+            ->where(function ($builder): void {
+                $builder->whereIn('category', ['washing', 'pencucian'])
+                    ->orWhere('name', 'like', '%cuci%')
+                    ->orWhere('name', 'like', '%pencucian%');
+            })
+            ->orderBy('name')
+            ->get();
+
+        $areas = $query();
+
+        if ($areas->isNotEmpty()) {
+            return $areas;
+        }
+
+        CleaningArea::query()->updateOrCreate(
+            [
+                'sppg_unit_id' => $unitId,
+                'code' => 'CUCI',
+            ],
+            [
+                'name' => 'Area Pencucian Ompreng',
+                'category' => 'washing',
+                'location' => 'Area pencucian',
+                'frequency' => 'daily',
+                'standard_duration_minutes' => 60,
+                'instructions' => 'Bersihkan area setelah seluruh proses pencucian ompreng selesai.',
+                'default_checklist' => [
+                    'Sisa makanan dan sampah sudah dibuang',
+                    'Lantai dan area kerja sudah dibersihkan',
+                    'Tidak terdapat genangan air',
+                    'Peralatan pencucian tersusun dan siap digunakan kembali',
+                ],
+                'is_active' => true,
+                'created_by' => $actor->getKey(),
+                'updated_by' => $actor->getKey(),
+            ],
+        );
+
+        return $query();
+    }
+
 }

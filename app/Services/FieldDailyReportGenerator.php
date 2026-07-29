@@ -227,6 +227,7 @@ class FieldDailyReportGenerator
                 'name' => 'Persiapan',
                 'sources' => [
                     ['table' => 'preparation_sessions', 'date' => 'preparation_date'],
+                    ['table' => 'waste_handover_reports', 'date' => 'report_date', 'where' => ['division_type' => 'preparation']],
                 ],
             ],
             'processing' => [

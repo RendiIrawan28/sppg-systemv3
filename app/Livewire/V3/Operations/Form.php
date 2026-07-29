@@ -51,7 +51,7 @@ class Form extends Component
         $definition = $registry->get($module);
         $this->module = $module;
         $this->recordId = $record;
-        abort_if(in_array($module, ['distribusi', 'pencucian'], true) && ! $record, 404);
+        abort_if(in_array($module, ['distribusi', 'pencucian', 'kebersihan'], true) && ! $record, 404);
         $permission = $record ? '.view' : '.create';
         abort_unless($this->allowed($definition['permission'].$permission), 403);
 
@@ -198,6 +198,7 @@ class Form extends Component
                 },
                 'pencucian' => match ($action) {
                     'receive' => $service->receive($record, $actor, [...$this->data, 'notes' => $notes]),
+                    'waste' => $service->recordWaste($record, $actor, [...$this->data, 'notes' => $notes]),
                     'start' => $service->start($record, $actor, ['notes' => $notes]),
                     'complete' => $service->complete($record, $actor, [...$this->data, 'notes' => $notes]),
                     'ready' => $service->markReady($record, $actor, $notes), 'submit' => $service->submit($record, $actor, $notes),
@@ -205,7 +206,10 @@ class Form extends Component
                 },
                 'kebersihan' => match ($action) {
                     'start' => $service->start($record, $actor, ['notes' => $notes]),
-                    'complete' => $service->complete($record, $actor, ['after_condition' => $this->data['after_condition'] ?? null, 'notes' => $notes]),
+                    'complete' => $service->complete($record, $actor, [
+                        'after_condition' => $this->data['after_condition'] ?? null,
+                        'notes' => $notes ?: ($this->data['notes'] ?? null),
+                    ]),
                     'ready' => $service->markReady($record, $actor, $notes), 'submit' => $service->submit($record, $actor, $notes),
                     'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
                 },
@@ -375,6 +379,12 @@ class Form extends Component
         $definition = $registry->get($this->module);
         abort_unless($this->allowed($definition['permission'].'.view'), 403);
         $record = $this->recordId ? $this->record() : null;
+        if ($record && $this->module === 'kebersihan') {
+            $record->loadMissing(['cleaningArea', 'wasteHandoverReport']);
+        }
+        if ($record && $this->module === 'pencucian') {
+            $record->loadMissing('wasteHandoverReport');
+        }
 
         $options = [];
         foreach ([...$definition['fields'], ...collect($definition['relations'])->flatMap(fn ($relation) => $relation['fields'])->all()] as $field) {
@@ -460,6 +470,17 @@ class Form extends Component
                         ]));
                     }
 
+                    if ($this->module === 'kebersihan' && $name === 'checklistItems') {
+                        $values = array_intersect_key($values, array_flip(['result', 'notes']));
+                        if (in_array($values['result'] ?? null, ['pass', 'fail'], true)) {
+                            $values['checked_at'] = now();
+                            $values['checked_by'] = $actor->getKey();
+                        } else {
+                            $values['checked_at'] = null;
+                            $values['checked_by'] = null;
+                        }
+                    }
+
                     foreach ($relationDefinition['fields'] as $field) {
                         if ($field['type'] !== 'file') {
                             continue;
@@ -482,7 +503,8 @@ class Form extends Component
                     $kept[] = $child->getKey();
                 }
 
-                if (! ($this->module === 'distribusi' && $name === 'stops')) {
+                if (! ($this->module === 'distribusi' && $name === 'stops')
+                    && ! ($this->module === 'kebersihan' && $name === 'checklistItems')) {
                     $relation->when($kept !== [], fn ($query) => $query->whereNotIn('id', $kept))->delete();
                 }
             }
@@ -696,7 +718,9 @@ class Form extends Component
             },
             'pencucian' => match ($state) {
                 'planned' => ['receive' => 'Terima ompreng'],
-                'received' => ['start' => 'Mulai pencucian'],
+                'received' => $record->wasteHandlingCompleted()
+                    ? ['waste' => 'Perbarui data limbah', 'start' => 'Mulai pencucian']
+                    : ['waste' => 'Simpan pencatatan limbah'],
                 'washing' => ['complete' => 'Selesaikan pencucian'],
                 'completed' => ['ready' => 'Tandai siap digunakan'],
                 default => [],
@@ -704,7 +728,6 @@ class Form extends Component
             'kebersihan' => match ($state) {
                 'planned' => ['start' => 'Mulai kebersihan'],
                 'in_progress' => ['complete' => 'Selesaikan kebersihan'],
-                'completed' => ['ready' => 'Tandai area siap'],
                 default => [],
             },
         };
@@ -720,7 +743,7 @@ class Form extends Component
         if ($this->module !== 'distribusi'
             && $state === 'ready'
             && in_array($status, ['draft', 'revision_required'], true)) {
-            $actions['submit'] = 'Ajukan laporan';
+            $actions['submit'] = $this->module === 'kebersihan' ? 'Ajukan laporan harian' : 'Ajukan laporan';
         }
 
         if ($this->module === 'distribusi' && ! $this->canOperateRoute($record)) {
@@ -734,8 +757,13 @@ class Form extends Component
             || ($status === 'division_approved' && $approvalService->isHeadSppg($actor))
         );
         if ($canReviewStage) {
-            $actions['verify'] = 'Setujui laporan seluruh rute';
-            $actions['revision'] = 'Minta revisi seluruh rute';
+            $suffix = match ($this->module) {
+                'distribusi' => ' seluruh rute',
+                'kebersihan' => ' harian',
+                default => '',
+            };
+            $actions['verify'] = 'Setujui laporan'.$suffix;
+            $actions['revision'] = 'Minta revisi'.$suffix;
         }
 
         return $actions;

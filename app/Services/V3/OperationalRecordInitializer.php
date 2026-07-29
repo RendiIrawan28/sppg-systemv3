@@ -9,6 +9,7 @@ use App\Models\DistributionRun;
 use App\Models\PortioningSession;
 use App\Models\User;
 use App\Models\WashingSession;
+use App\Support\CleaningChecklistTemplate;
 use Illuminate\Support\Facades\Schema;
 
 final class OperationalRecordInitializer
@@ -128,21 +129,36 @@ final class OperationalRecordInitializer
         if ($session->checklistItems()->exists()) {
             return;
         }
+
         $area = CleaningArea::query()->find($session->cleaning_area_id);
-        $items = is_array($area?->default_checklist) && $area->default_checklist !== []
-            ? $area->default_checklist
-            : [
-                ['category' => 'preparation', 'item_name' => 'Sampah dan benda tidak diperlukan telah dipindahkan'],
-                ['category' => 'surface', 'item_name' => 'Meja, dinding, dan permukaan kontak telah dibersihkan'],
-                ['category' => 'floor', 'item_name' => 'Lantai bersih, tidak licin, dan tidak ada genangan'],
-                ['category' => 'drain', 'item_name' => 'Saluran air bersih dan tidak tersumbat'],
-                ['category' => 'equipment', 'item_name' => 'Peralatan kebersihan dicuci dan disimpan pada tempatnya'],
-                ['category' => 'final', 'item_name' => 'Area tidak berbau, bebas hama, dan siap digunakan'],
-            ];
+        $templateItems = $area
+            ? CleaningChecklistTemplate::items(CleaningChecklistTemplate::forArea($area))
+            : [];
+
+        $items = $templateItems !== []
+            ? $templateItems
+            : (is_array($area?->default_checklist) && $area->default_checklist !== []
+                ? $area->default_checklist
+                : [
+                    ['category' => 'preparation', 'item_name' => 'Sampah dan benda tidak diperlukan telah dipindahkan'],
+                    ['category' => 'surface', 'item_name' => 'Meja, dinding, dan permukaan kontak telah dibersihkan'],
+                    ['category' => 'floor', 'item_name' => 'Lantai bersih, tidak licin, dan tidak ada genangan'],
+                    ['category' => 'drain', 'item_name' => 'Saluran air bersih dan tidak tersumbat'],
+                    ['category' => 'equipment', 'item_name' => 'Peralatan kebersihan dicuci dan disimpan pada tempatnya'],
+                    ['category' => 'final', 'item_name' => 'Area tidak berbau, bebas hama, dan siap digunakan'],
+                ]);
+
         foreach (array_values($items) as $index => $item) {
+            $normalized = is_string($item)
+                ? ['category' => 'other', 'item_name' => $item, 'is_mandatory' => true]
+                : (array) $item;
+
             $session->checklistItems()->create([
-                'category' => $item['category'] ?? 'other', 'item_name' => $item['item_name'] ?? 'Pemeriksaan area',
-                'is_mandatory' => (bool) ($item['is_mandatory'] ?? true), 'result' => 'pending', 'sort_order' => $index + 1,
+                'category' => $normalized['category'] ?? 'other',
+                'item_name' => $normalized['item_name'] ?? 'Pemeriksaan area',
+                'is_mandatory' => (bool) ($normalized['is_mandatory'] ?? true),
+                'result' => 'pending',
+                'sort_order' => $index + 1,
             ]);
         }
     }

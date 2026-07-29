@@ -140,6 +140,11 @@ final class Navigation
                         active: request()->routeIs('v3.operations.*') && request()->route('module') === 'kebersihan', visible: $this->allowed($user, 'cleaning.view'),
                     ),
                     $this->item(
+                        label: 'Berita Acara Limbah', icon: 'clipboard', url: route('v3.waste-handovers.index'),
+                        active: request()->routeIs('v3.waste-handovers.*'),
+                        visible: $this->allowed($user, 'preparation.view') || $this->allowed($user, 'washing.view') || $this->allowed($user, 'cleaning.view'),
+                    ),
+                    $this->item(
                         label: 'Keamanan', icon: 'shield', url: route('v3.security.index'),
                         active: request()->routeIs('v3.security.*'), visible: $this->allowed($user, 'security.view'),
                     ),

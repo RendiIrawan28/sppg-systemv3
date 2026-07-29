@@ -4,7 +4,9 @@ namespace App\Livewire\V3\Operations;
 
 use App\Enums\DistributionRunState;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Models\CleaningArea;
 use App\Models\DistributionRun;
+use App\Services\CleaningScheduleService;
 use App\Support\V3\OperationalModuleRegistry;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -20,10 +22,20 @@ class Index extends Component
     #[Url(as: 'q')]
     public string $search = '';
 
+    #[Url(as: 'mulai')]
+    public string $periodStart = '';
+
+    #[Url(as: 'selesai')]
+    public string $periodEnd = '';
+
     public function mount(string $module, OperationalModuleRegistry $registry): void
     {
         $registry->get($module);
         $this->module = $module;
+        if ($module === 'kebersihan') {
+            $this->periodStart = $this->periodStart ?: now()->startOfWeek()->toDateString();
+            $this->periodEnd = $this->periodEnd ?: now()->startOfWeek()->addWeek()->addDays(4)->toDateString();
+        }
     }
 
     public function updatedSearch(): void
@@ -39,10 +51,18 @@ class Index extends Component
 
         $model = $definition['model'];
         $actor = auth()->user();
+        if ($this->module === 'kebersihan' && $actor->can('cleaning.view')) {
+            app(CleaningScheduleService::class)->ensureForDate($unit, now()->toDateString(), $actor);
+        }
+
         $query = $model::query()->where('sppg_unit_id', $unit->getKey());
 
         if ($this->module === 'pencucian') {
             $query->with(['containerCollectionRun', 'distributionRun']);
+        }
+
+        if ($this->module === 'kebersihan') {
+            $query->with(['cleaningArea', 'petugas', 'checklistItems']);
         }
 
         if ($this->module === 'distribusi'
@@ -113,6 +133,10 @@ class Index extends Component
                 ->count();
         }
 
+        $cleaningAreas = $this->module === 'kebersihan'
+            ? CleaningArea::query()->where('sppg_unit_id', $unit->getKey())->where('is_active', true)->orderBy('name')->get()
+            : collect();
+
         return view('livewire.v3.operations.index', [
             ...$this->shellData($unit),
             'definition' => $definition,
@@ -120,6 +144,9 @@ class Index extends Component
             'canCreate' => $this->allowed($definition['permission'].'.create'),
             'activeRoute' => $activeRoute,
             'availableCount' => $availableCount,
+            'periodStart' => $this->periodStart,
+            'periodEnd' => $this->periodEnd,
+            'cleaningAreas' => $cleaningAreas,
         ])->layout('layouts.v3', ['title' => $definition['label']]);
     }
 }

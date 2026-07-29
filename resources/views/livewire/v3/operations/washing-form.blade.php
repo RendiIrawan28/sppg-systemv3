@@ -147,15 +147,17 @@
                             @endif
                         </div>
 
-                        <div class="mt-5 grid gap-4 rounded-2xl border border-slate-200 p-4 dark:border-slate-700 sm:grid-cols-2">
-                            <div class="sm:col-span-2"><p class="text-xs font-bold uppercase tracking-[.12em] text-slate-500 dark:text-slate-400">Berita acara serah-terima limbah</p></div>
-                            <label><span class="mb-1 block text-xs font-semibold">Nama pihak pertama</span><input wire:model="data.waste_first_party_name" @disabled(!$isReceived || !$canUpdate) class="{{ $inputClass }}"></label>
-                            <label><span class="mb-1 block text-xs font-semibold">Jabatan pihak pertama</span><input wire:model="data.waste_first_party_position" @disabled(!$isReceived || !$canUpdate) class="{{ $inputClass }}"></label>
-                            <label class="sm:col-span-2"><span class="mb-1 block text-xs font-semibold">Alamat pihak pertama</span><textarea wire:model="data.waste_first_party_address" rows="2" @disabled(!$isReceived || !$canUpdate) class="{{ $textareaClass }}"></textarea></label>
-                            <label><span class="mb-1 block text-xs font-semibold">Nama pihak kedua</span><input wire:model="data.waste_second_party_name" @disabled(!$isReceived || !$canUpdate) class="{{ $inputClass }}"></label>
-                            <label><span class="mb-1 block text-xs font-semibold">Jabatan pihak kedua</span><input wire:model="data.waste_second_party_position" @disabled(!$isReceived || !$canUpdate) class="{{ $inputClass }}"></label>
-                            <label class="sm:col-span-2"><span class="mb-1 block text-xs font-semibold">Alamat pihak kedua</span><textarea wire:model="data.waste_second_party_address" rows="2" @disabled(!$isReceived || !$canUpdate) class="{{ $textareaClass }}"></textarea></label>
-                            <label class="sm:col-span-2"><span class="mb-1 block text-xs font-semibold">Catatan serah-terima</span><textarea wire:model="data.waste_handover_notes" rows="2" @disabled(!$isReceived || !$canUpdate) class="{{ $textareaClass }}"></textarea></label>
+                        <div class="mt-5 rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                            <p class="text-xs font-bold uppercase tracking-[.12em] text-slate-500 dark:text-slate-400">Berita acara serah-terima limbah bersama</p>
+                            <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Simpan daftar limbah terlebih dahulu, kemudian lengkapi satu berita acara yang juga digunakan oleh Persiapan dan Kebersihan.</p>
+                            <div class="mt-4 flex flex-wrap gap-2">
+                                @if ($record->wasteHandoverReport)
+                                    <a wire:navigate href="{{ route('v3.waste-handovers.show', $record->wasteHandoverReport) }}" class="inline-flex h-10 items-center rounded-xl bg-sky-600 px-4 text-xs font-bold text-white">Buka berita acara</a>
+                                    <a target="_blank" href="{{ route('v3.waste-handovers.pdf', $record->wasteHandoverReport) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-xs font-bold dark:border-slate-700">Unduh PDF</a>
+                                @else
+                                    <a wire:navigate href="{{ route('v3.waste-handovers.create', ['division' => 'washing', 'source_type' => 'washing_session', 'source_id' => $record->id, 'source_reference' => $record->session_number]) }}" class="inline-flex h-10 items-center rounded-xl bg-amber-500 px-4 text-xs font-bold text-white">Buat berita acara limbah</a>
+                                @endif
+                            </div>
                         </div>
                     @elseif ($hasWaste === false)
                         <label class="mt-5 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-400/25 dark:bg-emerald-500/10">
@@ -171,8 +173,8 @@
                     @elseif ($record->wasteHandlingCompleted())
                         <div class="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-400/25 dark:bg-emerald-500/10">
                             <p class="text-sm font-bold text-emerald-700 dark:text-emerald-300">Pencatatan limbah selesai.</p>
-                            @if ($record->has_food_waste && $record->status === App\Enums\OperationalReportStatus::Verified)
-                                <a href="{{ route('washing-sessions.waste-pdf', $record) }}" class="text-xs font-bold text-emerald-700 underline dark:text-emerald-300">Unduh berita acara limbah</a>
+                            @if ($record->has_food_waste && $record->wasteHandoverReport)
+                                <a target="_blank" href="{{ route('v3.waste-handovers.pdf', $record->wasteHandoverReport) }}" class="text-xs font-bold text-emerald-700 underline dark:text-emerald-300">Unduh berita acara limbah</a>
                             @endif
                         </div>
                     @endif

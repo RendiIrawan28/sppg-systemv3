@@ -15,8 +15,8 @@ class CleaningArea extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'sppg_unit_id', 'code', 'name', 'category', 'location', 'frequency',
-        'standard_duration_minutes', 'instructions', 'default_checklist',
+        'sppg_unit_id', 'code', 'name', 'category', 'template_type', 'location', 'frequency',
+        'auto_schedule', 'scheduled_time', 'standard_duration_minutes', 'instructions', 'default_checklist',
         'is_active', 'created_by', 'updated_by',
     ];
 
@@ -25,6 +25,7 @@ class CleaningArea extends Model
         return [
             'default_checklist' => 'array',
             'is_active' => 'boolean',
+            'auto_schedule' => 'boolean',
             'standard_duration_minutes' => 'integer',
         ];
     }

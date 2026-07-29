@@ -8,6 +8,7 @@ use App\Enums\DistributionRunState;
 use App\Enums\DistributionStopStatus;
 use App\Enums\FieldDistributionPlanStatus;
 use App\Enums\OperationalReportStatus;
+use App\Models\ContainerCollectionRun;
 use App\Models\DistributionRun;
 use App\Models\DistributionStop;
 use App\Models\User;
@@ -23,6 +24,7 @@ class DistributionWorkflow
         abort_unless($actor->can('distribution.update'), 403);
 
         return DB::transaction(function () use ($run, $actor, $data): DistributionRun {
+            User::query()->whereKey($actor->getKey())->lockForUpdate()->firstOrFail();
             $run = $this->lockedRun($run);
 
             if (! $run->isReportEditable() || $run->state !== DistributionRunState::Planned) {
@@ -38,6 +40,18 @@ class DistributionWorkflow
             if ($vehicleName === '' || $vehiclePlate === '' || $kernetName === '') {
                 throw ValidationException::withMessages([
                     'assignment' => 'Kendaraan, nomor polisi, dan nama kernet wajib diisi sebelum memilih rute.',
+                ]);
+            }
+
+            $hasActiveCollection = ContainerCollectionRun::query()
+                ->where('sppg_unit_id', $run->sppg_unit_id)
+                ->where('driver_id', $actor->getKey())
+                ->where('state', ContainerCollectionRun::ACTIVE)
+                ->exists();
+
+            if ($hasActiveCollection) {
+                throw ValidationException::withMessages([
+                    'driver' => 'Anda masih memiliki kegiatan pengambilan ompreng yang aktif. Kembali ke SPPG terlebih dahulu.',
                 ]);
             }
 

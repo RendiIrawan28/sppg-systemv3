@@ -12,10 +12,10 @@ enum CleaningSessionState: string
     public function label(): string
     {
         return match ($this) {
-            self::Planned => 'Direncanakan',
+            self::Planned => 'Menunggu',
             self::InProgress => 'Sedang Dibersihkan',
-            self::Completed => 'Pembersihan Selesai',
-            self::Ready => 'Siap Diverifikasi',
+            self::Completed => 'Pembersihan Selesai (lama)',
+            self::Ready => 'Selesai',
         };
     }
 

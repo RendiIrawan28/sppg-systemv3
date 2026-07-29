@@ -273,12 +273,21 @@ final class MasterDataRegistry
                 'notes' => $this->field('Catatan', 'textarea', ['nullable', 'string', 'max:2000']),
                 'is_active' => $this->toggle(),
             ]),
-            'cleaning-areas' => $this->catalog('Area Kebersihan', 'Area, frekuensi, SOP, dan checklist standar.', CleaningArea::class, 'cleaning', true, ['code', 'name', 'category', 'frequency'], [
+            'cleaning-areas' => $this->catalog('Area Kebersihan', 'Area, template resmi, jadwal, dan SOP Kebersihan.', CleaningArea::class, 'cleaning', true, ['code', 'name', 'template_type', 'frequency'], [
                 'code' => $this->field('Kode area', rules: ['required', 'string', 'max:50'], unique: true, normalize: 'upper'),
                 'name' => $this->field('Nama area', rules: ['required', 'string', 'max:255']),
-                'category' => $this->field('Kategori', 'select', ['required', 'string'], options: ['production' => 'Produksi', 'storage' => 'Penyimpanan', 'service' => 'Pelayanan', 'office' => 'Perkantoran', 'sanitation' => 'Sanitasi', 'outdoor' => 'Area Luar', 'other' => 'Lainnya']),
+                'category' => $this->field('Kategori', 'select', ['required', 'string'], options: [
+                    'toilet' => 'Toilet', 'production' => 'Produksi', 'portioning' => 'Pemorsian',
+                    'warehouse' => 'Gudang', 'washing' => 'Pencucian', 'other' => 'Lainnya',
+                ]),
+                'template_type' => $this->field('Template checklist', 'select', ['required', 'string'], options: [
+                    'toilet' => 'Toilet', 'production' => 'Area Produksi', 'portioning' => 'Area Pemorsian',
+                    'warehouse' => 'Gudang', 'custom' => 'Checklist khusus',
+                ]),
                 'location' => $this->field('Lokasi/detail posisi'),
-                'frequency' => $this->field('Frekuensi standar', 'select', ['required', 'string'], options: ['per_shift' => 'Setiap Shift', 'daily' => 'Harian', 'weekly' => 'Mingguan', 'monthly' => 'Bulanan', 'as_needed' => 'Sesuai Kebutuhan']),
+                'frequency' => $this->field('Frekuensi standar', 'select', ['required', 'string'], options: ['daily' => 'Harian', 'weekly' => 'Mingguan', 'as_needed' => 'Sesuai Kebutuhan']),
+                'auto_schedule' => $this->field('Buat jadwal otomatis', 'toggle', ['boolean'], default: true),
+                'scheduled_time' => $this->field('Jam jadwal', 'time', ['nullable']),
                 'standard_duration_minutes' => $this->field('Durasi standar (menit)', 'number', ['nullable', 'integer', 'min:1']),
                 'instructions' => $this->field('Instruksi/SOP ringkas', 'textarea', ['nullable', 'string', 'max:4000']),
                 'is_active' => $this->toggle(),

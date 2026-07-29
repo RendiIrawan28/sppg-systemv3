@@ -22,10 +22,16 @@ class WasteHandoverReport extends Model
         'uuid',
         'sppg_unit_id',
         'division_type',
+        'source_type',
+        'source_id',
+        'source_reference',
         'report_number',
+        'document_revision',
         'document_year',
         'sequence_number',
         'report_date',
+        'effective_date',
+        'handed_over_at',
         'first_party_name',
         'first_party_position',
         'first_party_address',
@@ -40,6 +46,8 @@ class WasteHandoverReport extends Model
         'updated_by',
         'submitted_by',
         'submitted_at',
+        'division_approved_by',
+        'division_approved_at',
         'verified_by',
         'verified_at',
         'review_notes',
@@ -56,9 +64,12 @@ class WasteHandoverReport extends Model
             'division_type' => WasteDivision::class,
             'status' => OperationalReportStatus::class,
             'report_date' => 'date',
+            'effective_date' => 'date',
+            'handed_over_at' => 'datetime',
             'document_year' => 'integer',
             'sequence_number' => 'integer',
             'submitted_at' => 'datetime',
+            'division_approved_at' => 'datetime',
             'verified_at' => 'datetime',
             'legacy_created_at' => 'datetime',
         ];
@@ -117,6 +128,11 @@ class WasteHandoverReport extends Model
         return $this->belongsTo(User::class, 'submitted_by');
     }
 
+    public function divisionApprover(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'division_approved_by');
+    }
+
     public function verifier(): BelongsTo
     {
         return $this->belongsTo(User::class, 'verified_by');
@@ -144,11 +160,7 @@ class WasteHandoverReport extends Model
 
     public function getTotalWeightKgAttribute(): float
     {
-        if (array_key_exists('items_sum_weight_kg', $this->attributes)) {
-            return (float) ($this->attributes['items_sum_weight_kg'] ?? 0);
-        }
-
-        return (float) $this->items()->sum('weight_kg');
+        return (float) $this->items()->where('unit', 'kg')->sum('quantity');
     }
 
     private function assignDocumentSequence(): void

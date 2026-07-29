@@ -167,7 +167,7 @@ class Index extends Component
     public function render()
     {
         $unit = $this->currentUnit();
-        $records = PreparationSession::with(['items.returns', 'resultDocumentation', 'withdrawal.taker'])
+        $records = PreparationSession::with(['items.returns', 'resultDocumentation', 'withdrawal.taker', 'wasteHandoverReport'])
             ->where('sppg_unit_id', $unit->id)->latest()->get();
         $selected = $this->selectedId ? $records->firstWhere('id', $this->selectedId) : null;
 

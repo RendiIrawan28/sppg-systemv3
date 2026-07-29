@@ -9,6 +9,7 @@ use App\Models\ContainerCollectionTask;
 use App\Models\User;
 use App\Models\WashingSession;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -87,7 +88,7 @@ class WashingWorkflow
     public function recordWaste(WashingSession $session, User $actor, array $data): WashingSession
     {
         return DB::transaction(function () use ($session, $actor, $data): WashingSession {
-            $session = $this->lockedSession($session)->load(['wasteRecords', 'sppgUnit']);
+            $session = $this->lockedSession($session)->load(['wasteRecords', 'wasteHandoverReport', 'sppgUnit']);
             $this->ensureEditable($session);
 
             if ($session->state !== WashingSessionState::Received) {
@@ -141,33 +142,14 @@ class WashingWorkflow
                     }
                 }
 
-                foreach ([
-                    'waste_first_party_name' => 'Nama pihak pertama wajib diisi.',
-                    'waste_first_party_position' => 'Jabatan pihak pertama wajib diisi.',
-                    'waste_first_party_address' => 'Alamat pihak pertama wajib diisi.',
-                    'waste_second_party_name' => 'Nama pihak kedua wajib diisi.',
-                    'waste_second_party_position' => 'Jabatan pihak kedua wajib diisi.',
-                    'waste_second_party_address' => 'Alamat pihak kedua wajib diisi.',
-                ] as $field => $message) {
-                    if (blank($data[$field] ?? $session->{$field})) {
-                        $errors[$field] = $message;
-                    }
-                }
-
                 if ($errors !== []) {
                     throw ValidationException::withMessages($errors);
                 }
 
                 $updates += [
                     'no_waste_confirmed' => false,
-                    'waste_handed_over_at' => now(),
-                    'waste_first_party_name' => trim((string) ($data['waste_first_party_name'] ?? $session->waste_first_party_name)),
-                    'waste_first_party_position' => trim((string) ($data['waste_first_party_position'] ?? $session->waste_first_party_position)),
-                    'waste_first_party_address' => trim((string) ($data['waste_first_party_address'] ?? $session->waste_first_party_address)),
-                    'waste_second_party_name' => trim((string) ($data['waste_second_party_name'] ?? $session->waste_second_party_name)),
-                    'waste_second_party_position' => trim((string) ($data['waste_second_party_position'] ?? $session->waste_second_party_position)),
-                    'waste_second_party_address' => trim((string) ($data['waste_second_party_address'] ?? $session->waste_second_party_address)),
-                    'waste_handover_notes' => trim((string) ($data['waste_handover_notes'] ?? $session->waste_handover_notes)),
+                    'waste_handed_over_at' => $session->wasteHandoverReport?->handed_over_at,
+                    'waste_handover_notes' => trim((string) ($data['waste_handover_notes'] ?? $session->waste_handover_notes)) ?: null,
                 ];
             } else {
                 if (! $noWasteConfirmed) {
@@ -200,7 +182,7 @@ class WashingWorkflow
             $this->writeHistory(
                 $session,
                 $actor,
-                $hasFoodWaste ? 'waste_handed_over' : 'no_waste_confirmed',
+                $hasFoodWaste ? 'waste_recorded' : 'no_waste_confirmed',
                 $session->state->value,
                 $session->state->value,
                 $session->waste_handover_notes,
@@ -378,18 +360,26 @@ class WashingWorkflow
             return ['Belum ada sesi Pencucian pada tanggal tersebut.'];
         }
 
-        $runs = ContainerCollectionRun::query()
+        $dayEnd = Carbon::parse($date)->endOfDay();
+        $activeRunCount = ContainerCollectionRun::query()
             ->where('sppg_unit_id', $session->sppg_unit_id)
-            ->whereDate('collection_date', $date)
-            ->get();
+            ->where('state', ContainerCollectionRun::ACTIVE)
+            ->where('started_at', '<=', $dayEnd)
+            ->count();
 
-        if ($runs->contains(fn (ContainerCollectionRun $run): bool => $run->state !== ContainerCollectionRun::RETURNED)) {
+        if ($activeRunCount > 0) {
             $issues[] = 'Masih ada kegiatan pengambilan ompreng yang belum kembali ke SPPG.';
         }
 
+        $runs = ContainerCollectionRun::query()
+            ->where('sppg_unit_id', $session->sppg_unit_id)
+            ->where('state', ContainerCollectionRun::RETURNED)
+            ->whereDate('returned_at', $date)
+            ->get();
+
         $remainingTasks = ContainerCollectionTask::query()
             ->where('sppg_unit_id', $session->sppg_unit_id)
-            ->whereDate('delivery_date', $date)
+            ->whereDate('delivery_date', '<=', $date)
             ->where('remaining_containers', '>', 0)
             ->count();
         if ($remainingTasks > 0) {

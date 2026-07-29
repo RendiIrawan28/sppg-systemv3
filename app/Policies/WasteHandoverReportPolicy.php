@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\WasteDivision;
 use App\Models\User;
 use App\Models\WasteHandoverReport;
 
@@ -9,45 +10,30 @@ class WasteHandoverReportPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $user->can('preparation.view');
+        return collect(WasteDivision::cases())
+            ->contains(fn (WasteDivision $division): bool => $user->can($division->permissionPrefix().'.view'));
     }
 
     public function view(User $user, WasteHandoverReport $report): bool
     {
-        return $user->can('preparation.view');
+        return $user->can($report->division_type->permissionPrefix().'.view');
     }
 
     public function create(User $user): bool
     {
-        return $user->can('preparation.create');
+        return collect(WasteDivision::cases())
+            ->contains(fn (WasteDivision $division): bool => $user->can($division->permissionPrefix().'.update'));
     }
 
     public function update(User $user, WasteHandoverReport $report): bool
     {
-        if ($report->isEditable()) {
-            return $user->can('preparation.update');
-        }
-
-        return $user->can('preparation.approve');
+        return $report->isEditable()
+            ? $user->can($report->division_type->permissionPrefix().'.update')
+            : $user->can($report->division_type->permissionPrefix().'.approve');
     }
 
     public function delete(User $user, WasteHandoverReport $report): bool
     {
-        return $user->can('preparation.delete') && $report->isEditable();
-    }
-
-    public function deleteAny(User $user): bool
-    {
-        return false;
-    }
-
-    public function restore(User $user, WasteHandoverReport $report): bool
-    {
-        return false;
-    }
-
-    public function forceDelete(User $user, WasteHandoverReport $report): bool
-    {
-        return false;
+        return $report->isEditable() && $user->can($report->division_type->permissionPrefix().'.delete');
     }
 }

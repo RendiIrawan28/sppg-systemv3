@@ -14,6 +14,8 @@ class WasteHandoverItem extends Model
     protected $fillable = [
         'waste_handover_report_id',
         'waste_type',
+        'quantity',
+        'unit',
         'weight_kg',
         'notes',
         'photo_path',
@@ -25,6 +27,7 @@ class WasteHandoverItem extends Model
     protected function casts(): array
     {
         return [
+            'quantity' => 'decimal:3',
             'weight_kg' => 'decimal:3',
             'sort_order' => 'integer',
         ];

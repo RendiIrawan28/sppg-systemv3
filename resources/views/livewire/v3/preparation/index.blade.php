@@ -36,7 +36,9 @@
                         @if($canExport && $selected->status === \App\Enums\OperationalReportStatus::Verified)
                             <div class="mt-4 flex flex-wrap gap-2">
                                 <a href="{{ route('preparation.sessions.calculation-pdf', $selected) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50">Unduh Laporan Perhitungan</a>
-                                <a href="{{ route('preparation.sessions.waste-pdf', $selected) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50">Unduh Berita Acara Limbah</a>
+                                @if($selected->wasteHandoverReport)
+                                    <a href="{{ route('v3.waste-handovers.pdf', $selected->wasteHandoverReport) }}" target="_blank" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50">Unduh Berita Acara Limbah</a>
+                                @endif
                             </div>
                         @elseif($canExport && $selected->state === 'completed')
                             <p class="mt-3 text-xs font-semibold text-slate-500">Ekspor laporan tersedia setelah disetujui Kepala SPPG.</p>
@@ -83,6 +85,22 @@
                         </div>
                         @if($canEdit && $selected->state === 'in_progress') <textarea wire:model="notes" class="mt-3 w-full rounded-xl border p-3 text-sm" placeholder="Catatan sesi"></textarea><button wire:click="save" class="mt-3 rounded-xl border px-4 py-2 text-xs font-bold">Simpan bahan</button> @endif
                     </div>
+
+                    @php($totalPreparationWaste = $selected->items->sum(fn($item) => (float) ($item->waste_quantity ?? $item->waste_weight_kg)))
+                    @if($totalPreparationWaste > 0)
+                        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                            <h3 class="font-bold text-amber-900">Berita Acara Serah Terima Limbah</h3>
+                            <p class="mt-1 text-xs text-amber-700">Menggunakan satu format bersama untuk Persiapan, Pencucian, dan Kebersihan.</p>
+                            <div class="mt-4 flex flex-wrap gap-2">
+                                @if($selected->wasteHandoverReport)
+                                    <a wire:navigate href="{{ route('v3.waste-handovers.show', $selected->wasteHandoverReport) }}" class="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white">Buka berita acara</a>
+                                    <a target="_blank" href="{{ route('v3.waste-handovers.pdf', $selected->wasteHandoverReport) }}" class="rounded-xl border border-amber-300 bg-white px-4 py-2 text-xs font-bold text-amber-800">Unduh PDF</a>
+                                @elseif($canEdit)
+                                    <a wire:navigate href="{{ route('v3.waste-handovers.create', ['division'=>'preparation','source_type'=>'preparation_session','source_id'=>$selected->id,'source_reference'=>$selected->session_number]) }}" class="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white">Buat berita acara limbah</a>
+                                @endif
+                            </div>
+                        </div>
+                    @endif
 
                     <div class="rounded-2xl border border-slate-200 bg-white p-5">
                         <h3 class="font-bold">Foto hasil Persiapan</h3>

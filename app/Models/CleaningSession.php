@@ -23,7 +23,8 @@ class CleaningSession extends Model
         'sequence_number', 'scheduled_date', 'shift', 'scheduled_start_at',
         'started_at', 'completed_at', 'ready_at', 'duration_minutes', 'state',
         'petugas_id', 'petugas_name_snapshot', 'supervisor_id',
-        'supervisor_name_snapshot', 'before_condition', 'after_condition', 'notes',
+        'supervisor_name_snapshot', 'before_condition', 'after_condition', 'waste_presence',
+        'waste_handover_report_id', 'notes',
         'status', 'created_by', 'updated_by', 'submitted_by', 'submitted_at',
         'division_approved_by', 'division_approved_at', 'verified_by', 'verified_at',
         'review_notes', 'source_system', 'legacy_id',
@@ -101,6 +102,11 @@ class CleaningSession extends Model
         return $this->hasMany(CleaningWasteRecord::class)->orderBy('id');
     }
 
+    public function wasteHandoverReport(): BelongsTo
+    {
+        return $this->belongsTo(WasteHandoverReport::class, 'waste_handover_report_id');
+    }
+
     public function histories(): HasMany
     {
         return $this->hasMany(CleaningHistory::class)->latest();
@@ -122,7 +128,7 @@ class CleaningSession extends Model
             return 0;
         }
 
-        $completed = $required->whereIn('result', ['pass', 'not_applicable'])->count();
+        $completed = $required->whereIn('result', ['pass', 'fail'])->count();
 
         return (int) round(($completed / $required->count()) * 100);
     }

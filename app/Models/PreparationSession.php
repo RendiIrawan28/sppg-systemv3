@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PreparationSession extends Model
 {
-    protected $fillable = ['sppg_unit_id', 'warehouse_withdrawal_id', 'session_number', 'preparation_date', 'purpose_reference', 'state', 'status', 'petugas_id', 'started_at', 'completed_at', 'submitted_by', 'submitted_at', 'division_approved_by', 'division_approved_at', 'verified_by', 'verified_at', 'notes', 'review_notes'];
+    protected $fillable = ['sppg_unit_id', 'warehouse_withdrawal_id', 'session_number', 'preparation_date', 'purpose_reference', 'state', 'status', 'petugas_id', 'started_at', 'completed_at', 'submitted_by', 'submitted_at', 'division_approved_by', 'division_approved_at', 'verified_by', 'verified_at', 'notes', 'review_notes', 'waste_handover_report_id'];
 
     protected function casts(): array
     {
@@ -50,6 +50,11 @@ class PreparationSession extends Model
     public function returns(): HasMany
     {
         return $this->hasMany(PreparationReturn::class);
+    }
+
+    public function wasteHandoverReport(): BelongsTo
+    {
+        return $this->belongsTo(WasteHandoverReport::class, 'waste_handover_report_id');
     }
 
     public function outputs(): HasMany

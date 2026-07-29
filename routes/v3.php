@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Controllers\CleaningChecklistPeriodPdfController;
+use App\Http\Controllers\CleaningWarehouseChecklistPdfController;
+use App\Http\Controllers\WasteHandoverPdfController;
 use App\Http\Controllers\V3\EntryController;
 use App\Http\Controllers\V3\LogoutController;
 use App\Http\Middleware\SetV3UnitContext;
@@ -43,6 +46,8 @@ use App\Livewire\V3\Warehouse\Receipts\Index as StockReceiptIndex;
 use App\Livewire\V3\Warehouse\Receipts\Show as StockReceiptShow;
 use App\Livewire\V3\Warehouse\Stock\Index as StockIndex;
 use App\Livewire\V3\Warehouse\Withdrawals\Index as WarehouseWithdrawalIndex;
+use App\Livewire\V3\WasteHandovers\Form as WasteHandoverForm;
+use App\Livewire\V3\WasteHandovers\Index as WasteHandoverIndex;
 use App\Support\V3\MasterDataRegistry;
 use App\Support\V3\OperationalModuleRegistry;
 use Illuminate\Support\Facades\Route;
@@ -86,6 +91,12 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/operasional/pengolahan', ProcessingIndex::class)->name('processing.index');
             Route::get('/operasional/pemorsian', PortioningIndex::class)->name('portioning.index');
             Route::get('/operasional/pengambilan-ompreng', ContainerCollectionIndex::class)->name('container-collections.index');
+            Route::get('/operasional/berita-acara-limbah', WasteHandoverIndex::class)->name('waste-handovers.index');
+            Route::get('/operasional/berita-acara-limbah/tambah', WasteHandoverForm::class)->name('waste-handovers.create');
+            Route::get('/operasional/berita-acara-limbah/{report}', WasteHandoverForm::class)->whereNumber('report')->name('waste-handovers.show');
+            Route::get('/operasional/berita-acara-limbah/{wasteHandoverReport}/pdf', WasteHandoverPdfController::class)->name('waste-handovers.pdf');
+            Route::get('/operasional/kebersihan/checklist/{cleaningArea}/pdf', CleaningChecklistPeriodPdfController::class)->name('cleaning.checklist-period.pdf');
+            Route::get('/operasional/kebersihan/checklist-gudang/pdf', CleaningWarehouseChecklistPdfController::class)->name('cleaning.warehouse-checklists.pdf');
             Route::get('/lapangan/rencana', FieldPlanIndex::class)->name('field.plans.index');
             Route::get('/lapangan/rencana/tambah', FieldPlanForm::class)->name('field.plans.create');
             Route::get('/lapangan/rencana/{plan}', FieldPlanForm::class)->name('field.plans.show');
