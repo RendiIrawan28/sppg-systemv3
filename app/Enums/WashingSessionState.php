@@ -13,7 +13,7 @@ enum WashingSessionState: string
     public function label(): string
     {
         return match ($this) {
-            self::Planned => 'Direncanakan',
+            self::Planned => 'Menunggu Diterima',
             self::Received => 'Ompreng Diterima',
             self::Washing => 'Sedang Dicuci',
             self::Completed => 'Pencucian Selesai',

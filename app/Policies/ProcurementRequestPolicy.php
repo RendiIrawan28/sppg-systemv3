@@ -38,7 +38,8 @@ class ProcurementRequestPolicy
             ProcurementRequest::STATUS_DRAFT,
             ProcurementRequest::STATUS_REVISION => $user->can('procurement.update'),
 
-            ProcurementRequest::STATUS_SUBMITTED => $user->can('procurement.select_supplier')
+            ProcurementRequest::STATUS_SUBMITTED => $user->can('procurement.update')
+                || $user->can('procurement.select_supplier')
                 || $user->can('procurement.price_input')
                 || $user->can('procurement.approve'),
 

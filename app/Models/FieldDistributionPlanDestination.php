@@ -123,7 +123,9 @@ class FieldDistributionPlanDestination extends Model
             'confirmation_status' => $changed ? 'changed' : 'confirmed',
             'confirmed_at' => now(),
             'confirmed_by_name' => auth()->user()?->name ?: $this->confirmed_by_name,
-            'change_reason' => $changed ? ($reasons ?: null) : null,
+            'change_reason' => $changed
+                ? ($reasons ?: $this->change_reason)
+                : null,
         ]);
 
         $this->refresh();
@@ -132,6 +134,20 @@ class FieldDistributionPlanDestination extends Model
 
     private function syncDateTimesFromPlanDate(): void
     {
+        $departureTimeChanged = $this->isDirty('planned_departure_time');
+        $arrivalTimeChanged = $this->isDirty('planned_arrival_time');
+
+        $this->planned_departure_time = $this->normalizeNullableTime($this->planned_departure_time);
+        $this->planned_arrival_time = $this->normalizeNullableTime($this->planned_arrival_time);
+
+        if ($departureTimeChanged && $this->planned_departure_time === null) {
+            $this->planned_departure_at = null;
+        }
+
+        if ($arrivalTimeChanged && $this->planned_arrival_time === null) {
+            $this->planned_arrival_at = null;
+        }
+
         $date = $this->plan?->distribution_date;
 
         if (! $date && $this->field_distribution_plan_id) {
@@ -144,21 +160,40 @@ class FieldDistributionPlanDestination extends Model
             return;
         }
 
-        if (blank($this->planned_departure_time) && $this->planned_departure_at) {
+        if (! $departureTimeChanged && $this->planned_departure_time === null && $this->planned_departure_at) {
             $this->planned_departure_time = Carbon::parse($this->planned_departure_at)->format('H:i:s');
         }
 
-        if (blank($this->planned_arrival_time) && $this->planned_arrival_at) {
+        if (! $arrivalTimeChanged && $this->planned_arrival_time === null && $this->planned_arrival_at) {
             $this->planned_arrival_time = Carbon::parse($this->planned_arrival_at)->format('H:i:s');
         }
 
-        if (filled($this->planned_departure_time)) {
+        if ($this->planned_departure_time !== null) {
             $this->planned_departure_at = $this->combineDateAndTime($date, $this->planned_departure_time);
         }
 
-        if (filled($this->planned_arrival_time)) {
+        if ($this->planned_arrival_time !== null) {
             $this->planned_arrival_at = $this->combineDateAndTime($date, $this->planned_arrival_time);
         }
+    }
+
+    private function normalizeNullableTime(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return Carbon::instance($value)->format('H:i:s');
+        }
+
+        $value = trim((string) $value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        return Carbon::parse($value)->format('H:i:s');
     }
 
     private function combineDateAndTime(mixed $date, mixed $time): Carbon

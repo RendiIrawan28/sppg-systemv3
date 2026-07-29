@@ -99,6 +99,11 @@ final class Navigation
                         active: request()->routeIs('v3.preparation.*'), visible: $this->allowed($user, 'preparation.view'),
                     ),
                     $this->item(
+                        label: 'Hasil Persiapan', icon: 'box', url: route('v3.preparation-outputs.index'),
+                        active: request()->routeIs('v3.preparation-outputs.*'),
+                        visible: $this->allowed($user, 'preparation.view') || $this->allowed($user, 'processing.view') || $this->allowed($user, 'portioning.view'),
+                    ),
+                    $this->item(
                         label: 'Rencana lapangan', icon: 'calendar', url: route('v3.field.plans.index'),
                         active: request()->routeIs('v3.field.plans.*'), visible: $this->allowed($user, 'field_planning.view'),
                     ),
@@ -121,6 +126,10 @@ final class Navigation
                     $this->item(
                         label: 'Distribusi', icon: 'arrow-up-right', url: route('v3.operations.index', ['module' => 'distribusi']),
                         active: request()->routeIs('v3.operations.*') && request()->route('module') === 'distribusi', visible: $this->allowed($user, 'distribution.view'),
+                    ),
+                    $this->item(
+                        label: 'Pengambilan Ompreng', icon: 'arrow-up-right', url: route('v3.container-collections.index'),
+                        active: request()->routeIs('v3.container-collections.*'), visible: $this->allowed($user, 'distribution.view'),
                     ),
                     $this->item(
                         label: 'Pencucian', icon: 'box', url: route('v3.operations.index', ['module' => 'pencucian']),

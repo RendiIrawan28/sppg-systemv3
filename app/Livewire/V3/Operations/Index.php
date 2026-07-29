@@ -41,7 +41,13 @@ class Index extends Component
         $actor = auth()->user();
         $query = $model::query()->where('sppg_unit_id', $unit->getKey());
 
-        if ($this->module === 'distribusi' && ! $actor->can('distribution.approve')) {
+        if ($this->module === 'pencucian') {
+            $query->with(['containerCollectionRun', 'distributionRun']);
+        }
+
+        if ($this->module === 'distribusi'
+            && $actor->can('distribution.update')
+            && ! $actor->can('distribution.approve')) {
             $query->where(function ($query) use ($actor): void {
                 $query->where('state', DistributionRunState::Planned->value)
                     ->orWhere('petugas_id', $actor->getKey());
@@ -56,6 +62,13 @@ class Index extends Component
                     if ($this->module === 'distribusi') {
                         $query->orWhere('route_name', 'like', '%'.$this->search.'%')
                             ->orWhere('driver_name', 'like', '%'.$this->search.'%');
+                    }
+
+                    if ($this->module === 'pencucian') {
+                        $query->orWhereHas('containerCollectionRun', function ($run): void {
+                            $run->where('run_number', 'like', '%'.$this->search.'%')
+                                ->orWhere('driver_name_snapshot', 'like', '%'.$this->search.'%');
+                        });
                     }
                 });
             })
@@ -80,17 +93,19 @@ class Index extends Component
         $availableCount = null;
 
         if ($this->module === 'distribusi') {
-            $activeRoute = DistributionRun::query()
-                ->where('sppg_unit_id', $unit->getKey())
-                ->where('petugas_id', $actor->getKey())
-                ->whereIn('state', [
-                    DistributionRunState::Assigned->value,
-                    DistributionRunState::Loaded->value,
-                    DistributionRunState::Departed->value,
-                    DistributionRunState::DestinationsCompleted->value,
-                ])
-                ->latest('id')
-                ->first();
+            if ($actor->can('distribution.update')) {
+                $activeRoute = DistributionRun::query()
+                    ->where('sppg_unit_id', $unit->getKey())
+                    ->where('petugas_id', $actor->getKey())
+                    ->whereIn('state', [
+                        DistributionRunState::Assigned->value,
+                        DistributionRunState::Loaded->value,
+                        DistributionRunState::Departed->value,
+                        DistributionRunState::DestinationsCompleted->value,
+                    ])
+                    ->latest('id')
+                    ->first();
+            }
 
             $availableCount = DistributionRun::query()
                 ->where('sppg_unit_id', $unit->getKey())

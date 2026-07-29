@@ -41,11 +41,14 @@ class FieldDistributionPlanWorkflow
                 $issues[] = "{$label}: rincian kelompok penerima belum diisi.";
             }
 
+            $isNotServed = (int) $destination->total_portions === 0;
+
             foreach ($destination->recipientGroups as $group) {
                 $groupLabel = $group->beneficiary_category_name_snapshot ?: 'Kelompok penerima';
 
-                if ((int) $group->confirmed_beneficiaries <= 0) {
-                    $issues[] = "{$label} - {$groupLabel}: jumlah aktual harus lebih dari nol.";
+                // Nilai 0 sah, misalnya kelompok tidak hadir atau sekolah tidak menerima pelayanan.
+                if ((int) $group->confirmed_beneficiaries < 0) {
+                    $issues[] = "{$label} - {$groupLabel}: jumlah aktual tidak boleh negatif.";
                 }
 
                 if (blank($group->menu_audience)) {
@@ -57,19 +60,21 @@ class FieldDistributionPlanWorkflow
                 }
             }
 
-            if ((int) $destination->confirmed_beneficiaries <= 0) {
-                $issues[] = "{$label}: jumlah penerima terkonfirmasi harus lebih dari nol.";
+            if ((int) $destination->confirmed_beneficiaries < 0) {
+                $issues[] = "{$label}: jumlah penerima terkonfirmasi tidak boleh negatif.";
             }
 
-            if ((int) $destination->total_portions <= 0) {
-                $issues[] = "{$label}: jumlah porsi harus lebih dari nol.";
+            if ((int) $destination->total_portions < 0) {
+                $issues[] = "{$label}: jumlah porsi tidak boleh negatif.";
             }
 
             if ((int) $destination->total_portions !== (int) $destination->confirmed_beneficiaries) {
                 $issues[] = "{$label}: total porsi harus sama dengan penerima terkonfirmasi.";
             }
 
-            if (blank($destination->route_name)) {
+            // Tujuan dengan total 0 dianggap tidak menerima pelayanan pada tanggal tersebut.
+            // Rute dan urutan hanya wajib untuk tujuan yang benar-benar dilayani.
+            if (! $isNotServed && blank($destination->route_name)) {
                 $issues[] = "{$label}: rute distribusi belum diisi.";
             }
 
@@ -78,7 +83,9 @@ class FieldDistributionPlanWorkflow
             }
 
             if ($destination->confirmation_status === 'changed' && blank($destination->change_reason)) {
-                $issues[] = "{$label}: alasan perubahan jumlah penerima wajib diisi.";
+                $issues[] = $isNotServed
+                    ? "{$label}: alasan tidak menerima pelayanan wajib diisi."
+                    : "{$label}: alasan perubahan jumlah penerima wajib diisi.";
             }
 
             if (in_array($destination->confirmation_status, ['confirmed', 'changed'], true)
@@ -88,6 +95,7 @@ class FieldDistributionPlanWorkflow
         }
 
         $duplicateSequences = $plan->destinations
+            ->filter(fn ($destination): bool => (int) $destination->total_portions > 0)
             ->groupBy(fn ($destination): string => trim((string) $destination->route_name))
             ->flatMap(function ($destinations, string $routeName) {
                 return $destinations

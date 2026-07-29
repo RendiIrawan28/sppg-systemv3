@@ -9,7 +9,6 @@
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white shadow-xl sm:p-7">
             <div class="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
                 <div>
-                    <span class="rounded-full bg-cyan-300/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[.16em] text-cyan-200 ring-1 ring-cyan-300/20">Alur spreadsheet</span>
                     <h2 class="mt-4 text-2xl font-bold sm:text-3xl">Kebutuhan dihitung dari rencana distribusi.</h2>
                     <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-300">Ahli Gizi tidak perlu membuat rencana manual. Sistem menggunakan porsi aktual, resep, BDD, susut, buffer, satuan pembelian, dan aturan pembulatan pada Master Bahan.</p>
                 </div>

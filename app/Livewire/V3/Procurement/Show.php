@@ -4,6 +4,7 @@ namespace App\Livewire\V3\Procurement;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\Ingredient;
+use App\Models\MeasurementUnit;
 use App\Models\ProcurementRequest;
 use App\Models\ProcurementRequestItem;
 use App\Models\Supplier;
@@ -55,11 +56,31 @@ class Show extends Component
         });
     }
 
+    public function changeUnit(int $itemId, string $measurementUnitId): void
+    {
+        $request = $this->request();
+        abort_unless($this->canEditItems($request), 403);
+
+        $item = $request->items()->findOrFail($itemId);
+        $measurementUnit = MeasurementUnit::query()
+            ->where('is_active', true)
+            ->findOrFail((int) $measurementUnitId);
+
+        $previousUnitId = (int) ($this->rows[$itemId]['measurement_unit_id'] ?? 0);
+        $this->rows[$itemId]['measurement_unit_id'] = $measurementUnit->getKey();
+
+        if ($previousUnitId !== (int) $measurementUnit->getKey()) {
+            $this->rows[$itemId]['estimated_unit_price'] = 0;
+            $this->actionMessage = "Satuan beli {$item->ingredient_name_snapshot} diubah menjadi ".($measurementUnit->symbol ?: $measurementUnit->code).'';
+        }
+
+        $this->resetValidation("rows.{$itemId}.measurement_unit_id");
+    }
+
     public function addItem(ProcurementRequestService $service): void
     {
-        abort_unless($this->allowed('procurement.update'), 403);
         $request = $this->request();
-        abort_unless($request->isEditable(), 403);
+        abort_unless($this->canEditItems($request), 403);
         $unit = $this->currentUnit();
 
         $data = $this->validate([
@@ -90,7 +111,12 @@ class Show extends Component
 
             DB::transaction(function () use ($ingredient, $request, $service): void {
                 $quantity = 1.0;
-                $quantityKg = $this->quantityInKgForIngredient($ingredient, $quantity);
+                $unitSnapshot = $ingredient->measurementUnit?->symbol
+                    ?: $ingredient->measurementUnit?->code
+                    ?: 'unit';
+                $legacyKgQuantity = $this->isKilogramUnit($ingredient->measurementUnit, $unitSnapshot)
+                    ? $quantity
+                    : 0.0;
 
                 $request->items()->create([
                     'nutrition_requirement_item_id' => null,
@@ -98,13 +124,15 @@ class Show extends Component
                     'supplier_id' => null,
                     'ingredient_code_snapshot' => $ingredient->code,
                     'ingredient_name_snapshot' => $ingredient->name,
-                    'unit_snapshot' => $ingredient->measurementUnit?->symbol
-                        ?: $ingredient->measurementUnit?->code
-                        ?: 'unit',
+                    'unit_snapshot' => $unitSnapshot,
+                    'measurement_unit_id' => $ingredient->measurement_unit_id,
+                    'kg_per_unit_snapshot' => null,
+                    'requirement_quantity_snapshot' => null,
+                    'requirement_unit_snapshot' => null,
                     'requested_quantity' => $quantity,
                     'approved_quantity' => $quantity,
-                    'requested_quantity_kg' => $quantityKg,
-                    'approved_quantity_kg' => $quantityKg,
+                    'requested_quantity_kg' => $legacyKgQuantity,
+                    'approved_quantity_kg' => $legacyKgQuantity,
                     'estimated_unit_price' => (float) ($ingredient->reference_price ?? 0),
                     'estimated_total_price' => (float) ($ingredient->reference_price ?? 0),
                 ]);
@@ -113,6 +141,7 @@ class Show extends Component
             });
 
             $this->newIngredientId = '';
+            $this->fillFromRequest($request->refresh());
 
             return "{$ingredient->name} berhasil ditambahkan ke item pembelian.";
         });
@@ -120,9 +149,8 @@ class Show extends Component
 
     public function removeItem(int $itemId, ProcurementRequestService $service): void
     {
-        abort_unless($this->allowed('procurement.update'), 403);
         $request = $this->request();
-        abort_unless($request->isEditable(), 403);
+        abort_unless($this->canEditItems($request), 403);
 
         $item = $request->items()->findOrFail($itemId);
 
@@ -133,6 +161,8 @@ class Show extends Component
                 $item->delete();
                 $service->recalculate($request);
             });
+
+            $this->fillFromRequest($request->refresh());
 
             return "{$name} berhasil dihapus dari item pembelian.";
         });
@@ -220,7 +250,7 @@ class Show extends Component
     {
         $unit = $this->currentUnit();
         abort_unless($this->allowed('procurement.view'), 403);
-        $request = $this->request()->load(['nutritionRequirementPlan', 'items.supplier', 'creator', 'submitter', 'approver', 'priceFinalizer', 'orderer']);
+        $request = $this->request()->load(['nutritionRequirementPlan', 'items.supplier', 'items.ingredient.measurementUnit', 'items.measurementUnit', 'items.nutritionRequirementItem', 'creator', 'submitter', 'approver', 'priceFinalizer', 'orderer']);
 
         return view('livewire.v3.procurement.show', [
             ...$this->shellData($unit),
@@ -234,7 +264,13 @@ class Show extends Component
                 ->whereNotIn('id', $request->items->pluck('ingredient_id')->filter())
                 ->orderBy('name')
                 ->get(),
+            'measurementUnits' => MeasurementUnit::query()
+                ->where('is_active', true)
+                ->orderByRaw("CASE unit_type WHEN 'weight' THEN 1 WHEN 'volume' THEN 2 WHEN 'count' THEN 3 ELSE 4 END")
+                ->orderBy('name')
+                ->get(),
             'canHeaderEdit' => $this->allowed('procurement.update') && $request->isEditable(),
+            'canItemEdit' => $this->canEditItems($request),
             'canSupplierEdit' => $this->allowed('procurement.select_supplier') && $request->status === ProcurementRequest::STATUS_SUBMITTED,
             'canPriceEdit' => $this->allowed('procurement.price_input') && $request->priceIsEditable(),
         ])->layout('layouts.v3', ['title' => 'Rincian Pengadaan']);
@@ -245,9 +281,10 @@ class Show extends Component
         $request = $this->request()->load('items');
         $unit = $this->currentUnit();
         $canHeader = $this->allowed('procurement.update') && $request->isEditable();
+        $canItems = $this->canEditItems($request);
         $canSupplier = $this->allowed('procurement.select_supplier') && $request->status === ProcurementRequest::STATUS_SUBMITTED;
         $canPrice = $this->allowed('procurement.price_input') && $request->priceIsEditable();
-        abort_unless($canHeader || $canSupplier || $canPrice, 403);
+        abort_unless($canHeader || $canItems || $canSupplier || $canPrice, 403);
 
         $data = $this->validate([
             'requestDate' => ['required', 'date'],
@@ -255,6 +292,11 @@ class Show extends Component
             'notes' => ['nullable', 'string', 'max:2000'],
             'rows' => ['required', 'array'],
             'rows.*.requested_quantity' => ['required', 'numeric', 'gt:0'],
+            'rows.*.measurement_unit_id' => [
+                'required',
+                'integer',
+                Rule::exists('measurement_units', 'id')->where('is_active', true),
+            ],
             'rows.*.supplier_id' => ['nullable', 'integer', Rule::exists('suppliers', 'id')->where('sppg_unit_id', $unit->getKey())],
             'rows.*.estimated_unit_price' => ['nullable', 'numeric', 'min:0'],
             'rows.*.notes' => ['nullable', 'string', 'max:1000'],
@@ -268,6 +310,11 @@ class Show extends Component
             ]);
         }
 
+        $measurementUnits = MeasurementUnit::query()
+            ->where('is_active', true)
+            ->get()
+            ->keyBy('id');
+
         foreach ($request->items as $item) {
             $row = $data['rows'][$item->id] ?? null;
             if (! is_array($row)) {
@@ -275,14 +322,34 @@ class Show extends Component
             }
 
             $updates = [];
-            if ($canHeader) {
+            if ($canItems) {
                 $quantity = (float) $row['requested_quantity'];
-                $quantityKg = $this->quantityInKgForItem($item, $quantity);
+                $measurementUnit = $measurementUnits->get((int) $row['measurement_unit_id']);
+
+                if (! $measurementUnit instanceof MeasurementUnit) {
+                    throw ValidationException::withMessages([
+                        "rows.{$item->id}.measurement_unit_id" => 'Satuan pembelian tidak tersedia.',
+                    ]);
+                }
+
+                $unitSnapshot = $measurementUnit->symbol ?: $measurementUnit->code;
+                $unitChanged = (int) $item->measurement_unit_id !== (int) $measurementUnit->getKey();
+                $legacyKgQuantity = $this->isKilogramUnit($measurementUnit, $unitSnapshot)
+                    ? round($quantity, 4)
+                    : 0.0;
+
+                $updates['measurement_unit_id'] = $measurementUnit->getKey();
+                $updates['unit_snapshot'] = $unitSnapshot;
+                $updates['kg_per_unit_snapshot'] = null;
                 $updates['requested_quantity'] = $quantity;
                 $updates['approved_quantity'] = $quantity;
-                $updates['requested_quantity_kg'] = $quantityKg;
-                $updates['approved_quantity_kg'] = $quantityKg;
+                $updates['requested_quantity_kg'] = $legacyKgQuantity;
+                $updates['approved_quantity_kg'] = $legacyKgQuantity;
                 $updates['notes'] = trim((string) ($row['notes'] ?? '')) ?: null;
+
+                if ($unitChanged && ! $canPrice) {
+                    $updates['estimated_unit_price'] = 0;
+                }
             }
             if ($canSupplier) {
                 $updates['supplier_id'] = $row['supplier_id'] ?: null;
@@ -299,6 +366,12 @@ class Show extends Component
         $canPrice ? $service->savePrices($request) : $service->recalculate($request);
     }
 
+    private function canEditItems(ProcurementRequest $request): bool
+    {
+        return $this->allowed('procurement.update')
+            && $request->itemsAreEditable();
+    }
+
     private function request(): ProcurementRequest
     {
         $unit = $this->currentUnit();
@@ -308,49 +381,57 @@ class Show extends Component
 
     private function fillFromRequest(ProcurementRequest $request): void
     {
-        $request->load('items');
+        $request->load(['items.ingredient.measurementUnit', 'items.measurementUnit', 'items.nutritionRequirementItem']);
         $this->requestDate = $request->request_date?->toDateString() ?? '';
         $this->neededDate = $request->needed_date?->toDateString() ?? '';
         $this->notes = (string) $request->notes;
-        $this->rows = $request->items->mapWithKeys(fn ($item): array => [
-            $item->id => [
-                'requested_quantity' => (float) $item->requested_quantity,
-                'supplier_id' => $item->supplier_id,
-                'estimated_unit_price' => (float) $item->estimated_unit_price,
-                'notes' => (string) $item->notes,
-            ],
-        ])->all();
+        $this->rows = $request->items->mapWithKeys(function (ProcurementRequestItem $item): array {
+            $measurementUnit = $this->measurementUnitForItem($item);
+
+            return [
+                $item->id => [
+                    'requested_quantity' => (float) $item->requested_quantity,
+                    'measurement_unit_id' => $measurementUnit?->getKey(),
+                    'supplier_id' => $item->supplier_id,
+                    'estimated_unit_price' => (float) $item->estimated_unit_price,
+                    'notes' => (string) $item->notes,
+                ],
+            ];
+        })->all();
     }
 
-    private function quantityInKgForIngredient(Ingredient $ingredient, float $quantity): float
+    private function measurementUnitForItem(ProcurementRequestItem $item): ?MeasurementUnit
     {
-        $gramsPerUnit = (float) ($ingredient->grams_per_unit
-            ?: $ingredient->measurementUnit?->to_base_factor
-            ?: 0);
+        if ($item->measurementUnit) {
+            return $item->measurementUnit;
+        }
 
-        return round($quantity * $gramsPerUnit / 1000, 4);
+        $snapshot = trim((string) $item->unit_snapshot);
+
+        if ($snapshot !== '') {
+            $measurementUnit = MeasurementUnit::query()
+                ->where('is_active', true)
+                ->where(function ($query) use ($snapshot): void {
+                    $query->where('code', $snapshot)
+                        ->orWhere('symbol', $snapshot);
+                })
+                ->first();
+
+            if ($measurementUnit) {
+                return $measurementUnit;
+            }
+        }
+
+        return $item->ingredient?->measurementUnit;
     }
 
-    private function quantityInKgForItem(ProcurementRequestItem $item, float $quantity): float
+    private function isKilogramUnit(?MeasurementUnit $measurementUnit, ?string $snapshot = null): bool
     {
-        $currentQuantity = (float) $item->requested_quantity;
-        $currentQuantityKg = (float) $item->requested_quantity_kg;
+        $code = strtolower(trim((string) ($measurementUnit?->code ?? '')));
+        $symbol = strtolower(trim((string) ($measurementUnit?->symbol ?? $snapshot ?? '')));
 
-        if ($currentQuantity > 0 && $currentQuantityKg > 0) {
-            return round($quantity * ($currentQuantityKg / $currentQuantity), 4);
-        }
-
-        $item->loadMissing('ingredient.measurementUnit');
-
-        if ($item->ingredient) {
-            return $this->quantityInKgForIngredient($item->ingredient, $quantity);
-        }
-
-        return match (strtolower((string) $item->unit_snapshot)) {
-            'kg' => round($quantity, 4),
-            'g', 'gram' => round($quantity / 1000, 4),
-            default => 0.0,
-        };
+        return in_array($code, ['kg', 'kilogram'], true)
+            || in_array($symbol, ['kg', 'kilogram'], true);
     }
 
     private function runAction(callable $action): void

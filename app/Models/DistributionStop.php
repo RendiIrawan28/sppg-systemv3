@@ -6,6 +6,7 @@ use App\Enums\DistributionStopStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class DistributionStop extends Model
 {
@@ -98,4 +99,9 @@ class DistributionStop extends Model
             \App\Models\FieldDistributionPlanDestination::class
         );
     }
+    public function containerCollectionTask(): HasOne
+    {
+        return $this->hasOne(ContainerCollectionTask::class);
+    }
+
 }

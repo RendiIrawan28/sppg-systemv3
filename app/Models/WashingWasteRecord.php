@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Storage;
 
 class WashingWasteRecord extends Model
 {
@@ -20,5 +21,15 @@ class WashingWasteRecord extends Model
         return ['quantity' => 'decimal:3'];
     }
 
-    public function washingSession(): BelongsTo { return $this->belongsTo(WashingSession::class); }
+    public function washingSession(): BelongsTo
+    {
+        return $this->belongsTo(WashingSession::class);
+    }
+
+    public function getPhotoUrlAttribute(): ?string
+    {
+        return $this->photo_path
+            ? Storage::disk('public')->url($this->photo_path)
+            : null;
+    }
 }

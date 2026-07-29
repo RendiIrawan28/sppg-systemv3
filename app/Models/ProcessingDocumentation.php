@@ -14,6 +14,8 @@ class ProcessingDocumentation extends Model
     protected $fillable = [
         'processing_batch_id',
         'documentation_type',
+        'output_quantity',
+        'output_unit',
         'caption',
         'photo_path',
         'captured_at',
@@ -24,6 +26,7 @@ class ProcessingDocumentation extends Model
     protected function casts(): array
     {
         return [
+            'output_quantity' => 'decimal:4',
             'captured_at' => 'datetime',
             'sort_order' => 'integer',
         ];

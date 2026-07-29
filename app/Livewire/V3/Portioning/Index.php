@@ -345,6 +345,7 @@ class Index extends Component
         $records = PortioningSession::query()
             ->with([
                 'processingBatch',
+                'preparationOutputWithdrawals.output',
                 'routeAllocations',
                 'routeRecords',
                 'leftoverRecords',

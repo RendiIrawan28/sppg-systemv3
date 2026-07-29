@@ -47,7 +47,7 @@ class ProcurementRequestExportController extends Controller
             ['Disetujui Kepala SPPG', $procurement->priceFinalizer?->name ?? '-'],
             ['Catatan', $procurement->notes],
             [],
-            ['No', 'Kode', 'Bahan', 'Supplier', 'Jumlah', 'Satuan', 'Berat (kg)', 'Harga Satuan', 'Subtotal', 'Catatan Item'],
+            ['No', 'Kode', 'Bahan', 'Kebutuhan Referensi', 'Supplier', 'Jumlah Beli', 'Satuan Beli', 'Harga Satuan', 'Subtotal', 'Catatan Item'],
         ], null, 'A1');
 
         $row = 11;
@@ -56,10 +56,10 @@ class ProcurementRequestExportController extends Controller
                 $index + 1,
                 $item->ingredient_code_snapshot,
                 $item->ingredient_name_snapshot,
+                $this->requirementReference($item),
                 $item->supplier?->name ?? '-',
                 (float) ($item->approved_quantity ?: $item->requested_quantity),
                 $item->unit_snapshot,
-                (float) ($item->approved_quantity_kg ?: $item->requested_quantity_kg),
                 (float) $item->estimated_unit_price,
                 (float) $item->estimated_total_price,
                 $item->notes,
@@ -114,11 +114,24 @@ class ProcurementRequestExportController extends Controller
         $procurement->loadMissing([
             'sppgUnit',
             'items.supplier',
+            'items.nutritionRequirementItem',
             'creator',
             'submitter',
             'approver',
             'priceFinalizer',
         ]);
+    }
+
+    private function requirementReference($item): string
+    {
+        $quantity = (float) ($item->requirement_quantity_snapshot ?? 0);
+        $unit = trim((string) ($item->requirement_unit_snapshot ?? ''));
+
+        if ($quantity <= 0 || $unit === '') {
+            return 'Bahan tambahan';
+        }
+
+        return number_format($quantity, 4, ',', '.').' '.$unit;
     }
 
     private function statusLabel(ProcurementRequest $procurement): string

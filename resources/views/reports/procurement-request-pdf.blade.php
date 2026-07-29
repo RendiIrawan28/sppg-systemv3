@@ -45,12 +45,12 @@
         <thead>
             <tr>
                 <th style="width: 4%">No</th>
-                <th style="width: 9%">Kode</th>
-                <th style="width: 18%">Nama Bahan</th>
-                <th style="width: 17%">Supplier</th>
-                <th style="width: 8%">Jumlah</th>
-                <th style="width: 7%">Satuan</th>
-                <th style="width: 9%">Berat (kg)</th>
+                <th style="width: 8%">Kode</th>
+                <th style="width: 16%">Nama Bahan</th>
+                <th style="width: 12%">Kebutuhan Referensi</th>
+                <th style="width: 15%">Supplier</th>
+                <th style="width: 8%">Jumlah Beli</th>
+                <th style="width: 8%">Satuan Beli</th>
                 <th style="width: 11%">Harga Satuan</th>
                 <th style="width: 12%">Subtotal</th>
                 <th>Catatan</th>
@@ -58,14 +58,22 @@
         </thead>
         <tbody>
             @forelse ($procurement->items as $item)
+                @php
+                    $referenceQuantity = (float) ($item->requirement_quantity_snapshot ?? 0);
+                    $referenceUnit = trim((string) ($item->requirement_unit_snapshot ?? ''));
+                @endphp
                 <tr>
                     <td class="center">{{ $loop->iteration }}</td>
                     <td>{{ $item->ingredient_code_snapshot ?: '-' }}</td>
                     <td><strong>{{ $item->ingredient_name_snapshot }}</strong></td>
+                    <td class="right">
+                        {{ $referenceQuantity > 0 && $referenceUnit !== ''
+                            ? number_format($referenceQuantity, 4, ',', '.').' '.$referenceUnit
+                            : 'Bahan tambahan' }}
+                    </td>
                     <td>{{ $item->supplier?->name ?? '-' }}</td>
                     <td class="right">{{ number_format((float) ($item->approved_quantity ?: $item->requested_quantity), 4, ',', '.') }}</td>
                     <td class="center">{{ $item->unit_snapshot ?: '-' }}</td>
-                    <td class="right">{{ number_format((float) ($item->approved_quantity_kg ?: $item->requested_quantity_kg), 3, ',', '.') }}</td>
                     <td class="right">Rp {{ number_format((float) $item->estimated_unit_price, 0, ',', '.') }}</td>
                     <td class="right">Rp {{ number_format((float) $item->estimated_total_price, 0, ',', '.') }}</td>
                     <td>{{ $item->notes ?: '-' }}</td>
@@ -80,6 +88,8 @@
             </tr>
         </tbody>
     </table>
+
+    <p class="muted">Kebutuhan referensi berasal dari perhitungan Ahli Gizi. Jumlah dan satuan beli dicatat sesuai rencana pembelian tanpa konversi otomatis.</p>
 
     <table class="signatures">
         <tr>

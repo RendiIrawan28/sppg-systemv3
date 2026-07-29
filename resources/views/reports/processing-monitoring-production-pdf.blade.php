@@ -30,8 +30,27 @@
 </head>
 <body>
     @php
-        $materials = $batch->materialUsages->values();
-        $rowCount = max(2, $materials->count());
+        $materials = $batch->materialUsages
+            ->map(fn ($item) => (object) [
+                'material_name' => $item->material_name,
+                'quantity' => $item->quantity,
+                'unit_name' => $item->unit_name,
+            ])
+            ->concat(
+                $batch->preparationOutputWithdrawals
+                    ->where('status', 'verified')
+                    ->map(fn ($withdrawal) => (object) [
+                        'material_name' => $withdrawal->output?->output_name.' (hasil Persiapan)',
+                        'quantity' => $withdrawal->verified_quantity,
+                        'unit_name' => $withdrawal->unit_snapshot,
+                    ]),
+            )
+            ->values();
+        $finishedOutputs = $batch->documentations
+            ->where('documentation_type', 'finished_output')
+            ->sortBy('sort_order')
+            ->values();
+        $rowCount = max(2, $materials->count(), $finishedOutputs->count());
         $fillerRows = max(0, 8 - $rowCount);
     @endphp
 
@@ -54,7 +73,10 @@
         </thead>
         <tbody>
             @for($index = 0; $index < $rowCount; $index++)
-                @php($material = $materials->get($index))
+                @php
+                    $material = $materials->get($index);
+                    $finishedOutput = $finishedOutputs->get($index);
+                @endphp
                 <tr>
                     <td class="center">{{ $index + 1 }}</td>
                     <td class="center">{{ $index === 0 ? $batch->menu_name_snapshot : '' }}</td>
@@ -63,8 +85,16 @@
                     <td class="center">{{ $material?->unit_name ?: '' }}</td>
                     <td class="center">{{ $index === 0 && $batch->duration_minutes !== null ? $batch->duration_minutes.' menit' : '' }}</td>
                     <td class="center">{{ $index === 0 ? ($batch->started_at?->format('H:i') ?: '') : '' }}</td>
-                    <td class="center">{{ $index === 0 ? number_format((float) $batch->actual_output_quantity, 3, ',', '.') : '' }}</td>
-                    <td class="center">{{ $index === 0 ? $batch->actual_output_unit : '' }}</td>
+                    <td class="center">
+                        @if($finishedOutput)
+                            {{ number_format((float) $finishedOutput->output_quantity, 3, ',', '.') }}
+                        @elseif($index === 0)
+                            {{ number_format((float) $batch->actual_output_quantity, 3, ',', '.') }}
+                        @endif
+                    </td>
+                    <td class="center">
+                        {{ $finishedOutput?->output_unit ?: ($index === 0 ? $batch->actual_output_unit : '') }}
+                    </td>
                 </tr>
             @endfor
             @for($row = 0; $row < $fillerRows; $row++)

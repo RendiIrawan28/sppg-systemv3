@@ -235,33 +235,40 @@ class DistributionWorkflow
         });
     }
 
+    /** @param array<string, mixed> $data */
     public function completeStop(
         DistributionRun $run,
         DistributionStop $stop,
         User $actor,
+        array $data = [],
     ): DistributionStop {
         abort_unless($actor->can('distribution.update'), 403);
 
-        return DB::transaction(function () use ($run, $stop, $actor): DistributionStop {
+        return DB::transaction(function () use ($run, $stop, $actor, $data): DistributionStop {
             $run = $this->lockedRun($run);
             $this->assertAssignedActor($run, $actor);
             $stop = $this->lockedStop($run, $stop);
 
             if ($run->state !== DistributionRunState::Departed
-                || $stop->status !== DistributionStopStatus::Arrived) {
+                || $stop->status?->isTerminal()) {
                 throw ValidationException::withMessages([
-                    'stop' => 'Tekan Makanan Tiba di Tujuan sebelum menyelesaikan pengantaran.',
+                    'stop' => 'Tujuan tidak dapat diselesaikan pada kondisi saat ini.',
                 ]);
             }
 
-            if (blank($stop->recipient_name) || blank($stop->handover_photo_path)) {
+            $deliveredSmall = (int) ($data['delivered_small_portions'] ?? 0);
+            $deliveredLarge = (int) ($data['delivered_large_portions'] ?? 0);
+            $recipientName = trim((string) ($data['recipient_name'] ?? ''));
+            $recipientPosition = trim((string) ($data['recipient_position'] ?? ''));
+            $photoPath = $data['handover_photo_path'] ?? $stop->handover_photo_path;
+            $failureReason = trim((string) ($data['failure_reason'] ?? ''));
+            $containersSent = (int) ($data['containers_sent'] ?? 0);
+
+            if ($recipientName === '' || blank($photoPath)) {
                 throw ValidationException::withMessages([
                     'stop' => 'Nama penerima dan foto dokumentasi serah-terima wajib diisi.',
                 ]);
             }
-
-            $deliveredSmall = (int) $stop->delivered_small_portions;
-            $deliveredLarge = (int) $stop->delivered_large_portions;
 
             if ($deliveredSmall < 0 || $deliveredSmall > (int) $stop->small_portions
                 || $deliveredLarge < 0 || $deliveredLarge > (int) $stop->large_portions) {
@@ -274,16 +281,35 @@ class DistributionWorkflow
             $returnedLarge = (int) $stop->large_portions - $deliveredLarge;
             $isPartial = ($returnedSmall + $returnedLarge) > 0;
 
-            if ($isPartial && blank($stop->failure_reason)) {
+            if ($isPartial && $failureReason === '') {
                 throw ValidationException::withMessages([
                     'stop' => 'Alasan pengiriman sebagian wajib diisi.',
                 ]);
             }
 
+            if (($deliveredSmall + $deliveredLarge) <= 0) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Gunakan tombol Gagal dikirim jika tidak ada porsi yang diserahkan.',
+                ]);
+            }
+
+            if ($containersSent <= 0) {
+                throw ValidationException::withMessages([
+                    'containers_sent' => 'Jumlah ompreng atau wadah yang dikirim wajib lebih dari nol.',
+                ]);
+            }
+
             $stop->update([
                 'arrived_at' => $stop->arrived_at ?: now(),
+                'delivered_small_portions' => $deliveredSmall,
+                'delivered_large_portions' => $deliveredLarge,
                 'returned_small_portions' => $returnedSmall,
                 'returned_large_portions' => $returnedLarge,
+                'recipient_name' => $recipientName,
+                'recipient_position' => $recipientPosition ?: null,
+                'handover_photo_path' => $photoPath,
+                'containers_sent' => $containersSent,
+                'failure_reason' => $isPartial ? $failureReason : null,
                 'status' => $isPartial
                     ? DistributionStopStatus::Partial
                     : DistributionStopStatus::Delivered,
@@ -298,31 +324,35 @@ class DistributionWorkflow
                 $run->state->value,
                 $stop->destination_name,
             );
+            app(ContainerCollectionWorkflow::class)->syncTaskFromStop($stop->refresh());
             $this->markDestinationsCompletedIfReady($run, $actor);
 
             return $stop->refresh();
         });
     }
 
+    /** @param array<string, mixed> $data */
     public function failStop(
         DistributionRun $run,
         DistributionStop $stop,
         User $actor,
+        array $data = [],
     ): DistributionStop {
         abort_unless($actor->can('distribution.update'), 403);
 
-        return DB::transaction(function () use ($run, $stop, $actor): DistributionStop {
+        return DB::transaction(function () use ($run, $stop, $actor, $data): DistributionStop {
             $run = $this->lockedRun($run);
             $this->assertAssignedActor($run, $actor);
             $stop = $this->lockedStop($run, $stop);
+            $failureReason = trim((string) ($data['failure_reason'] ?? ''));
 
             if ($run->state !== DistributionRunState::Departed
-                || $stop->status !== DistributionStopStatus::Arrived
-                || blank($stop->failure_reason)) {
+                || $stop->status?->isTerminal()
+                || $failureReason === '') {
                 throw ValidationException::withMessages([
-                    'stop' => $stop->status !== DistributionStopStatus::Arrived
-                        ? 'Tekan Makanan Tiba di Tujuan sebelum mencatat pengantaran gagal.'
-                        : 'Alasan gagal dikirim wajib diisi.',
+                    'stop' => $failureReason === ''
+                        ? 'Alasan gagal dikirim wajib diisi.'
+                        : 'Tujuan tidak dapat ditandai gagal pada kondisi saat ini.',
                 ]);
             }
 
@@ -332,6 +362,11 @@ class DistributionWorkflow
                 'delivered_large_portions' => 0,
                 'returned_small_portions' => $stop->small_portions,
                 'returned_large_portions' => $stop->large_portions,
+                'recipient_name' => trim((string) ($data['recipient_name'] ?? '')) ?: null,
+                'recipient_position' => trim((string) ($data['recipient_position'] ?? '')) ?: null,
+                'handover_photo_path' => $data['handover_photo_path'] ?? $stop->handover_photo_path,
+                'containers_sent' => 0,
+                'failure_reason' => $failureReason,
                 'status' => DistributionStopStatus::Failed,
             ]);
 
@@ -342,9 +377,128 @@ class DistributionWorkflow
                 'delivery_failed',
                 $run->state->value,
                 $run->state->value,
-                $stop->destination_name.': '.$stop->failure_reason,
+                $stop->destination_name.': '.$failureReason,
             );
+            app(ContainerCollectionWorkflow::class)->syncTaskFromStop($stop->refresh());
             $this->markDestinationsCompletedIfReady($run, $actor);
+
+            return $stop->refresh();
+        });
+    }
+
+    /** @param array<string, mixed> $data */
+    public function reviseStop(
+        DistributionRun $run,
+        DistributionStop $stop,
+        User $actor,
+        array $data,
+    ): DistributionStop {
+        abort_unless($actor->can('distribution.update'), 403);
+
+        return DB::transaction(function () use ($run, $stop, $actor, $data): DistributionStop {
+            $run = $this->lockedRun($run);
+            $this->assertAssignedActor($run, $actor);
+            $stop = $this->lockedStop($run, $stop);
+
+            if ($run->state !== DistributionRunState::Returned
+                || $run->status !== OperationalReportStatus::RevisionRequired) {
+                throw ValidationException::withMessages([
+                    'status' => 'Data tujuan hanya dapat dikoreksi ketika laporan berstatus Perlu Revisi.',
+                ]);
+            }
+
+            $requestedStatus = DistributionStopStatus::tryFrom((string) ($data['status'] ?? ''));
+            if (! $requestedStatus?->isTerminal()) {
+                throw ValidationException::withMessages([
+                    'status' => 'Status hasil pengantaran tidak valid.',
+                ]);
+            }
+
+            $deliveredSmall = (int) ($data['delivered_small_portions'] ?? 0);
+            $deliveredLarge = (int) ($data['delivered_large_portions'] ?? 0);
+            $plannedSmall = (int) $stop->small_portions;
+            $plannedLarge = (int) $stop->large_portions;
+            $deliveredTotal = $deliveredSmall + $deliveredLarge;
+            $plannedTotal = $plannedSmall + $plannedLarge;
+            $failureReason = trim((string) ($data['failure_reason'] ?? ''));
+            $recipientName = trim((string) ($data['recipient_name'] ?? ''));
+            $photoPath = $data['handover_photo_path'] ?? $stop->handover_photo_path;
+            $containersSent = (int) ($data['containers_sent'] ?? $stop->containers_sent);
+
+            if ($deliveredSmall < 0 || $deliveredSmall > $plannedSmall
+                || $deliveredLarge < 0 || $deliveredLarge > $plannedLarge) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Jumlah porsi yang diserahkan tidak boleh melebihi porsi rencana tujuan.',
+                ]);
+            }
+
+            if ($requestedStatus === DistributionStopStatus::Delivered
+                && ($deliveredSmall !== $plannedSmall || $deliveredLarge !== $plannedLarge)) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Status Selesai hanya dapat dipilih jika seluruh porsi diserahkan.',
+                ]);
+            }
+
+            if ($requestedStatus === DistributionStopStatus::Partial
+                && ($deliveredTotal <= 0 || $deliveredTotal >= $plannedTotal || $failureReason === '')) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Status Terkirim Sebagian memerlukan jumlah di bawah rencana dan alasan selisih.',
+                ]);
+            }
+
+            if ($requestedStatus === DistributionStopStatus::Failed) {
+                $deliveredSmall = 0;
+                $deliveredLarge = 0;
+
+                if ($failureReason === '') {
+                    throw ValidationException::withMessages([
+                        'stop' => 'Alasan gagal dikirim wajib diisi.',
+                    ]);
+                }
+            } elseif ($recipientName === '' || blank($photoPath)) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Nama penerima dan foto dokumentasi wajib tersedia.',
+                ]);
+            }
+
+            if ($requestedStatus !== DistributionStopStatus::Failed && $containersSent <= 0) {
+                throw ValidationException::withMessages([
+                    'containers_sent' => 'Jumlah ompreng atau wadah yang dikirim wajib lebih dari nol.',
+                ]);
+            }
+
+            if ($requestedStatus === DistributionStopStatus::Failed) {
+                $containersSent = 0;
+            }
+
+            $stop->update([
+                'arrived_at' => $stop->arrived_at ?: now(),
+                'delivered_small_portions' => $deliveredSmall,
+                'delivered_large_portions' => $deliveredLarge,
+                'returned_small_portions' => $plannedSmall - $deliveredSmall,
+                'returned_large_portions' => $plannedLarge - $deliveredLarge,
+                'recipient_name' => $requestedStatus === DistributionStopStatus::Failed
+                    ? ($recipientName ?: null)
+                    : $recipientName,
+                'recipient_position' => trim((string) ($data['recipient_position'] ?? '')) ?: null,
+                'handover_photo_path' => $photoPath,
+                'containers_sent' => $containersSent,
+                'failure_reason' => $requestedStatus === DistributionStopStatus::Delivered
+                    ? null
+                    : $failureReason,
+                'status' => $requestedStatus,
+            ]);
+
+            $run->recalculateTotals();
+            $this->writeHistory(
+                $run,
+                $actor,
+                'destination_revision_saved',
+                $run->state->value,
+                $run->state->value,
+                $stop->destination_name,
+            );
+            app(ContainerCollectionWorkflow::class)->syncTaskFromStop($stop->refresh());
 
             return $stop->refresh();
         });
@@ -368,23 +522,8 @@ class DistributionWorkflow
             $run = $this->lockedRun($run);
             $this->validateStopsForCompletion($run);
 
-            $containersReturned = (int) ($data['containers_returned'] ?? $run->containers_returned);
-            $containersDamaged = (int) ($data['containers_damaged'] ?? $run->containers_damaged);
-            $containersLost = (int) ($data['containers_lost'] ?? $run->containers_lost);
-            $expectedContainers = $this->expectedContainers($run);
-
-            if ($expectedContainers > 0
-                && ($containersReturned + $containersDamaged + $containersLost) !== $expectedContainers) {
-                throw ValidationException::withMessages([
-                    'containers' => "Jumlah ompreng kembali, rusak, dan hilang harus sama dengan {$expectedContainers} ompreng yang dibawa.",
-                ]);
-            }
-
             $previousState = $run->state->value;
             $run->update([
-                'containers_returned' => $containersReturned,
-                'containers_damaged' => $containersDamaged,
-                'containers_lost' => $containersLost,
                 'returned_at' => $data['returned_at'] ?? now(),
                 'state' => DistributionRunState::Returned,
                 'updated_by' => $actor->getKey(),
@@ -396,11 +535,7 @@ class DistributionWorkflow
                 'returned',
                 $previousState,
                 $run->state->value,
-                $data['notes'] ?? null,
             );
-
-            app(OperationalHandoverFlow::class)
-                ->createWashingSessionFromDistribution($run->refresh(), $actor);
 
             return $run->refresh();
         });
@@ -604,15 +739,6 @@ class DistributionWorkflow
             }
         }
 
-        $expectedContainers = $this->expectedContainers($run);
-        $accountedContainers = (int) $run->containers_returned
-            + (int) $run->containers_damaged
-            + (int) $run->containers_lost;
-
-        if ($expectedContainers > 0 && $accountedContainers !== $expectedContainers) {
-            $issues[] = 'Jumlah ompreng kembali, rusak, dan hilang belum sama dengan jumlah yang dibawa.';
-        }
-
         $openSeriousIncidents = $run->incidents->filter(function ($incident): bool {
             return in_array($incident->severity, [
                 DistributionIncidentSeverity::High,
@@ -717,6 +843,10 @@ class DistributionWorkflow
             if (blank($stop->handover_photo_path)) {
                 $issues[] = 'foto dokumentasi serah-terima belum tersedia.';
             }
+
+            if ((int) $stop->containers_sent <= 0) {
+                $issues[] = 'jumlah ompreng atau wadah yang dikirim belum diisi.';
+            }
         }
 
         if ($stop->status === DistributionStopStatus::Partial && blank($stop->failure_reason)) {
@@ -728,13 +858,6 @@ class DistributionWorkflow
         }
 
         return $issues;
-    }
-
-    private function expectedContainers(DistributionRun $run): int
-    {
-        $expected = (int) $run->stops()->sum('containers_sent');
-
-        return $expected > 0 ? $expected : (int) $run->loaded_total;
     }
 
     private function assertAssignedActor(DistributionRun $run, User $actor): void

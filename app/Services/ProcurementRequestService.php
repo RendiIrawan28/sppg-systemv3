@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Enums\NutritionRecordStatus;
+use App\Models\MeasurementUnit;
 use App\Models\NutritionRequirementPlan;
 use App\Models\ProcurementRequest;
 use App\Models\User;
@@ -24,7 +24,7 @@ class ProcurementRequestService
     public function createOrSynchronizeDraft(NutritionRequirementPlan $plan, User $actor): ProcurementRequest
     {
         $this->ensureUnitAccess($actor, $plan->sppg_unit_id);
-        $plan->loadMissing(['items', 'fieldDistributionPlan']);
+        $plan->loadMissing(['items.ingredient.measurementUnit', 'fieldDistributionPlan']);
 
         if (! $plan->items()->exists()) {
             throw new RuntimeException('Permintaan pembelian hanya dapat dibuat setelah kebutuhan bahan dihitung.');
@@ -79,12 +79,33 @@ class ProcurementRequestService
         $keptIds = [];
 
         foreach ($plan->items as $item) {
-            $quantity = (float) ($item->total_quantity ?? 0);
-            $quantityKg = (float) ($item->total_quantity_kg ?? 0);
+            $existing = $request->items()
+                ->with(['measurementUnit', 'ingredient.measurementUnit'])
+                ->where('nutrition_requirement_item_id', $item->id)
+                ->first();
 
-            if ($quantity <= 0 && $quantityKg > 0) {
-                $quantity = $quantityKg;
+            $measurementUnit = $existing?->measurementUnit
+                ?? $this->findMeasurementUnit((string) $item->unit_snapshot)
+                ?? $item->ingredient?->measurementUnit;
+
+            $requirementQuantity = (float) ($item->total_quantity ?? 0);
+            $requirementUnit = trim((string) ($item->unit_snapshot ?? ''));
+
+            if ($requirementQuantity <= 0) {
+                $requirementQuantity = (float) ($item->total_quantity_kg ?? 0);
+                $requirementUnit = 'kg';
             }
+
+            $purchaseQuantity = (float) ($existing?->requested_quantity ?? 0);
+            if ($purchaseQuantity <= 0) {
+                $purchaseQuantity = $requirementQuantity > 0 ? $requirementQuantity : 1.0;
+            }
+
+            $unitSnapshot = $measurementUnit?->symbol
+                ?: $measurementUnit?->code
+                ?: ($requirementUnit !== '' ? $requirementUnit : 'unit');
+
+            $legacyKgQuantity = $this->legacyKgQuantity($purchaseQuantity, $measurementUnit, $unitSnapshot);
 
             $requestItem = $request->items()->updateOrCreate([
                 'nutrition_requirement_item_id' => $item->id,
@@ -92,24 +113,38 @@ class ProcurementRequestService
                 'ingredient_id' => $item->ingredient_id,
                 'ingredient_code_snapshot' => $item->ingredient_code_snapshot,
                 'ingredient_name_snapshot' => $item->ingredient_name_snapshot,
-                'unit_snapshot' => $item->unit_snapshot ?: 'unit',
-                'requested_quantity' => $quantity,
-                'approved_quantity' => $quantity,
-                'requested_quantity_kg' => $quantityKg,
-                'approved_quantity_kg' => $quantityKg,
-                'estimated_unit_price' => (float) ($item->estimated_unit_price ?? 0),
-                'estimated_total_price' => (float) ($item->estimated_total_price ?? 0),
-                'notes' => $item->notes,
+                'unit_snapshot' => $unitSnapshot,
+                'measurement_unit_id' => $measurementUnit?->getKey(),
+                'kg_per_unit_snapshot' => null,
+                'requirement_quantity_snapshot' => $requirementQuantity > 0
+                    ? $requirementQuantity
+                    : null,
+                'requirement_unit_snapshot' => $requirementUnit !== ''
+                    ? $requirementUnit
+                    : null,
+                'requested_quantity' => $purchaseQuantity,
+                'approved_quantity' => (float) ($existing?->approved_quantity ?: $purchaseQuantity),
+                'requested_quantity_kg' => $legacyKgQuantity,
+                'approved_quantity_kg' => $this->legacyKgQuantity(
+                    (float) ($existing?->approved_quantity ?: $purchaseQuantity),
+                    $measurementUnit,
+                    $unitSnapshot,
+                ),
+                'estimated_unit_price' => (float) ($existing?->estimated_unit_price ?? $item->estimated_unit_price ?? 0),
+                'estimated_total_price' => (float) ($existing?->estimated_total_price ?? 0),
+                'notes' => $existing?->notes ?? $item->notes,
             ]);
 
             $keptIds[] = $requestItem->getKey();
         }
 
-        $request->items()->when(
-            $keptIds !== [],
-            fn ($query) => $query->whereNotIn('id', $keptIds),
-            fn ($query) => $query,
-        )->delete();
+        $request->items()
+            ->whereNotNull('nutrition_requirement_item_id')
+            ->when(
+                $keptIds !== [],
+                fn ($query) => $query->whereNotIn('id', $keptIds),
+            )
+            ->delete();
     }
 
     public function submit(ProcurementRequest $request): void
@@ -129,6 +164,12 @@ class ProcurementRequestService
         })->exists()) {
             throw ValidationException::withMessages([
                 'items' => 'Setiap bahan harus memiliki jumlah lebih dari 0 sesuai satuan pembelian.',
+            ]);
+        }
+
+        if ($request->items()->whereNull('measurement_unit_id')->exists()) {
+            throw ValidationException::withMessages([
+                'items' => 'Satuan pembelian wajib dipilih untuk seluruh bahan.',
             ]);
         }
 
@@ -268,12 +309,20 @@ class ProcurementRequestService
         $request->load('items');
 
         foreach ($request->items as $item) {
-            if ($request->isEditable()) {
+            if ($request->itemsAreEditable()) {
                 $item->approved_quantity = $item->requested_quantity;
                 $item->approved_quantity_kg = $item->requested_quantity_kg;
             }
 
-            $quantityForPrice = (float) ($item->approved_quantity ?: $item->requested_quantity ?: 0);
+            $usesApprovedQuantity = in_array($request->status, [
+                ProcurementRequest::STATUS_FINANCE_VERIFIED,
+                ProcurementRequest::STATUS_APPROVED,
+                ProcurementRequest::STATUS_ORDERED,
+            ], true);
+
+            $quantityForPrice = $usesApprovedQuantity
+                ? (float) ($item->approved_quantity ?: $item->requested_quantity ?: 0)
+                : (float) ($item->requested_quantity ?: 0);
 
             $item->estimated_total_price =
                 $quantityForPrice * (float) $item->estimated_unit_price;
@@ -305,6 +354,46 @@ class ProcurementRequestService
                 'items' => 'Harga satuan wajib diisi untuk seluruh bahan.',
             ]);
         }
+
+        if ($request->items->contains(fn ($item): bool =>
+            blank($item->measurement_unit_id)
+            || (float) $item->requested_quantity <= 0
+        )) {
+            throw ValidationException::withMessages([
+                'items' => 'Jumlah dan satuan pembelian wajib valid untuk seluruh bahan.',
+            ]);
+        }
+    }
+
+    private function findMeasurementUnit(string $snapshot): ?MeasurementUnit
+    {
+        $snapshot = trim($snapshot);
+
+        if ($snapshot === '') {
+            return null;
+        }
+
+        return MeasurementUnit::query()
+            ->where('is_active', true)
+            ->where(function ($query) use ($snapshot): void {
+                $query->where('code', $snapshot)
+                    ->orWhere('symbol', $snapshot);
+            })
+            ->first();
+    }
+
+    private function legacyKgQuantity(
+        float $quantity,
+        ?MeasurementUnit $measurementUnit,
+        ?string $unitSnapshot = null,
+    ): float {
+        $code = strtolower(trim((string) ($measurementUnit?->code ?? '')));
+        $symbol = strtolower(trim((string) ($measurementUnit?->symbol ?? $unitSnapshot ?? '')));
+
+        return in_array($code, ['kg', 'kilogram'], true)
+            || in_array($symbol, ['kg', 'kilogram'], true)
+                ? round($quantity, 4)
+                : 0.0;
     }
 
     /** @param array<int, string> $allowed */

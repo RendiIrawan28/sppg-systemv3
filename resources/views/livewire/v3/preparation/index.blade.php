@@ -7,6 +7,7 @@
             <p class="text-xs font-bold uppercase tracking-widest text-cyan-200">Kontrol Persiapan</p>
             <h2 class="mt-2 text-2xl font-bold">Catat hasil, sisa, dan retur bahan.</h2>
             <p class="mt-2 max-w-3xl text-sm text-slate-300">Sesi muncul otomatis segera setelah pengambilan dicatat. Lengkapi hasil bersih, limbah, retur bila ada, dan satu foto hasil Persiapan.</p>
+            <a wire:navigate href="{{ route('v3.preparation-outputs.index') }}" class="mt-4 inline-flex h-10 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white hover:bg-white/20">Buka Penyimpanan Hasil Persiapan</a>
         </section>
 
         <div class="grid gap-5 xl:grid-cols-[350px_minmax(0,1fr)]">

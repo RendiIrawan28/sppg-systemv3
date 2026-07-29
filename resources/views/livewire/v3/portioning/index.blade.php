@@ -92,6 +92,20 @@
                         </div>
                     </section>
 
+                    <section class="rounded-2xl border border-slate-200 bg-white p-5">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div><h3 class="font-bold text-slate-900">Hasil dari Divisi Persiapan</h3><p class="mt-1 text-xs text-slate-500">Buah atau bahan siap pakai yang telah diambil untuk sesi Pemorsian ini.</p></div>
+                            <a wire:navigate href="{{ route('v3.preparation-outputs.index') }}" class="rounded-xl border border-sky-200 px-4 py-2 text-xs font-bold text-sky-700">Ambil hasil Persiapan</a>
+                        </div>
+                        <div class="mt-4 grid gap-3 md:grid-cols-2">
+                            @forelse($selected->preparationOutputWithdrawals->where('status', \App\Models\PreparationOutputWithdrawal::VERIFIED) as $withdrawal)
+                                <div class="rounded-xl bg-slate-50 p-4"><b>{{ $withdrawal->output?->output_name }}</b><p class="mt-1 text-xs text-slate-500">{{ number_format((float) $withdrawal->verified_quantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }} · {{ $withdrawal->output?->storage_location ?: 'Lokasi tidak dicatat' }}</p></div>
+                            @empty
+                                <div class="rounded-xl border border-dashed p-5 text-sm text-slate-500 md:col-span-2">Belum ada hasil Persiapan yang diverifikasi untuk sesi ini.</div>
+                            @endforelse
+                        </div>
+                    </section>
+
                     @if($selected->state === \App\Enums\PortioningSessionState::Planned)
                         <section class="rounded-2xl border border-sky-200 bg-sky-50 p-5">
                             <h3 class="font-bold text-slate-900">Siap memulai Pemorsian</h3>

@@ -13,6 +13,7 @@ use App\Http\Controllers\PortioningSessionPdfController;
 use App\Http\Controllers\ProcessingBatchPdfController;
 use App\Http\Controllers\ProcurementRequestExportController;
 use App\Http\Controllers\WashingSessionPdfController;
+use App\Http\Controllers\WashingSessionWastePdfController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -37,6 +38,8 @@ Route::middleware('auth')->group(function (): void {
         ->name('distribution-runs.pdf');
     Route::get('/washing-sessions/{washingSession}/pdf', WashingSessionPdfController::class)
         ->name('washing-sessions.pdf');
+    Route::get('/washing-sessions/{washingSession}/waste-pdf', WashingSessionWastePdfController::class)
+        ->name('washing-sessions.waste-pdf');
     Route::get('/cleaning-sessions/{cleaningSession}/pdf', CleaningSessionPdfController::class)
         ->name('cleaning-sessions.pdf');
     Route::get('/field-assistant/distribution-plans/{fieldDistributionPlan}/pdf', FieldDistributionPlanPdfController::class)

@@ -24,4 +24,10 @@ class PreparationSessionItem extends Model
     {
         return $this->hasMany(PreparationReturn::class);
     }
+
+    public function outputs(): HasMany
+    {
+        return $this->hasMany(PreparationOutput::class, 'preparation_session_item_id');
+    }
+
 }

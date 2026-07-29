@@ -227,4 +227,10 @@ class ProcessingBatch extends Model
             $this->sequence_number,
         );
     }
+
+    public function preparationOutputWithdrawals(): HasMany
+    {
+        return $this->hasMany(PreparationOutputWithdrawal::class);
+    }
+
 }

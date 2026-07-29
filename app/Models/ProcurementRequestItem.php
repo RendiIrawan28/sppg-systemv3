@@ -15,6 +15,10 @@ class ProcurementRequestItem extends Model
         'ingredient_code_snapshot',
         'ingredient_name_snapshot',
         'unit_snapshot',
+        'measurement_unit_id',
+        'kg_per_unit_snapshot',
+        'requirement_quantity_snapshot',
+        'requirement_unit_snapshot',
         'requested_quantity',
         'approved_quantity',
         'requested_quantity_kg',
@@ -27,6 +31,8 @@ class ProcurementRequestItem extends Model
     protected function casts(): array
     {
         return [
+            'kg_per_unit_snapshot' => 'decimal:6',
+            'requirement_quantity_snapshot' => 'decimal:4',
             'requested_quantity' => 'decimal:4',
             'approved_quantity' => 'decimal:4',
             'requested_quantity_kg' => 'decimal:4',
@@ -54,5 +60,10 @@ class ProcurementRequestItem extends Model
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
+    }
+
+    public function measurementUnit(): BelongsTo
+    {
+        return $this->belongsTo(MeasurementUnit::class);
     }
 }

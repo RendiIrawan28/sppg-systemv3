@@ -9,6 +9,7 @@ use App\Enums\WashingDeviationSeverity;
 use App\Enums\WashingDeviationStatus;
 use App\Models\CleaningArea;
 use App\Models\CleaningSession;
+use App\Models\ContainerCollectionRun;
 use App\Models\DistributionRun;
 use App\Models\Ingredient;
 use App\Models\MeasurementUnit;
@@ -132,10 +133,6 @@ final class OperationalModuleRegistry
                     $this->field('vehicle_name', 'Jenis/nama kendaraan'),
                     $this->field('vehicle_plate', 'Nomor polisi'),
                     $this->field('departure_temperature_celsius', 'Suhu saat berangkat °C', 'number'),
-                    $this->field('containers_returned', 'Ompreng kembali', 'number'),
-                    $this->field('containers_damaged', 'Ompreng rusak', 'number'),
-                    $this->field('containers_lost', 'Ompreng hilang', 'number'),
-                    $this->field('notes', 'Catatan perjalanan', 'textarea'),
                 ],
                 'relations' => [
                     'stops' => $this->relation('Tujuan pada rute', [
@@ -150,6 +147,7 @@ final class OperationalModuleRegistry
                         $this->field('large_portions', 'Rencana porsi besar', 'number'),
                         $this->field('delivered_small_portions', 'Porsi kecil diserahkan', 'number'),
                         $this->field('delivered_large_portions', 'Porsi besar diserahkan', 'number'),
+                        $this->field('containers_sent', 'Ompreng/wadah diserahkan', 'number'),
                         $this->field('recipient_name', 'Nama penerima'),
                         $this->field('recipient_position', 'Jabatan penerima'),
                         $this->field('handover_photo_path', 'Foto serah-terima', 'file'),
@@ -160,40 +158,72 @@ final class OperationalModuleRegistry
                 ],
             ],
             'pencucian' => [
-                'label' => 'Pencucian', 'description' => 'Rekonsiliasi ompreng, sanitasi, bahan kimia, limbah, dan dokumentasi.',
-                'model' => WashingSession::class, 'permission' => 'washing', 'number' => 'session_number',
-                'date' => 'washing_date', 'pdf' => 'washing-sessions.pdf',
+                'label' => 'Pencucian',
+                'description' => 'Penerimaan ompreng, pencatatan limbah makanan, pencucian, dan dokumentasi hasil.',
+                'model' => WashingSession::class,
+                'permission' => 'washing',
+                'number' => 'session_number',
+                'date' => 'washing_date',
+                'pdf' => 'washing-sessions.pdf',
                 'fields' => [
-                    $this->field('washing_date', 'Tanggal pencucian', 'date', true), $this->field('distribution_run_id', 'Perjalanan distribusi', 'select', false, 'distribution_runs'),
-                    $this->field('menu_name_snapshot', 'Menu/referensi'), $this->field('petugas_id', 'Penanggung jawab', 'select', true, 'users'),
-                    $this->field('washing_area', 'Area pencucian', 'text', true), $this->field('equipment_name', 'Mesin/peralatan'),
-                    $this->field('expected_containers', 'Diharapkan', 'number', true), $this->field('received_containers', 'Diterima', 'number', true),
-                    $this->field('washed_containers', 'Dicuci', 'number', true), $this->field('clean_containers', 'Bersih', 'number', true),
-                    $this->field('damaged_containers', 'Rusak', 'number', true), $this->field('rejected_containers', 'Ditolak', 'number', true),
-                    $this->field('missing_containers', 'Hilang', 'number', true), $this->field('notes', 'Catatan', 'textarea'),
+                    $this->field('washing_date', 'Tanggal pencucian', 'date', true),
+                    $this->field('container_collection_run_id', 'Kegiatan pengambilan ompreng', 'select', false, 'container_collection_runs'),
+                    $this->field('menu_name_snapshot', 'Referensi pengambilan'),
+                    $this->field('distribution_expected_containers', 'Total hasil pengambilan', 'number'),
+                    $this->field('distribution_returned_containers', 'Dilaporkan dibawa kembali', 'number'),
+                    $this->field('expected_containers', 'Seharusnya diserahkan ke Pencucian', 'number', true),
+                    $this->field('received_containers', 'Diterima fisik', 'number', true),
+                    $this->field('clean_containers', 'Bersih dan siap digunakan', 'number', true),
+                    $this->field('damaged_containers', 'Rusak/tidak layak', 'number', true),
+                    $this->field('missing_containers', 'Kurang saat serah-terima', 'number'),
+                    $this->field('receiving_difference', 'Selisih penerimaan', 'number'),
+                    $this->field('has_food_waste', 'Terdapat limbah makanan', 'boolean'),
+                    $this->field('no_waste_confirmed', 'Konfirmasi tidak ada limbah', 'boolean'),
+                    $this->field('waste_first_party_name', 'Nama pihak pertama'),
+                    $this->field('waste_first_party_position', 'Jabatan pihak pertama'),
+                    $this->field('waste_first_party_address', 'Alamat pihak pertama', 'textarea'),
+                    $this->field('waste_second_party_name', 'Nama pihak kedua'),
+                    $this->field('waste_second_party_position', 'Jabatan pihak kedua'),
+                    $this->field('waste_second_party_address', 'Alamat pihak kedua', 'textarea'),
+                    $this->field('waste_handover_notes', 'Catatan serah-terima limbah', 'textarea'),
+                    $this->field('notes', 'Catatan pencucian', 'textarea'),
                 ],
                 'relations' => [
-                    'checklistItems' => $this->relation('Checklist proses dan sanitasi', [
-                        $this->field('category', 'Tahap', 'select', true, ['receiving' => 'Penerimaan', 'pre_rinse' => 'Pra-bilas', 'main_wash' => 'Cuci utama', 'rinse' => 'Bilas', 'sanitation' => 'Sanitasi', 'drying' => 'Pengeringan', 'final_inspection' => 'Pemeriksaan akhir']),
-                        $this->field('item_name', 'Poin pemeriksaan', 'text', true), $this->field('is_mandatory', 'Wajib', 'boolean'),
-                        $this->field('is_passed', 'Lulus', 'boolean'), $this->field('checked_at', 'Waktu cek', 'datetime'),
-                        $this->field('notes', 'Catatan', 'textarea'), $this->field('sort_order', 'Urutan', 'number'),
+                    'checklistItems' => $this->relation('Checklist pencucian', [
+                        $this->field('category', 'Tahap', 'text', true),
+                        $this->field('item_name', 'Poin pemeriksaan', 'text', true),
+                        $this->field('is_mandatory', 'Wajib', 'boolean'),
+                        $this->field('is_passed', 'Selesai', 'boolean'),
+                        $this->field('notes', 'Catatan', 'textarea'),
+                        $this->field('sort_order', 'Urutan', 'number'),
                     ]),
-                    'measurements' => $this->relation('Pengukuran suhu dan sanitizer', [
-                        $this->field('phase', 'Tahap', 'select', true, ['washing' => 'Pencucian', 'rinsing' => 'Pembilasan', 'sanitation' => 'Sanitasi']),
-                        $this->field('measured_at', 'Waktu ukur', 'datetime', true), $this->field('water_temperature_celsius', 'Suhu air °C', 'number', true),
-                        $this->field('minimum_temperature_celsius', 'Minimum °C', 'number'), $this->field('maximum_temperature_celsius', 'Maksimum °C', 'number'),
-                        $this->field('water_ph', 'pH air', 'number'), $this->field('sanitizer_concentration_ppm', 'Sanitizer ppm', 'number'),
-                        $this->field('corrective_action', 'Tindakan koreksi', 'textarea'), $this->field('notes', 'Catatan', 'textarea'),
+                    'wasteRecords' => $this->relation('Limbah makanan dari ompreng', [
+                        $this->field('waste_type', 'Jenis limbah', 'text', true),
+                        $this->field('quantity', 'Jumlah', 'number', true),
+                        $this->field('unit', 'Satuan', 'select', true, [
+                            'kg' => 'kg',
+                            'gram' => 'gram',
+                            'liter' => 'liter',
+                            'wadah' => 'wadah',
+                            'karung' => 'karung',
+                        ]),
+                        $this->field('disposal_method', 'Metode penanganan', 'select', true, [
+                            'diserahkan' => 'Diserahkan ke pengelola limbah',
+                            'kompos' => 'Diolah menjadi kompos',
+                            'pakan' => 'Diserahkan untuk pakan',
+                            'dibuang' => 'Dibuang sesuai prosedur',
+                            'lainnya' => 'Metode lainnya',
+                        ]),
+                        $this->field('handed_over_to', 'Diserahkan kepada', 'text', true),
+                        $this->field('photo_path', 'Foto limbah', 'file', true),
+                        $this->field('notes', 'Catatan', 'textarea'),
                     ]),
-                    'chemicalUsages' => $this->chemicalRelation(false), 'wasteRecords' => $this->wasteRelation(),
-                    'documentations' => $this->documentationRelation(),
-                    'deviations' => $this->relation('Penyimpangan dan tindakan', [
-                        $this->field('occurred_at', 'Waktu kejadian', 'datetime', true), $this->field('category', 'Kategori', 'text', true),
-                        $this->field('severity', 'Tingkat', 'select', true, WashingDeviationSeverity::class), $this->field('status', 'Status', 'select', true, WashingDeviationStatus::class),
-                        $this->field('description', 'Deskripsi', 'textarea', true), $this->field('immediate_action', 'Tindakan langsung', 'textarea'),
-                        $this->field('resolved_at', 'Waktu selesai', 'datetime'), $this->field('resolved_by', 'Diselesaikan oleh', 'select', false, 'users'),
-                        $this->field('photo_path', 'Foto', 'file'), $this->field('notes', 'Catatan', 'textarea'),
+                    'documentations' => $this->relation('Dokumentasi hasil pencucian', [
+                        $this->field('phase', 'Tahap', 'select', true, ['after' => 'Hasil pencucian']),
+                        $this->field('photo_path', 'Foto hasil', 'file', true),
+                        $this->field('caption', 'Keterangan'),
+                        $this->field('captured_at', 'Waktu foto', 'datetime'),
+                        $this->field('sort_order', 'Urutan', 'number'),
                     ]),
                 ],
             ],
@@ -248,6 +278,7 @@ final class OperationalModuleRegistry
             'processing_batches' => ProcessingBatch::query()->where('sppg_unit_id', $unitId)->latest('production_date'),
             'portioning_sessions' => PortioningSession::query()->where('sppg_unit_id', $unitId)->latest('portioning_date'),
             'distribution_runs' => DistributionRun::query()->where('sppg_unit_id', $unitId)->latest('distribution_date'),
+            'container_collection_runs' => ContainerCollectionRun::query()->where('sppg_unit_id', $unitId)->latest('collection_date'),
             default => null,
         };
 
@@ -259,7 +290,7 @@ final class OperationalModuleRegistry
             'users', 'ingredients', 'measurement_units', 'cleaning_areas' => 'name',
             'processing_batches' => 'batch_number',
             'portioning_sessions' => 'session_number',
-            'distribution_runs' => 'run_number',
+            'distribution_runs', 'container_collection_runs' => 'run_number',
         };
 
         return $query->limit(250)->pluck($label, 'id')->all();

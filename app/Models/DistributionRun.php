@@ -316,4 +316,10 @@ class DistributionRun extends Model
     {
         return $this->hasMany(MenuAcceptanceEvaluation::class);
     }
+
+    public function containerCollectionTasks(): HasMany
+    {
+        return $this->hasMany(ContainerCollectionTask::class);
+    }
+
 }

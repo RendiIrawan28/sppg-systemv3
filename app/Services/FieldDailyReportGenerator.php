@@ -206,17 +206,16 @@ class FieldDailyReportGenerator
             ->count();
         $summary['containers_sent'] = (int) (clone $stops)->sum('stops.containers_sent');
 
-        // Alur Distribusi baru merekonsiliasi ompreng saat satu rute kembali ke SPPG.
-        // Gunakan kolom tingkat rute jika tersedia, dengan fallback ke data tujuan lama.
-        if (Schema::hasColumn('distribution_runs', 'containers_returned')) {
-            $summary['containers_returned'] = (int) (clone $runs)->sum('containers_returned');
-            $summary['containers_damaged'] = (int) (clone $runs)->sum('containers_damaged');
-            $summary['containers_lost'] = (int) (clone $runs)->sum('containers_lost');
-        } else {
-            $summary['containers_returned'] = (int) (clone $stops)->sum('stops.containers_returned');
-            $summary['containers_damaged'] = (int) (clone $stops)->sum('stops.containers_damaged');
-            $summary['containers_lost'] = (int) (clone $stops)->sum('stops.containers_lost');
+        if (Schema::hasTable('container_collection_tasks')) {
+            $collections = DB::table('container_collection_tasks')
+                ->where('sppg_unit_id', $unitId)
+                ->whereDate('delivery_date', $date);
+            $summary['containers_returned'] = (int) $collections->sum('collected_containers');
         }
+
+        // Kerusakan fisik dicatat oleh Pencucian setelah ompreng diterima.
+        $summary['containers_damaged'] = 0;
+        $summary['containers_lost'] = 0;
 
         return $summary;
     }

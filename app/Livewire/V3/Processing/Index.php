@@ -37,11 +37,11 @@ class Index extends Component
     /** @var array<int, TemporaryUploadedFile|null> */
     public array $temperaturePhotos = [];
 
-    public mixed $outputPhoto = null;
+    /** @var array<int, array<string, mixed>> */
+    public array $finishedOutputDocumentations = [];
 
-    public ?int $outputDocumentationId = null;
-
-    public ?string $outputPhotoPath = null;
+    /** @var array<int, TemporaryUploadedFile|null> */
+    public array $finishedOutputPhotos = [];
 
     public array $returnQuantities = [];
 
@@ -68,11 +68,29 @@ class Index extends Component
         $this->actualOutputUnit = (string) ($batch->actual_output_unit ?: $batch->target_output_unit);
         $this->notes = (string) $batch->notes;
         $this->reviewNotes = (string) $batch->review_notes;
-        $outputDocumentation = $batch->documentations
-            ->firstWhere('documentation_type', 'finished_output');
-        $this->outputDocumentationId = $outputDocumentation?->id;
-        $this->outputPhotoPath = $outputDocumentation?->photo_path;
-        $this->outputPhoto = null;
+        $this->finishedOutputDocumentations = $batch->documentations
+            ->where('documentation_type', 'finished_output')
+            ->values()
+            ->map(function (ProcessingDocumentation $documentation, int $index) use ($batch): array {
+                return [
+                    'documentation_id' => $documentation->id,
+                    'output_quantity' => $documentation->output_quantity !== null
+                        ? (string) $documentation->output_quantity
+                        : ($index === 0 && $batch->actual_output_quantity !== null
+                            ? (string) $batch->actual_output_quantity
+                            : ''),
+                    'output_unit' => (string) (
+                        $documentation->output_unit
+                        ?: ($index === 0 ? ($batch->actual_output_unit ?: $batch->target_output_unit) : '')
+                    ),
+                    'caption' => $documentation->caption,
+                    'captured_at' => $documentation->captured_at?->format('Y-m-d\TH:i')
+                        ?: now()->format('Y-m-d\TH:i'),
+                    'photo_path' => $documentation->photo_path,
+                ];
+            })
+            ->all();
+        $this->finishedOutputPhotos = [];
         $this->cookedProducts = $batch->temperatureLogs
             ->where('checkpoint', ProcessingTemperatureCheckpoint::Final)
             ->values()
@@ -88,6 +106,9 @@ class Index extends Component
         $this->temperaturePhotos = [];
         if ($batch->state === ProcessingBatchState::InProgress && $this->cookedProducts === []) {
             $this->addCookedProduct();
+        }
+        if ($batch->state === ProcessingBatchState::InProgress && $this->finishedOutputDocumentations === []) {
+            $this->addFinishedOutputDocumentation();
         }
     }
 
@@ -110,6 +131,31 @@ class Index extends Component
         $this->temperaturePhotos = array_values($this->temperaturePhotos);
     }
 
+    public function addFinishedOutputDocumentation(): void
+    {
+        $this->finishedOutputDocumentations[] = [
+            'documentation_id' => null,
+            'output_quantity' => '',
+            'output_unit' => $this->actualOutputUnit !== ''
+                ? $this->actualOutputUnit
+                : '',
+            'caption' => '',
+            'captured_at' => now()->format('Y-m-d\TH:i'),
+            'photo_path' => null,
+        ];
+    }
+
+    public function removeFinishedOutputDocumentation(int $index): void
+    {
+        unset(
+            $this->finishedOutputDocumentations[$index],
+            $this->finishedOutputPhotos[$index],
+        );
+
+        $this->finishedOutputDocumentations = array_values($this->finishedOutputDocumentations);
+        $this->finishedOutputPhotos = array_values($this->finishedOutputPhotos);
+    }
+
     public function save(): void
     {
         abort_unless($this->allowed('processing.update'), 403);
@@ -126,7 +172,12 @@ class Index extends Component
             'cookedProducts.*.cooked_at' => ['required', 'date'],
             'cookedProducts.*.notes' => ['nullable', 'string', 'max:1000'],
             'temperaturePhotos.*' => ['nullable', 'image', 'max:5120'],
-            'outputPhoto' => ['nullable', 'image', 'max:5120'],
+            'finishedOutputDocumentations' => ['required', 'array', 'min:1'],
+            'finishedOutputDocumentations.*.output_quantity' => ['required', 'numeric', 'gt:0'],
+            'finishedOutputDocumentations.*.output_unit' => ['required', 'string', 'max:80'],
+            'finishedOutputDocumentations.*.caption' => ['nullable', 'string', 'max:255'],
+            'finishedOutputDocumentations.*.captured_at' => ['required', 'date'],
+            'finishedOutputPhotos.*' => ['nullable', 'image', 'max:5120'],
         ]);
 
         foreach ($this->cookedProducts as $index => $product) {
@@ -137,10 +188,13 @@ class Index extends Component
                 ]);
             }
         }
-        if (blank($this->outputPhotoPath) && ! ($this->outputPhoto instanceof TemporaryUploadedFile)) {
-            throw ValidationException::withMessages([
-                'outputPhoto' => 'Foto berat atau jumlah makanan jadi wajib dipilih.',
-            ]);
+        foreach ($this->finishedOutputDocumentations as $index => $documentation) {
+            if (blank($documentation['photo_path'] ?? null)
+                && ! (($this->finishedOutputPhotos[$index] ?? null) instanceof TemporaryUploadedFile)) {
+                throw ValidationException::withMessages([
+                    "finishedOutputPhotos.$index" => 'Foto berat atau jumlah makanan jadi wajib dipilih.',
+                ]);
+            }
         }
 
         $newPaths = [];
@@ -208,35 +262,55 @@ class Index extends Component
                         $temperature->delete();
                     });
 
-                $oldOutputDocumentation = $this->outputDocumentationId
-                    ? $batch->documentations()->find($this->outputDocumentationId)
-                    : null;
-                $outputPhotoPath = $this->outputPhotoPath;
-                if ($this->outputPhoto instanceof TemporaryUploadedFile) {
-                    $outputPhotoPath = $this->outputPhoto->store(
-                        'processing/finished-output/'.now()->format('Y/m/d'),
-                        'public',
-                    );
-                    $newPaths[] = $outputPhotoPath;
-                    if ($oldOutputDocumentation?->photo_path && $oldOutputDocumentation->photo_path !== $outputPhotoPath) {
-                        $oldPaths[] = $oldOutputDocumentation->photo_path;
+                $keptOutputDocumentations = [];
+                foreach ($this->finishedOutputDocumentations as $index => $documentationData) {
+                    $oldOutputDocumentation = filled($documentationData['documentation_id'] ?? null)
+                        ? $batch->documentations()->find($documentationData['documentation_id'])
+                        : null;
+                    $newOutputPhoto = $this->finishedOutputPhotos[$index] ?? null;
+                    $outputPhotoPath = $documentationData['photo_path'] ?? null;
+
+                    if ($newOutputPhoto instanceof TemporaryUploadedFile) {
+                        $outputPhotoPath = $newOutputPhoto->store(
+                            'processing/finished-output/'.now()->format('Y/m/d'),
+                            'public',
+                        );
+                        $newPaths[] = $outputPhotoPath;
+                        if ($oldOutputDocumentation?->photo_path
+                            && $oldOutputDocumentation->photo_path !== $outputPhotoPath) {
+                            $oldPaths[] = $oldOutputDocumentation->photo_path;
+                        }
                     }
+
+                    $outputQuantity = (float) $documentationData['output_quantity'];
+                    $outputUnit = trim((string) $documentationData['output_unit']);
+                    $defaultCaption = 'Hasil makanan jadi '
+                        .number_format($outputQuantity, 3, ',', '.').' '.$outputUnit;
+                    if (count($this->finishedOutputDocumentations) > 1) {
+                        $defaultCaption .= ' · Data '.($index + 1);
+                    }
+
+                    $outputDocumentation = $batch->documentations()->updateOrCreate(
+                        ['id' => $documentationData['documentation_id'] ?: null],
+                        [
+                            'documentation_type' => 'finished_output',
+                            'output_quantity' => $outputQuantity,
+                            'output_unit' => $outputUnit,
+                            'caption' => filled($documentationData['caption'] ?? null)
+                                ? trim($documentationData['caption'])
+                                : $defaultCaption,
+                            'photo_path' => $outputPhotoPath,
+                            'captured_at' => $documentationData['captured_at'],
+                            'created_by' => $oldOutputDocumentation?->created_by ?: auth()->id(),
+                            'sort_order' => $index + 1,
+                        ],
+                    );
+                    $keptOutputDocumentations[] = $outputDocumentation->id;
                 }
 
-                $outputDocumentation = $batch->documentations()->updateOrCreate(
-                    ['id' => $this->outputDocumentationId],
-                    [
-                        'documentation_type' => 'finished_output',
-                        'caption' => 'Hasil akhir '.$this->actualOutputQuantity.' '.trim($this->actualOutputUnit),
-                        'photo_path' => $outputPhotoPath,
-                        'captured_at' => collect($this->cookedProducts)->pluck('cooked_at')->filter()->max() ?: now(),
-                        'created_by' => auth()->id(),
-                        'sort_order' => 1,
-                    ],
-                );
                 $batch->documentations()
                     ->where('documentation_type', 'finished_output')
-                    ->where('id', '!=', $outputDocumentation->id)
+                    ->whereNotIn('id', $keptOutputDocumentations)
                     ->get()
                     ->each(function (ProcessingDocumentation $documentation) use (&$oldPaths): void {
                         if ($documentation->photo_path) {
@@ -325,6 +399,7 @@ class Index extends Component
         $records = ProcessingBatch::query()
             ->with([
                 'materialUsages.returns',
+                'preparationOutputWithdrawals.output',
                 'temperatureLogs',
                 'documentations',
                 'petugas',

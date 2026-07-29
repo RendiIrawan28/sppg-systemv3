@@ -23,9 +23,9 @@ class ProcessingWorkflow
                     'state' => 'Batch tidak dapat dimulai pada status saat ini.',
                 ]);
             }
-            if ($batch->materialUsages->isEmpty()) {
+            if (! $this->hasMaterialInput($batch)) {
                 throw ValidationException::withMessages([
-                    'materialUsages' => 'Batch belum menerima bahan dari pengambilan Gudang.',
+                    'materialUsages' => 'Batch belum menerima bahan dari Gudang atau hasil Persiapan yang sudah diverifikasi.',
                 ]);
             }
 
@@ -227,7 +227,12 @@ class ProcessingWorkflow
     private function lockedBatch(ProcessingBatch $batch): ProcessingBatch
     {
         return ProcessingBatch::query()
-            ->with(['materialUsages.returns', 'temperatureLogs', 'documentations'])
+            ->with([
+                'materialUsages.returns',
+                'preparationOutputWithdrawals.output',
+                'temperatureLogs',
+                'documentations',
+            ])
             ->lockForUpdate()
             ->findOrFail($batch->getKey());
     }
@@ -235,8 +240,8 @@ class ProcessingWorkflow
     private function validateBeforeComplete(ProcessingBatch $batch): void
     {
         $errors = [];
-        if ($batch->materialUsages->isEmpty()) {
-            $errors['materialUsages'] = 'Minimal satu bahan dari Gudang harus tersedia.';
+        if (! $this->hasMaterialInput($batch)) {
+            $errors['materialUsages'] = 'Minimal satu bahan dari Gudang atau hasil Persiapan terverifikasi harus tersedia.';
         }
         if ((float) $batch->actual_output_quantity <= 0) {
             $errors['actual_output_quantity'] = 'Jumlah hasil akhir harus lebih dari nol.';
@@ -254,16 +259,47 @@ class ProcessingWorkflow
         if ($finalTemperatures->contains(fn ($temperature): bool => blank($temperature->photo_path))) {
             $errors['temperatureDocumentations'] = 'Setiap makanan matang wajib memiliki foto pengukuran suhu.';
         }
-        $hasFinishedOutputPhoto = $batch->documentations
+        $finishedOutputs = $batch->documentations
             ->where('documentation_type', 'finished_output')
-            ->contains(fn ($documentation): bool => filled($documentation->photo_path));
-        if (! $hasFinishedOutputPhoto) {
-            $errors['outputDocumentation'] = 'Foto berat atau jumlah makanan jadi wajib dilampirkan.';
+            ->values();
+
+        if ($finishedOutputs->isEmpty()) {
+            $errors['outputDocumentation'] = 'Minimal satu data berat atau jumlah makanan jadi wajib dicatat.';
+        } else {
+            if ($finishedOutputs->contains(
+                fn ($documentation): bool => (float) $documentation->output_quantity <= 0
+            )) {
+                $errors['outputQuantity'] = 'Setiap data makanan jadi wajib memiliki berat atau jumlah lebih dari nol.';
+            }
+
+            if ($finishedOutputs->contains(
+                fn ($documentation): bool => blank($documentation->output_unit)
+            )) {
+                $errors['outputUnit'] = 'Setiap data makanan jadi wajib memiliki satuan.';
+            }
+
+            if ($finishedOutputs->contains(
+                fn ($documentation): bool => blank($documentation->photo_path)
+            )) {
+                $errors['outputDocumentation'] = 'Setiap data berat atau jumlah makanan jadi wajib memiliki foto.';
+            }
         }
 
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
         }
+    }
+
+
+    private function hasMaterialInput(ProcessingBatch $batch): bool
+    {
+        if ($batch->materialUsages->isNotEmpty()) {
+            return true;
+        }
+
+        return $batch->preparationOutputWithdrawals
+            ->contains(fn ($withdrawal): bool => $withdrawal->status === 'verified'
+                && (float) $withdrawal->verified_quantity > 0);
     }
 
     private function writeHistory(
@@ -286,6 +322,7 @@ class ProcessingWorkflow
             'notes' => $notes,
             'snapshot' => $batch->fresh([
                 'materialUsages.returns',
+                'preparationOutputWithdrawals.output',
                 'temperatureLogs',
                 'documentations',
             ])->toArray(),

@@ -79,6 +79,20 @@ class ProcurementRequest extends Model
         return in_array($this->status, [self::STATUS_DRAFT, self::STATUS_REVISION], true);
     }
 
+    /**
+     * Daftar bahan masih boleh dikoreksi sampai pemeriksaan keuangan dilakukan.
+     * Status submitted tetap dibuka agar Akuntan dapat menambah, menghapus,
+     * atau mengoreksi item sebelum menekan Verifikasi Keuangan.
+     */
+    public function itemsAreEditable(): bool
+    {
+        return in_array($this->status, [
+            self::STATUS_DRAFT,
+            self::STATUS_REVISION,
+            self::STATUS_SUBMITTED,
+        ], true) && $this->price_status !== 'finalized';
+    }
+
     public function priceIsEditable(): bool
     {
         return in_array($this->status, [self::STATUS_DRAFT, self::STATUS_REVISION, self::STATUS_SUBMITTED, self::STATUS_FINANCE_VERIFIED], true)

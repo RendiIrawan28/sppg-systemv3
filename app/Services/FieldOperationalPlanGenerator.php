@@ -248,7 +248,7 @@ class FieldOperationalPlanGenerator
         if (Schema::hasTable('portioning_route_allocations')) {
             $session->routeAllocations()->delete();
 
-            foreach ($plan->destinations as $destination) {
+            foreach ($plan->destinations->filter(fn ($destination): bool => (int) $destination->total_portions > 0) as $destination) {
                 $allocation = $session->routeAllocations()->make([
                     'route_name' => $destination->route_name ?: $destination->destination_name_snapshot,
                     'destination_name' => $destination->destination_name_snapshot,
@@ -292,6 +292,7 @@ class FieldOperationalPlanGenerator
         }
 
         $groupedDestinations = $plan->destinations
+            ->filter(fn ($destination): bool => (int) $destination->total_portions > 0)
             ->groupBy(fn ($destination): string => trim((string) $destination->route_name) ?: 'Rute Utama')
             ->sortKeys();
 
@@ -393,7 +394,7 @@ class FieldOperationalPlanGenerator
                         'planned_arrival_at' => $this->plannedDateTime($plan, $destination, 'planned_arrival_time', 'planned_arrival_at'),
                         'small_portions' => $destination->small_portions,
                         'large_portions' => $destination->large_portions,
-                        'containers_sent' => $destination->total_portions,
+                        'containers_sent' => 0,
                         'latitude' => $destination->latitude_snapshot,
                         'longitude' => $destination->longitude_snapshot,
                         'notes' => $destination->special_notes,
@@ -422,7 +423,10 @@ class FieldOperationalPlanGenerator
 
     private function earliestDepartureAt(FieldDistributionPlan $plan): ?Carbon
     {
-        return $this->earliestDepartureAtForDestinations($plan, $plan->destinations);
+        return $this->earliestDepartureAtForDestinations(
+            $plan,
+            $plan->destinations->filter(fn ($destination): bool => (int) $destination->total_portions > 0),
+        );
     }
 
     private function earliestDepartureAtForDestinations(FieldDistributionPlan $plan, Collection $destinations): ?Carbon

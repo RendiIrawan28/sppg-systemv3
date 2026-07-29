@@ -220,7 +220,9 @@ class FieldDistributionPlan extends Model
             'planned_small_portions' => (int) $destinations->sum('small_portions'),
             'planned_large_portions' => (int) $destinations->sum('large_portions'),
             'planned_total_portions' => (int) $destinations->sum('total_portions'),
-            'destination_count' => $destinations->count(),
+            'destination_count' => $destinations
+                ->filter(fn ($destination): bool => (int) $destination->total_portions > 0)
+                ->count(),
         ]);
 
         $this->refresh();

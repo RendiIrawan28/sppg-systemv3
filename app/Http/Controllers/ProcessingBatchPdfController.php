@@ -54,6 +54,7 @@ class ProcessingBatchPdfController extends Controller
         $batch->load([
             'sppgUnit',
             'materialUsages',
+            'preparationOutputWithdrawals.output',
             'temperatureLogs',
             'documentations',
             'petugas',

@@ -2,79 +2,145 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
+    <title>Laporan Harian Pencucian Ompreng</title>
     <style>
-        body { font-family: DejaVu Sans, sans-serif; font-size: 10px; color: #111827; }
-        h1 { font-size: 16px; margin: 0 0 4px; text-align: center; }
-        h2 { font-size: 12px; margin: 14px 0 5px; background: #e5e7eb; padding: 5px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
-        th, td { border: 1px solid #9ca3af; padding: 4px; vertical-align: top; }
-        th { background: #f3f4f6; }
-        .meta td { border: none; padding: 2px 4px; }
+        @page { margin: 22px 25px; }
+        body { font-family: DejaVu Sans, sans-serif; font-size: 9px; color: #111827; }
+        h1 { margin: 0 0 4px; font-size: 17px; }
+        h2 { margin: 15px 0 6px; font-size: 11px; }
+        p { margin: 3px 0; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #cbd5e1; padding: 5px; vertical-align: top; }
+        th { background: #e2e8f0; text-align: left; }
+        .number { text-align: right; }
         .center { text-align: center; }
-        .photo { width: 120px; max-height: 100px; object-fit: contain; }
-        .small { font-size: 8px; color: #4b5563; }
+        .muted { color: #64748b; }
+        .good { color: #047857; font-weight: bold; }
+        .summary { margin-top: 10px; }
+        .summary td { width: 16.66%; }
+        .summary strong { display: block; margin-top: 3px; font-size: 14px; }
+        .signature { margin-top: 24px; }
+        .signature td { height: 72px; text-align: center; vertical-align: bottom; width: 33.33%; }
+        .page-break { page-break-before: always; }
     </style>
 </head>
 <body>
-<h1>LAPORAN PENCUCIAN TERPADU</h1>
-<div class="center">{{ $session->sppgUnit?->name }}</div>
-<table class="meta">
-    <tr><td><strong>Nomor</strong></td><td>{{ $session->session_number }}</td><td><strong>Tanggal</strong></td><td>{{ $session->washing_date?->format('d M Y') }}</td></tr>
-    <tr><td><strong>Distribusi Sumber</strong></td><td>{{ $session->distributionRun?->run_number ?? '-' }}</td><td><strong>Petugas</strong></td><td>{{ $session->petugas_name_snapshot }}</td></tr>
-    <tr><td><strong>Area</strong></td><td>{{ $session->washing_area }}</td><td><strong>Tahap/Status</strong></td><td>{{ $session->state->label() }} / {{ $session->status->label() }}</td></tr>
-</table>
+    @php
+        $reference = $sessions->first();
+        $totalExpected = (int) $sessions->sum('expected_containers');
+        $totalReceived = (int) $sessions->sum('received_containers');
+        $totalClean = (int) $sessions->sum('clean_containers');
+        $totalDamaged = (int) $sessions->sum('damaged_containers');
+        $totalMissing = (int) $sessions->sum('missing_containers');
+        $wasteItems = $sessions->flatMap(fn ($washing) => $washing->wasteRecords->map(function ($item) use ($washing) {
+            $item->route_label = $washing->containerCollectionRun?->run_number ?: $washing->distributionRun?->route_name ?: $washing->session_number;
+            return $item;
+        }));
+        $wasteTotals = $wasteItems->groupBy(fn ($item) => $item->unit ?: 'satuan')
+            ->map(fn ($items) => $items->sum(fn ($item) => (float) $item->quantity));
+    @endphp
 
-<h2>Rekonsiliasi Ompreng</h2>
-<table><tr><th>Diharapkan</th><th>Diterima</th><th>Dicuci</th><th>Bersih</th><th>Rusak</th><th>Ditolak</th><th>Hilang</th></tr>
-<tr class="center"><td>{{ $session->expected_containers }}</td><td>{{ $session->received_containers }}</td><td>{{ $session->washed_containers }}</td><td>{{ $session->clean_containers }}</td><td>{{ $session->damaged_containers }}</td><td>{{ $session->rejected_containers }}</td><td>{{ $session->missing_containers }}</td></tr></table>
+    <h1>Laporan Harian Pencucian Ompreng</h1>
+    <p class="muted">{{ $reference->sppgUnit?->name }} · {{ $reference->washing_date?->translatedFormat('d F Y') }}</p>
 
-<h2>Checklist</h2>
-<table><tr><th>No</th><th>Tahap</th><th>Pemeriksaan</th><th>Hasil</th><th>Catatan</th></tr>
-@foreach($session->checklistItems as $item)
-<tr><td class="center">{{ $loop->iteration }}</td><td>{{ $item->category }}</td><td>{{ $item->item_name }}</td><td class="center">{{ $item->is_passed ? 'Lulus' : 'Belum/Tidak Lulus' }}</td><td>{{ $item->notes }}</td></tr>
-@endforeach</table>
+    <table class="summary">
+        <tr>
+            <td>Jumlah sesi<strong>{{ number_format($sessions->count(), 0, ',', '.') }}</strong></td>
+            <td>Seharusnya diterima<strong>{{ number_format($totalExpected, 0, ',', '.') }}</strong></td>
+            <td>Diterima fisik<strong>{{ number_format($totalReceived, 0, ',', '.') }}</strong></td>
+            <td>Bersih/siap digunakan<strong>{{ number_format($totalClean, 0, ',', '.') }}</strong></td>
+            <td>Rusak/tidak layak<strong>{{ number_format($totalDamaged, 0, ',', '.') }}</strong></td>
+            <td>Kurang saat serah-terima<strong>{{ number_format($totalMissing, 0, ',', '.') }}</strong></td>
+        </tr>
+    </table>
 
-<h2>Pengukuran</h2>
-<table><tr><th>Waktu</th><th>Tahap</th><th>Suhu</th><th>Batas</th><th>pH</th><th>Sanitizer</th><th>Hasil/Koreksi</th></tr>
-@foreach($session->measurements as $item)
-<tr><td>{{ $item->measured_at?->format('d/m/Y H:i') }}</td><td>{{ $item->phase }}</td><td>{{ $item->water_temperature_celsius }} °C</td><td>{{ $item->minimum_temperature_celsius ?? '-' }} – {{ $item->maximum_temperature_celsius ?? '-' }} °C</td><td>{{ $item->water_ph ?? '-' }}</td><td>{{ $item->sanitizer_concentration_ppm ?? '-' }} ppm</td><td>{{ $item->is_within_limit ? 'Sesuai' : 'Tidak sesuai' }}<br>{{ $item->corrective_action }}</td></tr>
-@endforeach</table>
+    <h2>Rekap per rute</h2>
+    <table>
+        <thead>
+            <tr>
+                <th style="width:4%">No.</th>
+                <th>Rute / sesi</th>
+                <th>Driver</th>
+                <th>Petugas Pencucian</th>
+                <th>Seharusnya</th>
+                <th>Diterima</th>
+                <th>Bersih</th>
+                <th>Rusak</th>
+                <th>Kurang</th>
+                <th>Limbah</th>
+                <th>Mulai–selesai</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach ($sessions as $washing)
+                <tr>
+                    <td class="center">{{ $loop->iteration }}</td>
+                    <td><strong>{{ $washing->containerCollectionRun?->run_number ?: $washing->distributionRun?->route_name ?: 'Pengambilan Ompreng' }}</strong><br><span class="muted">{{ $washing->session_number }}</span></td>
+                    <td>{{ $washing->containerCollectionRun?->driver_name_snapshot ?: $washing->distributionRun?->driver_name ?: '—' }}</td>
+                    <td>{{ $washing->petugas?->name ?: $washing->petugas_name_snapshot ?: '—' }}</td>
+                    <td class="number">{{ number_format($washing->expected_containers, 0, ',', '.') }}</td>
+                    <td class="number">{{ number_format($washing->received_containers, 0, ',', '.') }}</td>
+                    <td class="number">{{ number_format($washing->clean_containers, 0, ',', '.') }}</td>
+                    <td class="number">{{ number_format($washing->damaged_containers, 0, ',', '.') }}</td>
+                    <td class="number">{{ number_format($washing->missing_containers, 0, ',', '.') }}</td>
+                    <td>{{ $washing->has_food_waste ? $washing->wasteRecords->count().' catatan' : 'Tidak ada' }}</td>
+                    <td>{{ $washing->started_at?->format('H:i') ?: '—' }}–{{ $washing->completed_at?->format('H:i') ?: '—' }}<br><span class="muted">{{ number_format($washing->duration_minutes, 0, ',', '.') }} menit</span></td>
+                    <td class="good">{{ $washing->state?->label() }}</td>
+                </tr>
+            @endforeach
+        </tbody>
+    </table>
 
-<h2>Bahan Pembersih</h2>
-<table><tr><th>No</th><th>Nama</th><th>Jumlah</th><th>Kegunaan</th><th>Batch/Kedaluwarsa</th></tr>
-@foreach($session->chemicalUsages as $item)
-<tr><td class="center">{{ $loop->iteration }}</td><td>{{ $item->chemical_name }}</td><td>{{ $item->quantity }} {{ $item->unit }}</td><td>{{ $item->purpose }}</td><td>{{ $item->batch_number }} / {{ $item->expiry_date?->format('d/m/Y') }}</td></tr>
-@endforeach</table>
+    <h2>Rekap limbah makanan</h2>
+    @if ($wasteItems->isNotEmpty())
+        <p>
+            <strong>Total per satuan:</strong>
+            @foreach ($wasteTotals as $unit => $quantity)
+                {{ !$loop->first ? ' · ' : '' }}{{ number_format((float) $quantity, 3, ',', '.') }} {{ $unit }}
+            @endforeach
+        </p>
+        <table>
+            <thead><tr><th style="width:4%">No.</th><th>Rute</th><th>Jenis limbah</th><th>Jumlah</th><th>Penanganan</th><th>Penerima</th><th>Catatan</th></tr></thead>
+            <tbody>
+                @foreach ($wasteItems as $item)
+                    <tr>
+                        <td class="center">{{ $loop->iteration }}</td>
+                        <td>{{ $item->route_label }}</td>
+                        <td>{{ $item->waste_type }}</td>
+                        <td class="number">{{ number_format((float) $item->quantity, 3, ',', '.') }} {{ $item->unit }}</td>
+                        <td>{{ $item->disposal_method }}</td>
+                        <td>{{ $item->handed_over_to }}</td>
+                        <td>{{ $item->notes ?: '—' }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    @else
+        <p class="good">Seluruh sesi dikonfirmasi tidak memiliki limbah makanan.</p>
+    @endif
 
-@if($session->wasteRecords->isNotEmpty())
-<h2>Limbah Pencucian</h2>
-<table><tr><th>No</th><th>Jenis</th><th>Jumlah</th><th>Penanganan</th><th>Diserahkan Kepada</th></tr>
-@foreach($session->wasteRecords as $item)
-<tr><td class="center">{{ $loop->iteration }}</td><td>{{ $item->waste_type }}</td><td>{{ $item->quantity }} {{ $item->unit }}</td><td>{{ $item->disposal_method }}</td><td>{{ $item->handed_over_to }}</td></tr>
-@endforeach</table>
-@endif
+    <h2>Catatan dan rekonsiliasi</h2>
+    <table>
+        <thead><tr><th>Rute</th><th>Selisih penerimaan</th><th>Rekonsiliasi hasil</th><th>Catatan</th></tr></thead>
+        <tbody>
+            @foreach ($sessions as $washing)
+                <tr>
+                    <td>{{ $washing->containerCollectionRun?->run_number ?: $washing->distributionRun?->route_name ?: $washing->session_number }}</td>
+                    <td class="number">{{ $washing->receiving_difference > 0 ? '+' : '' }}{{ number_format($washing->receiving_difference, 0, ',', '.') }}</td>
+                    <td class="center {{ $washing->processing_difference === 0 ? 'good' : '' }}">{{ $washing->processing_difference === 0 ? 'Seimbang' : 'Selisih '.$washing->processing_difference }}</td>
+                    <td>{{ $washing->notes ?: '—' }}</td>
+                </tr>
+            @endforeach
+        </tbody>
+    </table>
 
-<h2>Dokumentasi</h2>
-<table><tr>
-@foreach($session->documentations as $item)
-<td class="center">
-@php($path = $item->photo_path ? public_path('storage/' . $item->photo_path) : null)
-@if($path && file_exists($path))<img class="photo" src="{{ $path }}"><br>@endif
-<strong>{{ ucfirst($item->phase) }}</strong><br><span class="small">{{ $item->caption }}</span>
-</td>
-@if($loop->iteration % 4 === 0)</tr><tr>@endif
-@endforeach
-</tr></table>
-
-@if($session->deviations->isNotEmpty())
-<h2>Penyimpangan</h2>
-<table><tr><th>Waktu</th><th>Kategori/Tingkat</th><th>Deskripsi</th><th>Tindakan</th><th>Status</th></tr>
-@foreach($session->deviations as $item)
-<tr><td>{{ $item->occurred_at?->format('d/m/Y H:i') }}</td><td>{{ $item->category }} / {{ $item->severity->label() }}</td><td>{{ $item->description }}</td><td>{{ $item->immediate_action }}</td><td>{{ $item->status->label() }}</td></tr>
-@endforeach</table>
-@endif
-
-<p><strong>Catatan:</strong> {{ $session->notes ?: '-' }}</p>
-<table class="meta"><tr><td class="center">Petugas<br><br><br><strong>{{ $session->petugas_name_snapshot }}</strong></td><td class="center">Verifikator<br><br><br><strong>{{ $session->verifier?->name ?? '-' }}</strong></td></tr></table>
+    <table class="signature">
+        <tr>
+            <td>Tim Pencucian<br><br><br><strong>{{ $sessions->pluck('petugas_name_snapshot')->filter()->unique()->implode(', ') ?: '........................' }}</strong></td>
+            <td>Kepala Divisi Pencucian<br><br><br><strong>{{ $reference->divisionApprover?->name ?: '........................' }}</strong></td>
+            <td>Kepala SPPG<br><br><br><strong>{{ $reference->verifier?->name ?: '........................' }}</strong></td>
+        </tr>
+    </table>
 </body>
 </html>

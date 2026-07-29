@@ -255,4 +255,10 @@ class PortioningSession extends Model
             FieldDistributionPlan::class
         );
     }
+
+    public function preparationOutputWithdrawals(): HasMany
+    {
+        return $this->hasMany(PreparationOutputWithdrawal::class);
+    }
+
 }

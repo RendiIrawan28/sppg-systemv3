@@ -93,6 +93,8 @@ final class AccessControl
             UserRole::AsistenLapangan->value => self::fieldAssistantPermissions(),
             UserRole::AhliGizi->value => self::nutritionistPermissions(),
             UserRole::PengawasKeuangan->value => self::financeSupervisorPermissions(),
+            // Kompatibilitas akun lama yang masih memakai role `akuntan`.
+            'akuntan' => self::financeSupervisorPermissions(),
             UserRole::StafGudang->value => self::warehousePermissions(),
             UserRole::Satpam->value => self::securityPermissions(),
             UserRole::Viewer->value => self::viewerPermissions(),
@@ -253,7 +255,11 @@ final class AccessControl
         return [
             'dashboard.view', 'reports.view', 'reports.export',
             ...self::module('finance', ['view', 'verify', 'approve', 'export']),
-            ...self::module('procurement', ['view', 'price_input', 'approve', 'export']),
+            // Akuntan/Pengawas Keuangan dapat mengoreksi daftar bahan, jumlah,
+            // satuan, dan catatan sampai proses Verifikasi Keuangan dilakukan.
+            // Permission submit/create tidak diberikan agar pemisahan pengajuan
+            // dan pemeriksaan keuangan tetap terjaga.
+            ...self::module('procurement', ['view', 'update', 'price_input', 'approve', 'export', 'submit']),
             ...self::module('stock', ['view']),
             ...self::module('suppliers', ['view']),
             ...self::module('ingredients', ['view']),
@@ -271,7 +277,6 @@ final class AccessControl
             ...self::module('stock', ['view', 'create', 'update', 'delete', 'approve', 'export']),
             ...self::module('ingredients', ['view']),
             ...self::module('nutrition', ['view']),
-            ...self::module('preparation', ['view']),
         ];
     }
 

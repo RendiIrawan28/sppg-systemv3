@@ -156,6 +156,7 @@ class Form extends Component
             'destinations.*.sequence_order' => ['nullable', 'integer', 'min:1'],
             'destinations.*.planned_arrival_time' => ['nullable', 'date_format:H:i'],
             'destinations.*.special_notes' => ['nullable', 'string', 'max:2000'],
+            'destinations.*.no_service_reason' => ['nullable', 'string', 'max:1000'],
             'destinations.*.groups' => ['array'], 'destinations.*.groups.*.confirmed_beneficiaries' => ['required', 'integer', 'min:0'],
             'destinations.*.groups.*.menu_audience' => ['required', 'string', 'max:100'],
             'destinations.*.groups.*.portion_size' => ['required', 'in:small,large'],
@@ -195,26 +196,61 @@ class Form extends Component
                 if (! $destination) {
                     continue;
                 }
+
+                $confirmedTotal = collect($row['groups'] ?? [])
+                    ->sum(fn (array $groupRow): int => (int) ($groupRow['confirmed_beneficiaries'] ?? 0));
+                $isNotServed = $confirmedTotal === 0;
+                $noServiceReason = trim((string) ($row['no_service_reason'] ?? '')) ?: null;
+
                 $destination->update([
-                    'route_name' => trim((string) ($row['route_name'] ?? '')) ?: null,
+                    'route_name' => $isNotServed
+                        ? null
+                        : (trim((string) ($row['route_name'] ?? '')) ?: null),
                     'sequence_order' => (int) ($row['sequence_order'] ?? 1),
-                    'planned_arrival_time' => $row['planned_arrival_time'],
+                    'planned_arrival_time' => $isNotServed
+                        ? null
+                        : $this->nullableTime($row['planned_arrival_time'] ?? null),
                     'special_notes' => trim((string) ($row['special_notes'] ?? '')) ?: null,
                 ]);
+
                 foreach ($row['groups'] ?? [] as $groupId => $groupRow) {
                     $group = $destination->recipientGroups()->whereKey($groupId)->first();
                     $group?->update([
                         'confirmed_beneficiaries' => (int) $groupRow['confirmed_beneficiaries'],
-                        'menu_audience' => $groupRow['menu_audience'], 'portion_size' => $groupRow['portion_size'],
+                        'menu_audience' => $groupRow['menu_audience'],
+                        'portion_size' => $groupRow['portion_size'],
                         'notes' => trim((string) ($groupRow['notes'] ?? '')) ?: null,
                     ]);
                 }
+
                 $destination->recalculatePortionsFromGroups();
+
+                if ($isNotServed) {
+                    $destination->updateQuietly([
+                        'route_name' => null,
+                        'planned_arrival_time' => null,
+                        'planned_arrival_at' => null,
+                        'confirmation_status' => 'changed',
+                        'change_reason' => $noServiceReason ?: $destination->change_reason,
+                    ]);
+                }
             }
             $plan->recalculateTotals();
 
             return $plan->refresh();
         });
+    }
+
+
+    private function nullableTime(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
     }
 
     private function fillFromPlan(FieldDistributionPlan $plan): void
@@ -230,6 +266,7 @@ class Form extends Component
             'route_name' => (string) $destination->route_name, 'sequence_order' => (int) $destination->sequence_order,
             'planned_arrival_time' => $destination->planned_arrival_at?->format('H:i') ?: substr((string) $destination->planned_arrival_time, 0, 5),
             'special_notes' => (string) $destination->special_notes,
+            'no_service_reason' => (string) $destination->change_reason,
             'registered' => (int) $destination->registered_beneficiaries, 'confirmed' => (int) $destination->confirmed_beneficiaries,
             'small' => (int) $destination->small_portions, 'large' => (int) $destination->large_portions,
             'groups' => $destination->recipientGroups->mapWithKeys(fn ($group): array => [$group->id => [

@@ -28,14 +28,13 @@
         <tr><td>Suhu Berangkat</td><td>: {{ $run->departure_temperature_celsius !== null ? $run->departure_temperature_celsius . ' °C' : '-' }}</td><td>Durasi</td><td>: {{ $run->duration_minutes !== null ? $run->duration_minutes . ' menit' : '-' }}</td></tr>
         <tr><td>Muatan</td><td>: {{ $run->loaded_small_portions }} kecil + {{ $run->loaded_large_portions }} besar</td><td>Terkirim</td><td>: {{ $run->delivered_small_portions }} kecil + {{ $run->delivered_large_portions }} besar</td></tr>
         <tr><td>Tidak Tersalurkan</td><td>: {{ $run->returned_small_portions }} kecil + {{ $run->returned_large_portions }} besar</td><td>Belum Terjelaskan</td><td>: {{ $run->unaccounted_total }}</td></tr>
-        <tr><td>Ompreng Kembali</td><td>: {{ $run->containers_returned }}</td><td>Rusak / Hilang</td><td>: {{ $run->containers_damaged }} / {{ $run->containers_lost }}</td></tr>
     </table>
 
     <h2>Tujuan Distribusi</h2>
     <table>
         <thead>
             <tr>
-                <th>No</th><th>Tujuan</th><th>Jadwal</th><th>Serah-terima</th><th>Rencana K/B</th><th>Diserahkan K/B</th><th>Tidak tersalurkan K/B</th><th>Penerima</th><th>Status</th><th>Alasan selisih/gagal</th>
+                <th>No</th><th>Tujuan</th><th>Jadwal</th><th>Serah-terima</th><th>Rencana K/B</th><th>Diserahkan K/B</th><th>Ompreng/wadah</th><th>Tidak tersalurkan K/B</th><th>Penerima</th><th>Status</th><th>Alasan selisih/gagal</th>
             </tr>
         </thead>
         <tbody>
@@ -47,13 +46,14 @@
                 <td>{{ $stop->arrived_at?->format('H:i') ?: '-' }}<br>{{ $stop->delay_minutes }} mnt terlambat</td>
                 <td>{{ $stop->small_portions }}/{{ $stop->large_portions }}</td>
                 <td>{{ $stop->delivered_small_portions }}/{{ $stop->delivered_large_portions }}</td>
+                <td>{{ $stop->containers_sent }}</td>
                 <td>{{ $stop->returned_small_portions }}/{{ $stop->returned_large_portions }}</td>
                 <td>{{ $stop->recipient_name ?: '-' }}</td>
                 <td>{{ $stop->status?->label() }}</td>
                 <td>{{ $stop->failure_reason ?: '-' }}</td>
             </tr>
         @empty
-            <tr><td colspan="10">Tidak ada data tujuan.</td></tr>
+            <tr><td colspan="11">Tidak ada data tujuan.</td></tr>
         @endforelse
         </tbody>
     </table>

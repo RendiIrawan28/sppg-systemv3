@@ -4,6 +4,7 @@ namespace App\Services\V3;
 
 use App\Models\CleaningArea;
 use App\Models\CleaningSession;
+use App\Models\ContainerCollectionRun;
 use App\Models\DistributionRun;
 use App\Models\PortioningSession;
 use App\Models\User;
@@ -47,7 +48,7 @@ final class OperationalRecordInitializer
                 'delivered_large_portions' => 0,
                 'returned_small_portions' => 0,
                 'returned_large_portions' => 0,
-                'containers_sent' => $small + $large,
+                'containers_sent' => 0,
                 'latitude' => $route->latitude,
                 'longitude' => $route->longitude,
                 'notes' => $route->notes,
@@ -62,7 +63,22 @@ final class OperationalRecordInitializer
 
     private function washing(WashingSession $session): void
     {
-        if ($session->distribution_run_id) {
+        if ($session->container_collection_run_id) {
+            $run = ContainerCollectionRun::query()->with(['items.task'])->find($session->container_collection_run_id);
+            if ($run) {
+                $collected = (int) $run->items->sum('collected_quantity');
+                $target = $collected;
+
+                $session->updateQuietly([
+                    'menu_name_snapshot' => $session->menu_name_snapshot ?: 'Pengambilan ompreng '.$run->run_number,
+                    'distribution_expected_containers' => $session->distribution_expected_containers ?: $target,
+                    'distribution_returned_containers' => $session->distribution_returned_containers ?: $collected,
+                    'distribution_damaged_containers' => 0,
+                    'distribution_lost_containers' => 0,
+                    'expected_containers' => $session->expected_containers ?: $collected,
+                ]);
+            }
+        } elseif ($session->distribution_run_id) {
             $run = DistributionRun::query()->with('stops')->find($session->distribution_run_id);
             if ($run) {
                 $sent = (int) $run->stops->sum('containers_sent');
@@ -77,12 +93,15 @@ final class OperationalRecordInitializer
                     $lost = (int) $run->stops->sum('containers_lost');
                 }
 
+                $physicalExpected = $returned + $damaged;
+
                 $session->updateQuietly([
                     'menu_name_snapshot' => $session->menu_name_snapshot ?: $run->menu_name_snapshot,
-                    'expected_containers' => $session->expected_containers ?: $sent,
-                    'received_containers' => $session->received_containers ?: $returned + $damaged,
-                    'damaged_containers' => $session->damaged_containers ?: $damaged,
-                    'missing_containers' => $session->missing_containers ?: $lost,
+                    'distribution_expected_containers' => $session->distribution_expected_containers ?: $sent,
+                    'distribution_returned_containers' => $session->distribution_returned_containers ?: $returned,
+                    'distribution_damaged_containers' => $session->distribution_damaged_containers ?: $damaged,
+                    'distribution_lost_containers' => $session->distribution_lost_containers ?: $lost,
+                    'expected_containers' => $session->expected_containers ?: $physicalExpected,
                 ]);
             }
         }
@@ -91,13 +110,10 @@ final class OperationalRecordInitializer
             return;
         }
         $items = [
-            ['receiving', 'Jumlah dan kondisi ompreng dicocokkan saat penerimaan'],
-            ['pre_rinse', 'Sisa makanan dibuang sebelum pencucian utama'],
-            ['main_wash', 'Seluruh permukaan ompreng dicuci secara menyeluruh'],
-            ['rinse', 'Ompreng bebas residu deterjen setelah pembilasan'],
-            ['sanitation', 'Proses sanitasi dilakukan sesuai SOP Unit SPPG'],
-            ['drying', 'Ompreng dikeringkan tanpa kontaminasi ulang'],
-            ['final_inspection', 'Ompreng tidak bernoda, tidak berbau, dan layak digunakan'],
+            ['pre_rinse', 'Sisa makanan sudah dipisahkan dan dibuang sebelum pencucian'],
+            ['main_wash', 'Ompreng sudah dicuci dan dibilas hingga bebas residu'],
+            ['drying', 'Ompreng sudah dikeringkan tanpa kontaminasi ulang'],
+            ['final_inspection', 'Ompreng bersih, tidak berbau, dan layak digunakan'],
         ];
         foreach ($items as $index => [$category, $name]) {
             $session->checklistItems()->create([

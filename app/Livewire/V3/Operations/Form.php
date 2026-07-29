@@ -3,6 +3,8 @@
 namespace App\Livewire\V3\Operations;
 
 use App\Enums\DistributionRunState;
+use App\Enums\DistributionStopStatus;
+use App\Enums\OperationalReportStatus;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\DistributionRun;
 use App\Models\User;
@@ -49,7 +51,7 @@ class Form extends Component
         $definition = $registry->get($module);
         $this->module = $module;
         $this->recordId = $record;
-        abort_if($module === 'distribusi' && ! $record, 404);
+        abort_if(in_array($module, ['distribusi', 'pencucian'], true) && ! $record, 404);
         $permission = $record ? '.view' : '.create';
         abort_unless($this->allowed($definition['permission'].$permission), 403);
 
@@ -101,6 +103,12 @@ class Form extends Component
 
     public function save(): void
     {
+        if ($this->module === 'distribusi') {
+            throw ValidationException::withMessages([
+                'distribution' => 'Gunakan aksi pada setiap tujuan untuk menyimpan hasil distribusi.',
+            ]);
+        }
+
         $this->runAction(function (): string {
             $record = $this->persist();
             if (! $this->recordId) {
@@ -137,6 +145,17 @@ class Form extends Component
     public function claimRoute(): void
     {
         abort_unless($this->module === 'distribusi', 404);
+
+        $this->validate([
+            'data.kernet_name' => ['required', 'string', 'max:255'],
+            'data.vehicle_name' => ['required', 'string', 'max:255'],
+            'data.vehicle_plate' => ['required', 'string', 'max:50'],
+        ], [
+            'data.kernet_name.required' => 'Nama kernet wajib diisi.',
+            'data.vehicle_name.required' => 'Kendaraan wajib diisi.',
+            'data.vehicle_plate.required' => 'Nomor polisi wajib diisi.',
+        ]);
+
         $this->workflow('claim');
     }
 
@@ -152,7 +171,8 @@ class Form extends Component
 
         $this->runAction(function () use ($action): string {
             $record = $this->record();
-            $shouldPersist = $this->isEditable($record)
+            $shouldPersist = $this->module !== 'distribusi'
+                && $this->isEditable($record)
                 && ! in_array($action, ['claim', 'verify', 'revision'], true);
 
             if ($shouldPersist) {
@@ -171,7 +191,7 @@ class Form extends Component
                     'release' => $service->releaseRoute($record, $actor, $notes),
                     'load' => $service->startLoading($record, $actor),
                     'depart' => $service->depart($record, $actor, $this->data),
-                    'finish' => $service->finish($record, $actor, [...$this->data, 'notes' => $notes]),
+                    'finish' => $service->finish($record, $actor, ['notes' => $notes]),
                     'submit' => $service->submit($record, $actor, $notes),
                     'verify' => $service->verify($record, $actor, $notes),
                     'revision' => $service->requestRevision($record, $actor, $notes),
@@ -201,28 +221,152 @@ class Form extends Component
     public function distributionStopWorkflow(int $index, string $action): void
     {
         abort_unless($this->module === 'distribusi' && $this->allowed('distribution.update'), 403);
-        abort_unless(in_array($action, ['arrive', 'deliver', 'fail'], true), 404);
+        abort_unless(in_array($action, ['deliver', 'fail'], true), 404);
 
         $this->runAction(function () use ($index, $action): string {
-            $run = $action === 'arrive' ? $this->record() : $this->persist();
+            $run = $this->record();
+            abort_unless($this->canOperateRoute($run), 403);
+
             $stopId = (int) ($this->relations['stops'][$index]['_id'] ?? 0);
             $stop = $run->stops()->whereKey($stopId)->firstOrFail();
+
+            $rules = [
+                "relations.stops.{$index}.delivered_small_portions" => [
+                    'required', 'integer', 'min:0', 'max:'.(int) $stop->small_portions,
+                ],
+                "relations.stops.{$index}.delivered_large_portions" => [
+                    'required', 'integer', 'min:0', 'max:'.(int) $stop->large_portions,
+                ],
+                "relations.stops.{$index}.containers_sent" => $action === 'deliver'
+                    ? ['required', 'integer', 'min:1']
+                    : ['nullable', 'integer', 'min:0'],
+                "relations.stops.{$index}.recipient_name" => $action === 'deliver'
+                    ? ['required', 'string', 'max:255']
+                    : ['nullable', 'string', 'max:255'],
+                "relations.stops.{$index}.recipient_position" => ['nullable', 'string', 'max:255'],
+                "relations.stops.{$index}.failure_reason" => $action === 'fail'
+                    ? ['required', 'string', 'max:5000']
+                    : ['nullable', 'string', 'max:5000'],
+                "uploads.stops.{$index}.handover_photo_path" => ['nullable', 'image', 'max:5120'],
+            ];
+
+            $this->validate($rules);
+
+            $row = $this->relations['stops'][$index] ?? [];
+            $existingPhoto = $row['handover_photo_path'] ?? null;
+            $newPhoto = $this->uploads['stops'][$index]['handover_photo_path'] ?? null;
+
+            if ($action === 'deliver') {
+                $deliveredSmall = (int) ($row['delivered_small_portions'] ?? 0);
+                $deliveredLarge = (int) ($row['delivered_large_portions'] ?? 0);
+                $isPartial = $deliveredSmall < (int) $stop->small_portions
+                    || $deliveredLarge < (int) $stop->large_portions;
+
+                if (($deliveredSmall + $deliveredLarge) <= 0) {
+                    throw ValidationException::withMessages([
+                        'delivery' => 'Gunakan tombol Gagal dikirim jika tidak ada porsi yang diserahkan.',
+                    ]);
+                }
+
+                if ($isPartial && blank($row['failure_reason'] ?? null)) {
+                    throw ValidationException::withMessages([
+                        "relations.stops.{$index}.failure_reason" => 'Alasan pengiriman sebagian wajib diisi.',
+                    ]);
+                }
+
+                if (blank($existingPhoto) && ! ($newPhoto instanceof TemporaryUploadedFile)) {
+                    throw ValidationException::withMessages([
+                        "uploads.stops.{$index}.handover_photo_path" => 'Foto dokumentasi serah-terima wajib diunggah.',
+                    ]);
+                }
+            }
+
+            $payload = $this->distributionStopPayload($index);
             $workflow = app(DistributionWorkflow::class);
 
-            match ($action) {
-                'arrive' => $workflow->arriveAtStop($run, $stop, auth()->user()),
-                'deliver' => $workflow->completeStop($run, $stop, auth()->user()),
-                'fail' => $workflow->failStop($run, $stop, auth()->user()),
-            };
+            if ($action === 'deliver') {
+                $workflow->completeStop($run, $stop, auth()->user(), $payload);
+            } else {
+                $workflow->failStop($run, $stop, auth()->user(), $payload);
+            }
 
             $this->fillFromRecord($run->refresh());
 
-            return match ($action) {
-                'arrive' => 'Makanan telah tiba di tujuan.',
-                'deliver' => 'Penyerahan makanan berhasil dicatat.',
-                'fail' => 'Kegagalan penyerahan dan porsi kembali berhasil dicatat.',
-            };
+            return $action === 'deliver'
+                ? 'Hasil serah-terima berhasil disimpan.'
+                : 'Tujuan berhasil ditandai gagal dikirim.';
         });
+    }
+
+    public function saveStopRevision(int $index): void
+    {
+        abort_unless($this->module === 'distribusi' && $this->allowed('distribution.update'), 403);
+
+        $this->runAction(function () use ($index): string {
+            $run = $this->record();
+            abort_unless($this->canOperateRoute($run), 403);
+            abort_unless(
+                $run->state === DistributionRunState::Returned
+                && $run->status === OperationalReportStatus::RevisionRequired,
+                403,
+            );
+
+            $stopId = (int) ($this->relations['stops'][$index]['_id'] ?? 0);
+            $stop = $run->stops()->whereKey($stopId)->firstOrFail();
+            $terminalStatuses = implode(',', [
+                DistributionStopStatus::Delivered->value,
+                DistributionStopStatus::Partial->value,
+                DistributionStopStatus::Failed->value,
+            ]);
+
+            $this->validate([
+                "relations.stops.{$index}.status" => ['required', 'in:'.$terminalStatuses],
+                "relations.stops.{$index}.delivered_small_portions" => [
+                    'required', 'integer', 'min:0', 'max:'.(int) $stop->small_portions,
+                ],
+                "relations.stops.{$index}.delivered_large_portions" => [
+                    'required', 'integer', 'min:0', 'max:'.(int) $stop->large_portions,
+                ],
+                "relations.stops.{$index}.containers_sent" => ['required', 'integer', 'min:0'],
+                "relations.stops.{$index}.recipient_name" => ['nullable', 'string', 'max:255'],
+                "relations.stops.{$index}.recipient_position" => ['nullable', 'string', 'max:255'],
+                "relations.stops.{$index}.failure_reason" => ['nullable', 'string', 'max:5000'],
+                "uploads.stops.{$index}.handover_photo_path" => ['nullable', 'image', 'max:5120'],
+            ]);
+
+            $row = $this->relations['stops'][$index] ?? [];
+            $requestedStatus = (string) ($row['status'] ?? '');
+            $existingPhoto = $row['handover_photo_path'] ?? null;
+            $newPhoto = $this->uploads['stops'][$index]['handover_photo_path'] ?? null;
+
+            if (in_array($requestedStatus, [
+                DistributionStopStatus::Delivered->value,
+                DistributionStopStatus::Partial->value,
+            ], true) && blank($existingPhoto) && ! ($newPhoto instanceof TemporaryUploadedFile)) {
+                throw ValidationException::withMessages([
+                    "uploads.stops.{$index}.handover_photo_path" => 'Foto dokumentasi wajib tersedia.',
+                ]);
+            }
+
+            $payload = $this->distributionStopPayload($index);
+            $payload['status'] = $requestedStatus;
+
+            app(DistributionWorkflow::class)
+                ->reviseStop($run, $stop, auth()->user(), $payload);
+
+            $this->fillFromRecord($run->refresh());
+
+            return 'Koreksi tujuan berhasil disimpan.';
+        });
+    }
+
+    public function saveRouteRevision(): void
+    {
+        abort_unless($this->module === 'distribusi', 404);
+
+        throw ValidationException::withMessages([
+            'distribution' => 'Pencatatan ompreng dipindahkan ke menu Pengambilan Ompreng.',
+        ]);
     }
 
     public function render(OperationalModuleRegistry $registry)
@@ -282,10 +426,6 @@ class Form extends Component
                     'vehicle_plate',
                     'kernet_name',
                     'departure_temperature_celsius',
-                    'containers_returned',
-                    'containers_damaged',
-                    'containers_lost',
-                    'notes',
                 ]));
             }
 
@@ -312,6 +452,7 @@ class Form extends Component
                         $values = array_intersect_key($values, array_flip([
                             'delivered_small_portions',
                             'delivered_large_portions',
+                            'containers_sent',
                             'recipient_name',
                             'recipient_position',
                             'handover_photo_path',
@@ -462,6 +603,28 @@ class Form extends Component
         return $value ?? match ($type) {
             'number' => 0, 'boolean' => false, default => ''
         };
+    }
+
+    /** @return array<string, mixed> */
+    private function distributionStopPayload(int $index): array
+    {
+        $row = $this->relations['stops'][$index] ?? [];
+        $photoPath = $row['handover_photo_path'] ?? null;
+        $upload = $this->uploads['stops'][$index]['handover_photo_path'] ?? null;
+
+        if ($upload instanceof TemporaryUploadedFile) {
+            $photoPath = $upload->store('v3/operations/distribusi/stops', 'public');
+        }
+
+        return [
+            'delivered_small_portions' => (int) ($row['delivered_small_portions'] ?? 0),
+            'delivered_large_portions' => (int) ($row['delivered_large_portions'] ?? 0),
+            'containers_sent' => (int) ($row['containers_sent'] ?? 0),
+            'recipient_name' => trim((string) ($row['recipient_name'] ?? '')) ?: null,
+            'recipient_position' => trim((string) ($row['recipient_position'] ?? '')) ?: null,
+            'handover_photo_path' => $photoPath,
+            'failure_reason' => trim((string) ($row['failure_reason'] ?? '')) ?: null,
+        ];
     }
 
     private function record(): Model
