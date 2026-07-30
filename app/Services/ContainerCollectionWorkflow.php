@@ -9,6 +9,7 @@ use App\Models\ContainerCollectionRun;
 use App\Models\ContainerCollectionTask;
 use App\Models\DistributionRun;
 use App\Models\DistributionStop;
+use App\Models\FieldDistributionPlan;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -188,6 +189,7 @@ class ContainerCollectionWorkflow
         });
 
         app(OperationalHandoverFlow::class)->createWashingSessionFromCollection($run, $actor);
+        $this->refreshDailyReportIfReady($run, $actor);
 
         return $run->refresh();
     }
@@ -253,6 +255,56 @@ class ContainerCollectionWorkflow
 
             return $item->refresh();
         });
+    }
+
+    private function refreshDailyReportIfReady(ContainerCollectionRun $run, User $actor): void
+    {
+        $dates = $run->items()
+            ->join('container_collection_tasks as tasks', 'tasks.id', '=', 'container_collection_items.container_collection_task_id')
+            ->pluck('tasks.delivery_date')
+            ->filter()
+            ->unique();
+
+        foreach ($dates as $date) {
+            $hasPendingCollection = ContainerCollectionTask::query()
+                ->where('sppg_unit_id', $run->sppg_unit_id)
+                ->whereDate('delivery_date', $date)
+                ->where('remaining_containers', '>', 0)
+                ->exists();
+
+            $hasOpenDelivery = DistributionRun::query()
+                ->where('sppg_unit_id', $run->sppg_unit_id)
+                ->whereDate('distribution_date', $date)
+                ->whereNotIn('state', [
+                    DistributionRunState::Returned->value,
+                    DistributionRunState::Cancelled->value,
+                ])
+                ->exists();
+
+            if ($hasPendingCollection || $hasOpenDelivery) {
+                continue;
+            }
+
+            $plans = FieldDistributionPlan::query()
+                ->where('sppg_unit_id', $run->sppg_unit_id)
+                ->whereDate('distribution_date', $date)
+                ->where('status', '!=', 'cancelled')
+                ->get();
+
+            foreach ($plans as $plan) {
+                app(FieldDistributionPlanWorkflow::class)->complete(
+                    $plan,
+                    $actor,
+                    'Seluruh pengantaran makanan dan pengambilan ompreng telah selesai.',
+                );
+            }
+
+            app(FieldDailyReportGenerator::class)->generateAutomatic(
+                (int) $run->sppg_unit_id,
+                (string) $date,
+                $actor,
+            );
+        }
     }
 
     private function assertOwner(ContainerCollectionRun $run, User $actor): void

@@ -155,7 +155,7 @@ class PortioningWorkflow
                 : OperationalReportStatus::Verified;
             $action = $nextStatus === OperationalReportStatus::DivisionApproved
                 ? 'division_approved'
-                : 'field_assistant_verified';
+                : 'head_verified';
 
             $updates = [
                 'status' => $nextStatus,
@@ -272,6 +272,7 @@ class PortioningWorkflow
     private function assertCanReviewStage(OperationalReportStatus $status, User $actor): void
     {
         if ($status === OperationalReportStatus::Submitted
+            && ! $actor->is_super_admin
             && ! $actor->hasRole(UserRole::KepalaDivisiPemorsian->value)) {
             throw ValidationException::withMessages([
                 'status' => 'Laporan harus diperiksa Kepala Divisi Pemorsian terlebih dahulu.',
@@ -279,9 +280,10 @@ class PortioningWorkflow
         }
 
         if ($status === OperationalReportStatus::DivisionApproved
-            && ! $actor->hasRole(UserRole::AsistenLapangan->value)) {
+            && ! $actor->is_super_admin
+            && ! $actor->hasRole(UserRole::KepalaSppg->value)) {
             throw ValidationException::withMessages([
-                'status' => 'Hanya Asisten Lapangan yang dapat melakukan verifikasi akhir laporan Pemorsian.',
+                'status' => 'Hanya Kepala SPPG yang dapat melakukan verifikasi akhir laporan Pemorsian.',
             ]);
         }
     }

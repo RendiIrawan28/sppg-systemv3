@@ -40,7 +40,7 @@ return new class extends Migration
             $table->decimal('requested_quantity', 14, 4);
             $table->decimal('verified_quantity', 14, 4)->nullable();
             $table->string('unit_snapshot', 80);
-            $table->string('status', 30)->default('waiting_verification')->index();
+            $table->string('status', 30)->default('verified')->index();
             $table->foreignId('taken_by')->index();
             $table->timestamp('taken_at')->index();
             $table->foreignId('verified_by')->nullable()->index();

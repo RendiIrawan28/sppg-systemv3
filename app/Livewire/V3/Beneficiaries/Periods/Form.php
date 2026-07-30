@@ -8,6 +8,8 @@ use App\Models\BeneficiaryPeriod;
 use App\Models\Posyandu;
 use App\Models\School;
 use App\Services\BeneficiaryPeriodAggregateService;
+use App\Services\BeneficiaryPeriodSnapshotService;
+use App\Services\BeneficiaryPeriodWorkflowService;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -31,6 +33,10 @@ class Form extends Component
 
     public string $notes = '';
 
+    public string $inputMode = 'master';
+
+    public string $originalInputMode = 'master';
+
     /** @var array<int, array{destination_key: string, counts: array<int|string, int|string|null>}> */
     public array $destinations = [];
 
@@ -42,6 +48,7 @@ class Form extends Component
         if ($period?->exists) {
             abort_unless($user->is_super_admin || $user->can('beneficiary_periods.update'), 403);
             abort_unless((int) $period->sppg_unit_id === (int) $unit->getKey(), 404);
+            abort_unless($period->isEditable(), 403, 'Periode yang sudah diajukan atau dikunci tidak dapat diubah.');
 
             $period->load([
                 'destinations' => fn ($query) => $query->where('is_active', true)->with(['categoryTotals', 'members']),
@@ -52,6 +59,8 @@ class Form extends Component
             $this->startDate = $period->start_date?->toDateString() ?? '';
             $this->endDate = $period->end_date?->toDateString() ?? '';
             $this->notes = (string) $period->notes;
+            $this->inputMode = $period->categoryTotals()->exists() ? 'manual' : 'master';
+            $this->originalInputMode = $this->inputMode;
             $this->destinations = $period->destinations->map(function ($destination): array {
                 $counts = $destination->categoryTotals->isNotEmpty()
                     ? $destination->categoryTotals->pluck('total_beneficiaries', 'beneficiary_category_id')->all()
@@ -68,7 +77,7 @@ class Form extends Component
                 ];
             })->values()->all();
 
-            if ($this->destinations === []) {
+            if ($this->inputMode === 'manual' && $this->destinations === []) {
                 $this->addDestination();
             }
 
@@ -108,8 +117,20 @@ class Form extends Component
         }
     }
 
-    public function save(BeneficiaryPeriodAggregateService $aggregateService): void
+    public function updatedInputMode(string $mode): void
     {
+        if ($mode === 'manual' && $this->destinations === []) {
+            $this->addDestination();
+        }
+
+        $this->resetValidation();
+    }
+
+    public function save(
+        BeneficiaryPeriodAggregateService $aggregateService,
+        BeneficiaryPeriodSnapshotService $snapshotService,
+        BeneficiaryPeriodWorkflowService $workflowService,
+    ): void {
         $unit = $this->currentUnit();
         $permission = $this->periodId ? 'beneficiary_periods.update' : 'beneficiary_periods.create';
         abort_unless(auth()->user()->is_super_admin || auth()->user()->can($permission), 403);
@@ -128,13 +149,14 @@ class Form extends Component
             'startDate' => ['required', 'date'],
             'endDate' => ['required', 'date', 'after_or_equal:startDate'],
             'notes' => ['nullable', 'string', 'max:2000'],
-            'destinations' => ['required', 'array', 'min:1'],
-            'destinations.*.destination_key' => ['required', 'string', 'distinct', Rule::in($destinationKeys)],
+            'inputMode' => ['required', Rule::in(['master', 'manual'])],
+            'destinations' => [Rule::requiredIf($this->inputMode === 'manual'), 'array'],
+            'destinations.*.destination_key' => [Rule::requiredIf($this->inputMode === 'manual'), 'nullable', 'string', 'distinct', Rule::in($destinationKeys)],
             'destinations.*.counts' => ['array'],
             'destinations.*.counts.*' => ['nullable', 'integer', 'min:0', 'max:1000000'],
         ]);
 
-        foreach ($data['destinations'] as $index => $destination) {
+        foreach (($data['destinations'] ?? []) as $index => $destination) {
             foreach (array_keys($destination['counts'] ?? []) as $categoryId) {
                 if (! in_array((string) $categoryId, $categoryIds, true)) {
                     throw ValidationException::withMessages([
@@ -150,27 +172,17 @@ class Form extends Component
         }
 
         try {
-            $period = DB::transaction(function () use ($data, $unit, $aggregateService): BeneficiaryPeriod {
-                BeneficiaryPeriod::query()
-                    ->where('sppg_unit_id', $unit->getKey())
-                    ->where('status', 'active')
-                    ->when($this->periodId, fn ($query) => $query->whereKeyNot($this->periodId))
-                    ->where(function ($query) use ($data): void {
-                        $query->whereBetween('start_date', [$data['startDate'], $data['endDate']])
-                            ->orWhereBetween('end_date', [$data['startDate'], $data['endDate']])
-                            ->orWhere(fn ($query) => $query
-                                ->whereDate('start_date', '<=', $data['startDate'])
-                                ->whereDate('end_date', '>=', $data['endDate']));
-                    })
-                    ->update(['status' => 'closed', 'closed_at' => now()]);
-
+            $period = DB::transaction(function () use ($data, $unit, $aggregateService, $snapshotService, $workflowService): BeneficiaryPeriod {
                 $period = $this->periodId
                     ? BeneficiaryPeriod::query()->where('sppg_unit_id', $unit->getKey())->findOrFail($this->periodId)
                     : new BeneficiaryPeriod([
                         'sppg_unit_id' => $unit->getKey(),
                         'created_by' => auth()->id(),
                         'revision_number' => 0,
+                        'status' => 'draft',
                     ]);
+
+                abort_unless($period->isEditable() || ! $period->exists, 403, 'Periode yang sudah diajukan atau dikunci tidak dapat diubah.');
 
                 $period->fill([
                     'code' => trim($data['code']),
@@ -180,10 +192,31 @@ class Form extends Component
                     'notes' => trim($data['notes']) ?: null,
                 ])->save();
 
-                return $aggregateService->save($period, $data['destinations'], auth()->user());
+                $workflowService->assertDates($period);
+
+                if ($data['inputMode'] === 'manual') {
+                    if ($this->originalInputMode === 'master') {
+                        $period->destinations()->delete();
+                    }
+
+                    return $aggregateService->save($period, $data['destinations'], auth()->user());
+                }
+
+                if ($this->originalInputMode === 'manual') {
+                    $period->destinations()->delete();
+                }
+
+                $snapshotService->importCurrentMaster($period, auth()->user(), true);
+
+                return $period->refresh();
             });
 
-            session()->flash('v3.status', 'Jumlah penerima berhasil disimpan dan langsung aktif.');
+            session()->flash(
+                'v3.status',
+                $data['inputMode'] === 'manual'
+                    ? 'Draft periode dengan jumlah manual berhasil disimpan.'
+                    : 'Draft periode dan snapshot penerima aktif berhasil dibuat.'
+            );
             $this->redirectRoute('v3.beneficiary-periods.show', ['period' => $period], navigate: true);
         } catch (Throwable $exception) {
             report($exception);
@@ -218,7 +251,7 @@ class Form extends Component
                 ->orderBy('name')
                 ->get(),
             'destinationOptions' => $this->destinationOptions($unit->getKey()),
-        ])->layout('layouts.v3', ['title' => $this->periodId ? 'Ubah Jumlah Penerima' : 'Input Jumlah Penerima']);
+        ])->layout('layouts.v3', ['title' => $this->periodId ? 'Ubah Periode Penerima' : 'Buat Periode Penerima']);
     }
 
     /** @return array<string, array{type: string, label: string}> */

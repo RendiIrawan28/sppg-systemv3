@@ -105,9 +105,9 @@ class BeneficiaryPeriodWorkflowService
         if (! $end->equalTo($expectedEnd)) {
             throw new DomainException(
                 'Periode penerima wajib tepat 14 hari, termasuk tanggal mulai dan selesai. '
-                    . 'Tanggal selesai yang seharusnya: '
-                    . $expectedEnd->format('d-m-Y')
-                    . '.'
+                    .'Tanggal selesai yang seharusnya: '
+                    .$expectedEnd->format('d-m-Y')
+                    .'.'
             );
         }
 
@@ -138,14 +138,15 @@ class BeneficiaryPeriodWorkflowService
             throw new DomainException('Periode belum memiliki instansi dan penerima aktif.');
         }
 
-        $missingCategory = $period->members()
-            ->where('is_active', true)
-            ->where(function ($query): void {
-                $query->whereNull('beneficiary_category_code_snapshot')
-                    ->orWhereNull('portion_category')
-                    ->orWhereNull('menu_audience');
-            })
-            ->exists();
+        $missingCategory = ! $period->categoryTotals()->exists()
+            && $period->members()
+                ->where('is_active', true)
+                ->where(function ($query): void {
+                    $query->whereNull('beneficiary_category_code_snapshot')
+                        ->orWhereNull('portion_category')
+                        ->orWhereNull('menu_audience');
+                })
+                ->exists();
 
         if ($missingCategory) {
             throw new DomainException('Masih ada penerima aktif yang belum mempunyai kelompok penerima, kategori porsi, atau kelompok menu.');
@@ -183,7 +184,6 @@ class BeneficiaryPeriodWorkflowService
             ]);
         });
     }
-
 
     private function authorize(User $actor, string $permission): void
     {

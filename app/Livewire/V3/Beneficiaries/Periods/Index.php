@@ -35,6 +35,7 @@ class Index extends Component
         abort_unless(auth()->user()->is_super_admin || auth()->user()->can('beneficiary_periods.view'), 403);
 
         $query = BeneficiaryPeriod::query()
+            ->withExists('categoryTotals')
             ->where('sppg_unit_id', $unit->getKey())
             ->when(trim($this->search) !== '', function ($query): void {
                 $search = trim($this->search);

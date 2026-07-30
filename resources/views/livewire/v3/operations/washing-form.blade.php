@@ -203,7 +203,27 @@
                     </div>
 
                     <div class="mt-5 space-y-3">
-                        <div class="flex items-center justify-between gap-3"><p class="text-xs font-bold uppercase tracking-[.12em] text-slate-500 dark:text-slate-400">Foto hasil pencucian</p>@if ($isWashing && $canUpdate)<button type="button" wire:click="addWashingResultPhoto" class="text-xs font-bold text-sky-700 dark:text-sky-300">+ Tambah foto</button>@endif</div>
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <p class="text-xs font-bold uppercase tracking-[.12em] text-slate-500 dark:text-slate-400">Foto hasil pencucian</p>
+                                <p class="mt-1 text-xs text-slate-400">Minimal satu foto wajib diunggah sebelum pencucian diselesaikan.</p>
+                            </div>
+                            @if ($isWashing && $canUpdate)
+                                <button type="button" wire:click="addWashingResultPhoto" wire:loading.attr="disabled" wire:target="addWashingResultPhoto" class="inline-flex h-10 items-center rounded-xl bg-sky-600 px-4 text-xs font-bold text-white transition hover:bg-sky-700 disabled:opacity-60 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400">
+                                    + Tambah foto hasil
+                                </button>
+                            @endif
+                        </div>
+                        @if (($relations['documentations'] ?? []) === [])
+                            <div class="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center dark:border-slate-700 dark:bg-slate-950/60">
+                                <p class="text-sm font-semibold text-slate-600 dark:text-slate-300">Belum ada foto hasil pencucian.</p>
+                                @if ($isWashing && $canUpdate)
+                                    <button type="button" wire:click="addWashingResultPhoto" wire:loading.attr="disabled" wire:target="addWashingResultPhoto" class="mt-3 inline-flex h-10 items-center rounded-xl bg-sky-600 px-4 text-xs font-bold text-white transition hover:bg-sky-700 disabled:opacity-60 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400">
+                                        + Tambah foto sekarang
+                                    </button>
+                                @endif
+                            </div>
+                        @endif
                         @foreach ($relations['documentations'] ?? [] as $index => $row)
                             <div wire:key="washing-photo-{{ $row['_id'] ?? 'new-'.$index }}" class="grid gap-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700 sm:grid-cols-[1fr_auto]">
                                 <div>

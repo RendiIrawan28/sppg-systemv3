@@ -25,16 +25,27 @@ class FieldDailyReportGenerator
             return $existing->load(['plan', 'divisions', 'incidents']);
         }
 
-        $report = $this->generate($unitId, $date, $actor, $existing);
+        $plan = FieldDistributionPlan::query()
+            ->where('sppg_unit_id', $unitId)
+            ->whereDate('distribution_date', $date)
+            ->where('status', '!=', 'cancelled')
+            ->latest('id')
+            ->first();
+        $preparer = User::query()->find(
+            $plan?->submitted_by ?: $plan?->activated_by ?: $plan?->created_by
+        ) ?: $actor;
 
+        $report = $this->generate($unitId, $date, $preparer, $existing);
         $report->forceFill([
-            'status' => FieldDailyReportStatus::Approved,
-            'submitted_by' => $actor->getKey(),
-            'submitted_at' => now(),
-            'approved_by' => $actor->getKey(),
-            'approved_at' => now(),
+            'status' => $report->status === FieldDailyReportStatus::RevisionRequired
+                ? FieldDailyReportStatus::RevisionRequired
+                : FieldDailyReportStatus::Draft,
+            'submitted_by' => null,
+            'submitted_at' => null,
+            'approved_by' => null,
+            'approved_at' => null,
             'operational_summary' => $report->operational_summary
-                ?: 'Laporan dibentuk otomatis setelah rencana distribusi diselesaikan.',
+                ?: 'Rekap otomatis dibentuk setelah seluruh pengantaran dan pengambilan ompreng selesai.',
         ])->save();
 
         return $report->refresh()->load(['plan', 'divisions', 'incidents']);
@@ -213,8 +224,30 @@ class FieldDailyReportGenerator
             $summary['containers_returned'] = (int) $collections->sum('collected_containers');
         }
 
-        // Kerusakan fisik dicatat oleh Pencucian setelah ompreng diterima.
-        $summary['containers_damaged'] = 0;
+        // Kerusakan fisik dicatat oleh Pencucian setelah kegiatan pengambilan kembali ke SPPG.
+        if (
+            Schema::hasTable('washing_sessions')
+            && Schema::hasColumn('washing_sessions', 'container_collection_run_id')
+            && Schema::hasTable('container_collection_items')
+        ) {
+            $collectionRunIds = DB::table('container_collection_items as items')
+                ->join('container_collection_tasks as tasks', 'tasks.id', '=', 'items.container_collection_task_id')
+                ->where('tasks.sppg_unit_id', $unitId)
+                ->whereDate('tasks.delivery_date', $date)
+                ->whereNotNull('items.container_collection_run_id')
+                ->distinct()
+                ->pluck('items.container_collection_run_id');
+
+            if ($collectionRunIds->isNotEmpty()) {
+                $summary['containers_damaged'] = (int) DB::table('washing_sessions')
+                    ->where('sppg_unit_id', $unitId)
+                    ->whereIn('container_collection_run_id', $collectionRunIds)
+                    ->whereNull('deleted_at')
+                    ->sum('damaged_containers');
+            }
+        }
+
+        // Ompreng yang belum kembali tetap menjadi tugas pengambilan, bukan langsung dianggap hilang.
         $summary['containers_lost'] = 0;
 
         return $summary;

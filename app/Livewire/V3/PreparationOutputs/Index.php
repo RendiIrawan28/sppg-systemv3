@@ -4,10 +4,10 @@ namespace App\Livewire\V3\PreparationOutputs;
 
 use App\Enums\PortioningSessionState;
 use App\Enums\ProcessingBatchState;
+use App\Enums\UserRole;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\PortioningSession;
 use App\Models\PreparationOutput;
-use App\Models\PreparationOutputWithdrawal;
 use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
 use App\Models\ProcessingBatch;
@@ -34,11 +34,10 @@ class Index extends Component
 
     public array $requestQuantities = [];
     public array $requestDivisions = [];
+    public array $targetDivisions = [];
     public array $processingBatchIds = [];
     public array $portioningSessionIds = [];
     public array $requestNotes = [];
-    public array $verifiedQuantities = [];
-    public array $reviewNotes = [];
 
     public function mount(): void
     {
@@ -140,33 +139,29 @@ class Index extends Component
             $this->portioningSessionIds[$outputId],
             $this->requestNotes[$outputId],
         );
-        session()->flash('v3.status', 'Pengambilan dicatat dan menunggu verifikasi Persiapan.');
+        session()->flash('v3.status', 'Hasil Persiapan berhasil diambil dan langsung tersedia di divisi tujuan.');
     }
 
-    public function verifyWithdrawal(int $withdrawalId, PreparationOutputService $service): void
+    public function changeTargetDivision(int $outputId, PreparationOutputService $service): void
     {
-        $withdrawal = $this->withdrawal($withdrawalId);
-        $quantity = (float) ($this->verifiedQuantities[$withdrawalId] ?? $withdrawal->requested_quantity);
-        $service->verify(
-            $withdrawal,
-            auth()->user(),
-            $quantity,
-            $this->reviewNotes[$withdrawalId] ?? null,
-        );
-        unset($this->verifiedQuantities[$withdrawalId], $this->reviewNotes[$withdrawalId]);
-        session()->flash('v3.status', 'Pengambilan hasil Persiapan berhasil diverifikasi.');
-    }
+        abort_unless($this->canChangeTargetDivision(), 403);
 
-    public function rejectWithdrawal(int $withdrawalId, PreparationOutputService $service): void
-    {
-        $withdrawal = $this->withdrawal($withdrawalId);
-        $service->reject(
-            $withdrawal,
+        $output = $this->output($outputId);
+        $this->targetDivisions[$outputId] ??= $output->target_division;
+        $this->validate([
+            "targetDivisions.{$outputId}" => ['required', 'in:processing,portioning,both'],
+        ], [], [
+            "targetDivisions.{$outputId}" => 'tujuan penggunaan',
+        ]);
+
+        $service->changeTargetDivision(
+            $output,
             auth()->user(),
-            (string) ($this->reviewNotes[$withdrawalId] ?? ''),
+            $this->targetDivisions[$outputId],
         );
-        unset($this->verifiedQuantities[$withdrawalId], $this->reviewNotes[$withdrawalId]);
-        session()->flash('v3.status', 'Pengambilan ditolak dan stok hasil dikembalikan.');
+
+        unset($this->targetDivisions[$outputId]);
+        session()->flash('v3.status', 'Tujuan penggunaan hasil Persiapan berhasil diubah.');
     }
 
     public function render()
@@ -187,7 +182,7 @@ class Index extends Component
         $outputs = PreparationOutput::query()
             ->with([
                 'session', 'sourceItem',
-                'withdrawals.taker', 'withdrawals.verifier',
+                'withdrawals.taker',
                 'withdrawals.processingBatch', 'withdrawals.portioningSession',
             ])
             ->where('sppg_unit_id', $unit->getKey())
@@ -218,7 +213,7 @@ class Index extends Component
             'canCreate' => $this->allowed('preparation.update'),
             'canTakeProcessing' => $this->allowed('processing.update'),
             'canTakePortioning' => $this->allowed('portioning.update'),
-            'canVerify' => $this->allowed('preparation.update'),
+            'canChangeTarget' => $this->canChangeTargetDivision(),
         ])->layout('layouts.v3', ['title' => 'Penyimpanan Hasil Persiapan']);
     }
 
@@ -226,13 +221,6 @@ class Index extends Component
     {
         return PreparationOutput::query()
             ->where('sppg_unit_id', $this->currentUnit()->getKey())
-            ->findOrFail($id);
-    }
-
-    private function withdrawal(int $id): PreparationOutputWithdrawal
-    {
-        return PreparationOutputWithdrawal::query()
-            ->whereHas('output', fn ($query) => $query->where('sppg_unit_id', $this->currentUnit()->getKey()))
             ->findOrFail($id);
     }
 
@@ -252,5 +240,13 @@ class Index extends Component
         }
 
         abort(403);
+    }
+
+    private function canChangeTargetDivision(): bool
+    {
+        $user = auth()->user();
+
+        return $user->is_super_admin
+            || $user->hasRole(UserRole::KepalaDivisiPersiapan->value);
     }
 }

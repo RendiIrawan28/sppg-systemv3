@@ -16,6 +16,7 @@ import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.Restaurant
+import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.SetMeal
 import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material3.Icon
@@ -49,6 +50,7 @@ fun moduleVisual(slug: String): ModuleVisual = when {
     slug == "distribusi" -> ModuleVisual(Icons.Outlined.LocalShipping, Color(0xFF3272A8), Color(0xFFDDEEFF))
     slug == "pencucian" -> ModuleVisual(Icons.Outlined.WaterDrop, Color(0xFF167F89), Color(0xFFD8F3F3))
     slug == "kebersihan" -> ModuleVisual(Icons.Outlined.CleaningServices, Color(0xFF4B7C45), Color(0xFFE0F0DC))
+    slug == "keamanan" -> ModuleVisual(Icons.Outlined.Security, Color(0xFF455A64), Color(0xFFE4EBEF))
     else -> ModuleVisual(Icons.AutoMirrored.Outlined.Assignment, Forest, MaterialTheme.colorScheme.primaryContainer)
 }
 

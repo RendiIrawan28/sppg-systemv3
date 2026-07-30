@@ -56,6 +56,26 @@
                         <x-v3.documentation-button :url="Storage::disk('public')->url($output->photo_path)" :title="$output->output_name" label="Lihat foto hasil" class="mt-3" />
                     @endif
 
+                    @if(
+                        $canChangeTarget
+                        && (float) $output->available_quantity > 0
+                        && in_array($output->state, [App\Models\PreparationOutput::AVAILABLE, App\Models\PreparationOutput::PARTIALLY_TAKEN], true)
+                    )
+                        <div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-400/25 dark:bg-amber-500/10">
+                            <p class="text-xs font-bold text-amber-900 dark:text-amber-100">Ubah tujuan penggunaan</p>
+                            <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">Perubahan berlaku untuk sisa barang yang masih tersedia.</p>
+                            <div class="mt-3 flex flex-col gap-2 sm:flex-row">
+                                <select wire:model="targetDivisions.{{ $output->id }}" class="h-10 min-w-0 flex-1 rounded-xl border border-amber-200 bg-white px-3 text-sm dark:border-amber-500/30 dark:bg-slate-950">
+                                    <option value="processing" @selected($output->target_division === 'processing')>Pengolahan</option>
+                                    <option value="portioning" @selected($output->target_division === 'portioning')>Pemorsian</option>
+                                    <option value="both" @selected($output->target_division === 'both')>Pengolahan atau Pemorsian</option>
+                                </select>
+                                <button type="button" wire:click="changeTargetDivision({{ $output->id }})" wire:loading.attr="disabled" wire:target="changeTargetDivision({{ $output->id }})" class="h-10 rounded-xl bg-amber-600 px-4 text-xs font-bold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60">Simpan tujuan</button>
+                            </div>
+                            @error("targetDivisions.{$output->id}") <p class="mt-2 text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
+                        </div>
+                    @endif
+
                     @if($canRequestProcessing || $canRequestPortioning)
                         <div class="mt-5 rounded-xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-400/25 dark:bg-sky-500/10">
                             <p class="text-xs font-bold text-sky-900 dark:text-sky-100">Catat pengambilan oleh divisi</p>
@@ -81,11 +101,9 @@
                         <div class="mt-5 space-y-2"><p class="text-xs font-bold uppercase tracking-[.12em] text-slate-500">Riwayat pengambilan</p>
                             @foreach($output->withdrawals as $withdrawal)
                                 <div class="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-                                    <div class="flex flex-wrap justify-between gap-3"><div><p class="text-sm font-bold">{{ $withdrawal->destination_division === 'processing' ? 'Pengolahan' : 'Pemorsian' }} · {{ $withdrawal->taker?->name }}</p><p class="mt-1 text-xs text-slate-500">{{ number_format((float)$withdrawal->requested_quantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }} · {{ $withdrawal->taken_at?->format('d/m/Y H:i') }}</p></div><span class="text-xs font-bold {{ $withdrawal->status === 'verified' ? 'text-emerald-600' : ($withdrawal->status === 'rejected' ? 'text-rose-600' : 'text-amber-600') }}">{{ str($withdrawal->status)->replace('_', ' ')->title() }}</span></div>
-                                    @if($withdrawal->status === App\Models\PreparationOutputWithdrawal::WAITING && $canVerify)
-                                        <div class="mt-3 grid gap-2 md:grid-cols-[180px_1fr_auto_auto]"><input wire:model="verifiedQuantities.{{ $withdrawal->id }}" type="number" min="0" step="0.001" class="h-10 rounded-xl border px-3 text-sm dark:border-slate-700 dark:bg-slate-950" placeholder="Aktual {{ $withdrawal->requested_quantity }}"><input wire:model="reviewNotes.{{ $withdrawal->id }}" class="h-10 rounded-xl border px-3 text-sm dark:border-slate-700 dark:bg-slate-950" placeholder="Catatan pemeriksaan"><button type="button" wire:click="rejectWithdrawal({{ $withdrawal->id }})" class="h-10 rounded-xl px-4 text-xs font-bold text-rose-600">Tolak</button><button type="button" wire:click="verifyWithdrawal({{ $withdrawal->id }})" class="h-10 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white">Verifikasi</button></div>
-                                    @elseif($withdrawal->verified_quantity !== null)
-                                        <p class="mt-2 text-xs text-slate-500">Aktual terverifikasi: {{ number_format((float)$withdrawal->verified_quantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }}</p>
+                                    <div class="flex flex-wrap justify-between gap-3"><div><p class="text-sm font-bold">{{ $withdrawal->destination_division === 'processing' ? 'Pengolahan' : 'Pemorsian' }} · {{ $withdrawal->taker?->name }}</p><p class="mt-1 text-xs text-slate-500">{{ number_format((float)$withdrawal->requested_quantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }} · {{ $withdrawal->taken_at?->format('d/m/Y H:i') }}</p></div><span class="text-xs font-bold {{ $withdrawal->status === 'verified' ? 'text-emerald-600' : 'text-rose-600' }}">{{ $withdrawal->status === 'verified' ? 'Terambil' : 'Ditolak (riwayat lama)' }}</span></div>
+                                    @if($withdrawal->verified_quantity !== null)
+                                        <p class="mt-2 text-xs text-slate-500">Jumlah terambil: {{ number_format((float)$withdrawal->verified_quantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }}</p>
                                     @endif
                                 </div>
                             @endforeach

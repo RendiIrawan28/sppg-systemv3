@@ -100,7 +100,11 @@ class PreparationSessionService
     {
         abort_unless($actor->can('preparation.submit'), 403);
         DB::transaction(function () use ($session, $actor): void {
-            $session = PreparationSession::query()->lockForUpdate()->findOrFail($session->id);
+            $session = PreparationSession::query()->with(['items', 'wasteHandoverReport'])->lockForUpdate()->findOrFail($session->id);
+            $hasWaste = $session->items->sum(fn ($item): float => (float) ($item->waste_quantity ?? $item->waste_weight_kg)) > 0;
+            if ($hasWaste && ! $session->wasteHandoverReport?->isOperationallyUsable()) {
+                throw ValidationException::withMessages(['waste' => 'Berita acara limbah harus dibuat dan diajukan sebelum laporan Persiapan diajukan.']);
+            }
             if ($session->state !== 'completed'
                 || ! in_array($session->status, [OperationalReportStatus::Draft, OperationalReportStatus::RevisionRequired], true)) {
                 throw ValidationException::withMessages(['status' => 'Laporan hanya dapat diajukan setelah Persiapan selesai.']);

@@ -14,6 +14,8 @@ use App\Services\WasteHandoverWorkflow;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
@@ -125,58 +127,108 @@ class Form extends Component
             'data.second_party_address' => ['required', 'string', 'max:2000'],
             'data.notes' => ['nullable', 'string', 'max:5000'],
             'items' => ['required', 'array', 'min:1'],
+            'items.*.id' => ['nullable', 'integer'],
             'items.*.waste_type' => ['required', 'string', 'max:255'],
             'items.*.quantity' => ['required', 'numeric', 'gt:0'],
             'items.*.unit' => ['required', 'string', 'max:50'],
             'items.*.notes' => ['nullable', 'string', 'max:2000'],
+            'items.*.photo_path' => ['nullable', 'string', 'max:2048'],
             'uploads.*.photo' => ['nullable', 'image', 'max:5120'],
         ];
         $validated = $this->validate($rules);
         $actor = auth()->user();
         $unit = $this->currentUnit();
+        $workflow = app(WasteHandoverWorkflow::class);
+        $validated['data'] = $workflow->normalizeAndValidateSource(
+            $validated['data'],
+            (int) $unit->getKey(),
+            $this->reportId,
+        );
 
-        DB::transaction(function () use ($validated, $actor, $unit): void {
-            $record = $this->reportId ? $this->record() : new WasteHandoverReport();
-            abort_unless($this->canForDivision(WasteDivision::from($validated['data']['division_type']), 'update'), 403);
-            abort_unless(! $record->exists || $record->isEditable(), 403);
+        $division = WasteDivision::from((string) $validated['data']['division_type']);
+        abort_unless($this->canForDivision($division, 'update'), 403);
 
-            $record->fill($validated['data']);
-            $record->sppg_unit_id = $unit->getKey();
-            $record->petugas_id = $actor->getKey();
-            $record->petugas_name_snapshot = $actor->name;
-            $record->updated_by = $actor->getKey();
-            if (! $record->exists) {
-                $record->created_by = $actor->getKey();
-                $record->status = OperationalReportStatus::Draft;
-                $record->source_system = 'web_v3_shared_waste';
-            }
-            $record->save();
+        $newPaths = [];
+        $pathsToDelete = [];
 
-            $kept = [];
-            foreach ($this->items as $index => $row) {
-                $item = ! empty($row['id']) ? $record->items()->findOrFail($row['id']) : $record->items()->make();
-                $photoPath = $row['photo_path'] ?? null;
-                $upload = $this->uploads[$index]['photo'] ?? null;
-                if ($upload instanceof TemporaryUploadedFile) {
-                    $photoPath = $upload->store('v3/waste-handovers/'.now()->format('Y/m'), 'public');
+        try {
+            DB::transaction(function () use ($validated, $actor, $unit, &$newPaths, &$pathsToDelete): void {
+                $record = $this->reportId ? $this->record() : new WasteHandoverReport();
+                abort_unless(! $record->exists || $record->isEditable(), 403);
+
+                if ($record->exists && (
+                    $record->source_type !== ($validated['data']['source_type'] ?? null)
+                    || (int) ($record->source_id ?? 0) !== (int) ($validated['data']['source_id'] ?? 0)
+                )) {
+                    throw ValidationException::withMessages([
+                        'data.source_type' => 'Sumber berita acara yang sudah tersimpan tidak dapat diubah.',
+                    ]);
                 }
-                $item->fill([
-                    'waste_type' => $row['waste_type'],
-                    'quantity' => $row['quantity'],
-                    'unit' => $row['unit'],
-                    'weight_kg' => $row['unit'] === 'kg' ? $row['quantity'] : null,
-                    'notes' => $row['notes'] ?: null,
-                    'photo_path' => $photoPath,
-                    'sort_order' => $index + 1,
-                ])->save();
-                $kept[] = $item->getKey();
+
+                $record->fill($validated['data']);
+                $record->sppg_unit_id = $unit->getKey();
+                $record->petugas_id = $actor->getKey();
+                $record->petugas_name_snapshot = $actor->name;
+                $record->updated_by = $actor->getKey();
+                if (! $record->exists) {
+                    $record->created_by = $actor->getKey();
+                    $record->status = OperationalReportStatus::Draft;
+                    $record->source_system = 'web_v3_shared_waste';
+                }
+                $record->save();
+
+                $kept = [];
+                foreach ($validated['items'] as $index => $row) {
+                    $item = ! empty($row['id'])
+                        ? $record->items()->findOrFail((int) $row['id'])
+                        : $record->items()->make();
+                    $oldPath = $item->photo_path;
+                    $photoPath = $row['photo_path'] ?? $oldPath;
+                    $upload = $this->uploads[$index]['photo'] ?? null;
+
+                    if ($upload instanceof TemporaryUploadedFile) {
+                        $photoPath = $upload->store('v3/waste-handovers/'.now()->format('Y/m'), 'public');
+                        $newPaths[] = $photoPath;
+                        if ($oldPath && $oldPath !== $photoPath) {
+                            $pathsToDelete[] = $oldPath;
+                        }
+                    }
+
+                    $item->fill([
+                        'waste_type' => $row['waste_type'],
+                        'quantity' => $row['quantity'],
+                        'unit' => $row['unit'],
+                        'weight_kg' => $row['unit'] === 'kg' ? $row['quantity'] : null,
+                        'notes' => filled($row['notes'] ?? null) ? $row['notes'] : null,
+                        'photo_path' => $photoPath,
+                        'sort_order' => $index + 1,
+                    ])->save();
+                    $kept[] = $item->getKey();
+                }
+
+                $stale = $record->items()
+                    ->when($kept !== [], fn ($query) => $query->whereNotIn('id', $kept))
+                    ->get();
+                foreach ($stale as $item) {
+                    if ($item->photo_path) {
+                        $pathsToDelete[] = $item->photo_path;
+                    }
+                    $item->delete();
+                }
+
+                $this->linkSource($record, (int) $unit->getKey());
+                $this->reportId = $record->getKey();
+            });
+        } catch (Throwable $exception) {
+            foreach (array_unique($newPaths) as $path) {
+                Storage::disk('public')->delete($path);
             }
-            $record->items()->when($kept !== [], fn ($query) => $query->whereNotIn('id', $kept))->delete();
+            throw $exception;
+        }
 
-            $this->linkSource($record, $unit->getKey());
-
-            $this->reportId = $record->getKey();
-        });
+        foreach (array_unique($pathsToDelete) as $path) {
+            Storage::disk('public')->delete($path);
+        }
 
         $this->fillRecord($this->record()->refresh());
         session()->flash('v3.status', 'Berita acara limbah berhasil disimpan.');
@@ -210,7 +262,9 @@ class Form extends Component
             if ($item->photo_path) Storage::disk('public')->delete($item->photo_path);
         }
         $this->unlinkSource($record);
-        $record->delete();
+        $record->histories()->delete();
+        $record->items()->delete();
+        $record->forceDelete();
         session()->flash('v3.status', 'Berita acara limbah dihapus.');
         $this->redirectRoute('v3.waste-handovers.index', navigate: true);
     }
@@ -271,7 +325,7 @@ class Form extends Component
             'quantity' => (string) $item->quantity,
             'unit' => $item->unit ?: 'kg',
             'notes' => $item->notes,
-            'photo_path' => null,
+            'photo_path' => $item->photo_path,
         ])->all();
         $this->uploads = [];
         $this->workflowNotes = '';

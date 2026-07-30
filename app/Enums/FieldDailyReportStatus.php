@@ -13,9 +13,9 @@ enum FieldDailyReportStatus: string
     {
         return match ($this) {
             self::Draft => 'Draft',
-            self::Submitted => 'Status Lama: Diajukan',
-            self::RevisionRequired => 'Status Lama: Perlu Revisi',
-            self::Approved => 'Laporan Otomatis',
+            self::Submitted => 'Menunggu Persetujuan Kepala SPPG',
+            self::RevisionRequired => 'Perlu Revisi',
+            self::Approved => 'Disetujui Kepala SPPG',
         };
     }
 

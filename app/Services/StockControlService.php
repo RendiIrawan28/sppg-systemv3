@@ -17,15 +17,18 @@ class StockControlService
             throw ValidationException::withMessages(['actualQuantity' => 'Jumlah aktual dan alasan wajib valid.']);
         }
 
+        $unit = $this->normalizedUnit($lot->unit_snapshot);
+        $isKilogram = $this->isKilogram($unit);
+
         return StockAdjustment::create([
             'sppg_unit_id' => $lot->sppg_unit_id, 'inventory_lot_id' => $lot->id,
-            'unit_snapshot' => $lot->unit_snapshot,
+            'unit_snapshot' => $unit,
             'adjustment_number' => 'SA/'.now()->format('YmdHis').'/'.$lot->id, 'adjustment_date' => today(),
             'type' => $type, 'system_quantity' => $lot->balance_quantity, 'actual_quantity' => $actual,
             'difference_quantity' => $actual - (float) $lot->balance_quantity,
-            'system_quantity_kg' => $lot->unit_snapshot === 'kg' ? $lot->balance_quantity : 0,
-            'actual_quantity_kg' => $lot->unit_snapshot === 'kg' ? $actual : 0,
-            'difference_quantity_kg' => $lot->unit_snapshot === 'kg' ? $actual - (float) $lot->balance_quantity : 0,
+            'system_quantity_kg' => $isKilogram ? $lot->balance_quantity : 0,
+            'actual_quantity_kg' => $isKilogram ? $actual : 0,
+            'difference_quantity_kg' => $isKilogram ? $actual - (float) $lot->balance_quantity : 0,
             'status' => StockAdjustment::DRAFT, 'reason' => $reason, 'created_by' => $actor->id,
         ]);
     }
@@ -38,30 +41,47 @@ class StockControlService
                 throw ValidationException::withMessages(['status' => 'Penyesuaian sudah diproses.']);
             }
             $lot = InventoryLot::lockForUpdate()->findOrFail($adjustment->inventory_lot_id);
+            $unit = $this->normalizedUnit($lot->unit_snapshot ?: $adjustment->unit_snapshot);
+            $isKilogram = $this->isKilogram($unit);
             $difference = (float) $adjustment->actual_quantity - (float) $lot->balance_quantity;
             $lot->update([
+                'unit_snapshot' => $unit,
                 'balance_quantity' => $adjustment->actual_quantity,
-                'balance_quantity_kg' => $lot->unit_snapshot === 'kg' ? $adjustment->actual_quantity : $lot->balance_quantity_kg,
+                // Kolom *_kg hanya kompatibilitas data lama. Untuk satuan non-kg
+                // nilainya harus nol agar tidak dibaca sebagai berat palsu.
+                'balance_quantity_kg' => $isKilogram ? $adjustment->actual_quantity : 0,
                 'status' => (float) $adjustment->actual_quantity > 0 ? InventoryLot::AVAILABLE : InventoryLot::DEPLETED,
             ]);
             StockMovement::create([
                 'sppg_unit_id' => $lot->sppg_unit_id, 'ingredient_id' => $lot->ingredient_id, 'inventory_lot_id' => $lot->id,
-                'ingredient_name_snapshot' => $lot->ingredient->name, 'unit_snapshot' => 'kg', 'movement_type' => StockMovement::TYPE_ADJUSTMENT,
+                'ingredient_name_snapshot' => $lot->ingredient->name, 'unit_snapshot' => $unit, 'movement_type' => StockMovement::TYPE_ADJUSTMENT,
                 'movement_date' => today(),
-                'quantity_in_kg' => $lot->unit_snapshot === 'kg' ? max(0, $difference) : 0,
-                'quantity_out_kg' => $lot->unit_snapshot === 'kg' ? max(0, -$difference) : 0,
+                'quantity_in_kg' => $isKilogram ? max(0, $difference) : 0,
+                'quantity_out_kg' => $isKilogram ? max(0, -$difference) : 0,
                 'quantity_in' => max(0, $difference), 'quantity_out' => max(0, -$difference),
                 'source_type' => StockAdjustment::class, 'source_id' => $adjustment->id, 'reference_number' => $adjustment->adjustment_number,
                 'supplier_batch_number' => $lot->lot_number, 'expired_date' => $lot->expired_date, 'notes' => $adjustment->reason, 'created_by' => $actor->id,
             ]);
             $adjustment->update([
                 'difference_quantity' => $difference,
-                'difference_quantity_kg' => $lot->unit_snapshot === 'kg' ? $difference : 0,
+                'difference_quantity_kg' => $isKilogram ? $difference : 0,
                 'status' => StockAdjustment::VERIFIED, 'verified_by' => $actor->id, 'verified_at' => now(),
             ]);
 
             return $adjustment->refresh();
         });
+    }
+
+    private function normalizedUnit(?string $unit): string
+    {
+        $unit = strtolower(trim((string) $unit));
+
+        return $unit !== '' ? $unit : 'kg';
+    }
+
+    private function isKilogram(string $unit): bool
+    {
+        return in_array($unit, ['kg', 'kilogram'], true);
     }
 
     public function updateLot(InventoryLot $lot, string $location, string $storageType, string $status): void

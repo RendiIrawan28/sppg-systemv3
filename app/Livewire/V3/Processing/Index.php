@@ -25,10 +25,6 @@ class Index extends Component
 
     public ?int $selectedId = null;
 
-    public string $actualOutputQuantity = '';
-
-    public string $actualOutputUnit = '';
-
     public string $notes = '';
 
     /** @var array<int, array<string, mixed>> */
@@ -62,27 +58,18 @@ class Index extends Component
             'documentations',
         ]);
         $this->selectedId = $id;
-        $this->actualOutputQuantity = $batch->actual_output_quantity !== null
-            ? (string) $batch->actual_output_quantity
-            : '';
-        $this->actualOutputUnit = (string) ($batch->actual_output_unit ?: $batch->target_output_unit);
         $this->notes = (string) $batch->notes;
         $this->reviewNotes = (string) $batch->review_notes;
         $this->finishedOutputDocumentations = $batch->documentations
             ->where('documentation_type', 'finished_output')
             ->values()
-            ->map(function (ProcessingDocumentation $documentation, int $index) use ($batch): array {
+            ->map(function (ProcessingDocumentation $documentation): array {
                 return [
                     'documentation_id' => $documentation->id,
                     'output_quantity' => $documentation->output_quantity !== null
                         ? (string) $documentation->output_quantity
-                        : ($index === 0 && $batch->actual_output_quantity !== null
-                            ? (string) $batch->actual_output_quantity
-                            : ''),
-                    'output_unit' => (string) (
-                        $documentation->output_unit
-                        ?: ($index === 0 ? ($batch->actual_output_unit ?: $batch->target_output_unit) : '')
-                    ),
+                        : '',
+                    'output_unit' => (string) $documentation->output_unit,
                     'caption' => $documentation->caption,
                     'captured_at' => $documentation->captured_at?->format('Y-m-d\TH:i')
                         ?: now()->format('Y-m-d\TH:i'),
@@ -136,9 +123,7 @@ class Index extends Component
         $this->finishedOutputDocumentations[] = [
             'documentation_id' => null,
             'output_quantity' => '',
-            'output_unit' => $this->actualOutputUnit !== ''
-                ? $this->actualOutputUnit
-                : '',
+            'output_unit' => '',
             'caption' => '',
             'captured_at' => now()->format('Y-m-d\TH:i'),
             'photo_path' => null,
@@ -163,8 +148,6 @@ class Index extends Component
         abort_unless($batch->state === ProcessingBatchState::InProgress, 422);
 
         $this->validate([
-            'actualOutputQuantity' => ['required', 'numeric', 'gt:0'],
-            'actualOutputUnit' => ['required', 'string', 'max:80'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'cookedProducts' => ['required', 'array', 'min:1'],
             'cookedProducts.*.product_name' => ['required', 'string', 'max:255'],
@@ -202,8 +185,6 @@ class Index extends Component
         try {
             DB::transaction(function () use ($batch, &$newPaths, &$oldPaths): void {
                 $batch->update([
-                    'actual_output_quantity' => $this->actualOutputQuantity,
-                    'actual_output_unit' => trim($this->actualOutputUnit),
                     'product_name' => collect($this->cookedProducts)
                         ->pluck('product_name')
                         ->filter()

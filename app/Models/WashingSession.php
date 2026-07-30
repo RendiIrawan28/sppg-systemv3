@@ -170,6 +170,7 @@ class WashingSession extends Model
             return $this->waste_recorded_at !== null
                 && $this->waste_handed_over_at !== null
                 && $this->waste_handover_report_id !== null
+                && $this->wasteHandoverReport?->isOperationallyUsable() === true
                 && $this->wasteRecords()->exists();
         }
 

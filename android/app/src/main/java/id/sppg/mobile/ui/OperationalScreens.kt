@@ -1,5 +1,10 @@
 package id.sppg.mobile.ui
 
+import android.util.Base64
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,33 +26,56 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import id.sppg.mobile.data.remote.OperationalField
+import id.sppg.mobile.data.remote.OperationalAction
 import id.sppg.mobile.data.remote.OperationalRecord
 import id.sppg.mobile.data.remote.OperationalSection
+import id.sppg.mobile.data.remote.OperationalSectionItem
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.io.ByteArrayOutputStream
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,6 +88,7 @@ fun OperationalRecordListScreen(
     onLoad: (String) -> Unit,
     onRefresh: () -> Unit,
     onRecordClick: (Long) -> Unit,
+    onCreate: () -> Unit,
 ) {
     LaunchedEffect(module) { onLoad(module) }
 
@@ -74,6 +103,11 @@ fun OperationalRecordListScreen(
                     }
                 },
                 actions = {
+                    if (state.modules.firstOrNull { it.slug == module }?.canCreate == true) {
+                        IconButton(onClick = onCreate) {
+                            Icon(Icons.Outlined.Add, contentDescription = "Tambah data")
+                        }
+                    }
                     IconButton(onClick = onRefresh, enabled = !state.isLoading) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Muat ulang")
                     }
@@ -240,8 +274,86 @@ fun OperationalRecordDetailScreen(
     recordId: Long,
     onBack: () -> Unit,
     onLoad: (String, Long) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onAction: (String, String?) -> Unit,
+    onRelationCreate: (OperationalSection) -> Unit,
+    onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
+    onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
+    onRelationAction: (OperationalSection, OperationalSectionItem, String) -> Unit,
 ) {
     LaunchedEffect(module, recordId) { onLoad(module, recordId) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var selectedAction by remember { mutableStateOf<OperationalAction?>(null) }
+    var actionNotes by remember { mutableStateOf("") }
+    var relationToDelete by remember {
+        mutableStateOf<Pair<OperationalSection, OperationalSectionItem>?>(null)
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Hapus data ini?") },
+            text = { Text("Data yang sudah dihapus tidak dapat dikembalikan.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    onDelete()
+                }) { Text("Hapus", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("Batal") }
+            },
+        )
+    }
+    selectedAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { selectedAction = null },
+            title = { Text(action.label) },
+            text = {
+                Column {
+                    Text("Pastikan data pekerjaan sudah benar sebelum melanjutkan.")
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = actionNotes,
+                        onValueChange = { actionNotes = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(if (action.notesRequired) "Alasan *" else "Catatan (opsional)") },
+                        minLines = 3,
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !state.isSaving && (!action.notesRequired || actionNotes.isNotBlank()),
+                    onClick = {
+                        onAction(action.key, actionNotes.trim().ifBlank { null })
+                        selectedAction = null
+                        actionNotes = ""
+                    },
+                ) { Text("Ya, lanjutkan") }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedAction = null }) { Text("Batal") }
+            },
+        )
+    }
+    relationToDelete?.let { (section, item) ->
+        AlertDialog(
+            onDismissRequest = { relationToDelete = null },
+            title = { Text("Hapus rincian ini?") },
+            text = { Text(item.title) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onRelationDelete(section, item)
+                    relationToDelete = null
+                }) { Text("Hapus", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { relationToDelete = null }) { Text("Batal") }
+            },
+        )
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -261,7 +373,7 @@ fun OperationalRecordDetailScreen(
     ) { innerPadding ->
         when {
             state.isLoading -> OperationalLoading(innerPadding)
-            state.errorMessage != null -> OperationalError(
+            state.errorMessage != null && state.selectedRecord == null -> OperationalError(
                 message = state.errorMessage,
                 padding = innerPadding,
                 onRetry = { onLoad(module, recordId) },
@@ -269,13 +381,40 @@ fun OperationalRecordDetailScreen(
             state.selectedRecord != null -> OperationalDetailContent(
                 record = state.selectedRecord,
                 padding = innerPadding,
+                onEdit = onEdit,
+                onDelete = { confirmDelete = true },
+                isSaving = state.isSaving,
+                errorMessage = state.errorMessage,
+                successMessage = state.successMessage,
+                onAction = {
+                    selectedAction = it
+                    actionNotes = ""
+                },
+                onRelationCreate = onRelationCreate,
+                onRelationEdit = onRelationEdit,
+                onRelationDelete = { section, item -> relationToDelete = section to item },
+                onRelationAction = onRelationAction,
             )
         }
     }
 }
 
 @Composable
-private fun OperationalDetailContent(record: OperationalRecord, padding: PaddingValues) {
+private fun OperationalDetailContent(
+    record: OperationalRecord,
+    padding: PaddingValues,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    isSaving: Boolean,
+    errorMessage: String?,
+    successMessage: String?,
+    onAction: (OperationalAction) -> Unit,
+    onRelationCreate: (OperationalSection) -> Unit,
+    onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
+    onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
+    onRelationAction: (OperationalSection, OperationalSectionItem, String) -> Unit,
+) {
+    val capabilities = record.capabilities
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -317,6 +456,24 @@ private fun OperationalDetailContent(record: OperationalRecord, padding: Padding
         if (!record.fields.isNullOrEmpty()) {
             item { OperationalFieldCard("Informasi pekerjaan", record.fields) }
         }
+        if (!successMessage.isNullOrBlank()) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                    Text(successMessage, modifier = Modifier.padding(16.dp), fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        if (!errorMessage.isNullOrBlank()) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                    Text(
+                        errorMessage,
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            }
+        }
         val sections = record.sections.orEmpty()
         if (sections.isEmpty()) {
             item {
@@ -327,9 +484,314 @@ private fun OperationalDetailContent(record: OperationalRecord, padding: Padding
             }
         } else {
             items(sections, key = { it.key }) { section ->
-                OperationalSectionCard(section)
+                OperationalSectionCard(
+                    section = section,
+                    onCreate = { onRelationCreate(section) },
+                    onEdit = { onRelationEdit(section, it) },
+                    onDelete = { onRelationDelete(section, it) },
+                    onAction = { item, action -> onRelationAction(section, item, action) },
+                )
             }
         }
+        if (!capabilities?.actions.isNullOrEmpty()) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("LANGKAH BERIKUTNYA", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    capabilities.actions.orEmpty().forEach { action ->
+                        Button(
+                            onClick = { onAction(action) },
+                            enabled = !isSaving,
+                            modifier = Modifier.fillMaxWidth().height(54.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) { Text(action.label, fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+        }
+        if (capabilities?.canUpdate == true || capabilities?.canDelete == true) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (capabilities.canUpdate) {
+                        Button(
+                            onClick = onEdit,
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) { Text("Ubah data", fontWeight = FontWeight.Bold) }
+                    }
+                    if (capabilities.canDelete) {
+                        OutlinedButton(
+                            onClick = onDelete,
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Text("Hapus data", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OperationalRecordEditScreen(
+    state: OperationalUiState,
+    moduleLabel: String,
+    isCreate: Boolean,
+    onBack: () -> Unit,
+    onPrepare: () -> Unit,
+    onValueChange: (String, String?) -> Unit,
+    onFileSelected: (String, String) -> Unit,
+    fileValues: Map<String, String>,
+    onSave: () -> Unit,
+) {
+    LaunchedEffect(isCreate, state.selectedRecord?.id) { onPrepare() }
+    val fields = state.activeFormFields
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text(if (isCreate) "Tambah $moduleLabel" else "Ubah $moduleLabel", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        if (fields.isEmpty()) {
+            OperationalLoading(padding)
+            return@Scaffold
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 20.dp,
+                top = padding.calculateTopPadding() + 12.dp,
+                end = 20.dp,
+                bottom = 32.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                ) {
+                    Column(Modifier.padding(18.dp)) {
+                        Text("Isi hanya data yang perlu diubah", fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            "Kolom status dikunci agar alur kerja tetap aman.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            items(fields.filter { it.editable }, key = { it.key }) { field ->
+                OperationalFormInput(
+                    field = field,
+                    value = state.editValues[field.key],
+                    onValueChange = { onValueChange(field.key, it) },
+                    hasSelectedFile = fileValues.containsKey(field.key),
+                    onSelectFile = { onFileSelected(field.key, it) },
+                )
+            }
+            if (state.errorMessage != null) {
+                item {
+                    Text(
+                        state.errorMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+            item {
+                Button(
+                    onClick = onSave,
+                    enabled = !state.isSaving,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    if (state.isSaving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    } else {
+                        Text(if (isCreate) "Simpan data baru" else "Simpan perubahan", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OperationalFormInput(
+    field: id.sppg.mobile.data.remote.OperationalFormField,
+    value: String?,
+    onValueChange: (String?) -> Unit,
+    hasSelectedFile: Boolean,
+    onSelectFile: (String) -> Unit,
+) {
+    val label = field.label + if (field.required) " *" else ""
+    val context = LocalContext.current
+    val photoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val bitmap = context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+                    ?: error("Foto tidak dapat dibaca.")
+                val output = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)
+                val bytes = output.toByteArray()
+                require(bytes.size <= 5 * 1024 * 1024) { "Ukuran foto maksimal 5 MB." }
+                "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+            }.onSuccess(onSelectFile)
+        }
+    }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
+        if (bitmap != null) {
+            val output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 88, output)
+            onSelectFile(
+                "data:image/jpeg;base64," + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP),
+            )
+        }
+    }
+
+    when {
+        field.type == "file" -> Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text(label, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    when {
+                        hasSelectedFile -> "Foto baru sudah dipilih."
+                        !field.value.isNullOrBlank() -> "Foto tersimpan tersedia."
+                        else -> "Belum ada foto."
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Button(
+                        onClick = { cameraLauncher.launch(null) },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Outlined.PhotoCamera, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Kamera")
+                    }
+                    OutlinedButton(
+                        onClick = { photoLauncher.launch("image/*") },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Galeri")
+                    }
+                }
+            }
+        }
+        field.type == "boolean" -> Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(label, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (value == "1") "Ya" else "Tidak",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = value == "1",
+                    onCheckedChange = { onValueChange(if (it) "1" else "0") },
+                )
+            }
+        }
+        field.type == "select" && !field.options.isNullOrEmpty() -> {
+            var expanded by remember(field.key) { mutableStateOf(false) }
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+            ) {
+                OutlinedTextField(
+                    value = field.options[value] ?: "",
+                    onValueChange = {},
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                    label = { Text(label) },
+                    placeholder = { Text("Ketuk untuk memilih") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                    shape = RoundedCornerShape(16.dp),
+                )
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                ) {
+                    if (!field.required) {
+                        DropdownMenuItem(
+                            text = { Text("Tidak dipilih") },
+                            onClick = {
+                                onValueChange(null)
+                                expanded = false
+                            },
+                        )
+                    }
+                    field.options.forEach { (optionValue, optionLabel) ->
+                        DropdownMenuItem(
+                            text = { Text(optionLabel) },
+                            onClick = {
+                                onValueChange(optionValue)
+                                expanded = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+        else -> OutlinedTextField(
+            value = value.orEmpty(),
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(label) },
+            supportingText = {
+                Text(
+                    when (field.type) {
+                        "number" -> "Masukkan angka tanpa pemisah ribuan."
+                        "date" -> "Contoh: 2026-07-29"
+                        "datetime" -> "Contoh: 2026-07-29 08:00"
+                        else -> "Isi dengan informasi yang mudah dipahami."
+                    },
+                )
+            },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = if (field.type == "number") KeyboardType.Decimal else KeyboardType.Text,
+            ),
+            minLines = if (field.type == "textarea") 3 else 1,
+            shape = RoundedCornerShape(16.dp),
+        )
     }
 }
 
@@ -356,14 +818,38 @@ private fun OperationalFieldCard(title: String, fields: List<OperationalField>) 
 }
 
 @Composable
-private fun OperationalSectionCard(section: OperationalSection) {
+private fun OperationalSectionCard(
+    section: OperationalSection,
+    onCreate: () -> Unit,
+    onEdit: (OperationalSectionItem) -> Unit,
+    onDelete: (OperationalSectionItem) -> Unit,
+    onAction: (OperationalSectionItem, String) -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
-            Text(section.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    section.title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                if (section.canCreate) {
+                    TextButton(onClick = onCreate) {
+                        Icon(Icons.Outlined.Add, contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Tambah")
+                    }
+                }
+            }
             Spacer(Modifier.height(10.dp))
             if (section.items.isEmpty()) {
                 Text("Belum ada data.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -374,6 +860,44 @@ private fun OperationalSectionCard(section: OperationalSection) {
                     item.fields.forEach { field ->
                         OperationalFieldRow(field)
                         Spacer(Modifier.height(6.dp))
+                    }
+                    if (item.canUpdate || item.canDelete) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            if (item.canUpdate) {
+                                TextButton(onClick = { onEdit(item) }) {
+                                    Icon(Icons.Outlined.Edit, contentDescription = null)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Ubah")
+                                }
+                            }
+                            if (item.canDelete) {
+                                TextButton(onClick = { onDelete(item) }) {
+                                    Icon(
+                                        Icons.Outlined.Delete,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Hapus", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                    if (!item.actions.isNullOrEmpty()) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            item.actions.orEmpty().forEach { action ->
+                                OutlinedButton(
+                                    onClick = { onAction(item, action.key) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(action.label, fontWeight = FontWeight.SemiBold) }
+                            }
+                        }
                     }
                     if (itemIndex < section.items.lastIndex) {
                         Spacer(Modifier.height(6.dp))

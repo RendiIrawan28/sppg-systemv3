@@ -243,13 +243,6 @@ class ProcessingWorkflow
         if (! $this->hasMaterialInput($batch)) {
             $errors['materialUsages'] = 'Minimal satu bahan dari Gudang atau hasil Persiapan terverifikasi harus tersedia.';
         }
-        if ((float) $batch->actual_output_quantity <= 0) {
-            $errors['actual_output_quantity'] = 'Jumlah hasil akhir harus lebih dari nol.';
-        }
-        if (blank($batch->actual_output_unit)) {
-            $errors['actual_output_unit'] = 'Satuan hasil akhir wajib diisi.';
-        }
-
         $finalTemperatures = $batch->temperatureLogs
             ->where('checkpoint', ProcessingTemperatureCheckpoint::Final);
         if ($finalTemperatures->isEmpty()) {

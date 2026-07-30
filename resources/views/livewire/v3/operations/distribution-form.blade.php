@@ -132,6 +132,28 @@
                     <input wire:model="data.departure_temperature_celsius" type="number" step="0.1" @disabled(!$temperatureEditable) class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-100 disabled:bg-slate-50 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-sky-400 dark:focus:ring-sky-500/20 dark:disabled:bg-slate-800 dark:disabled:text-slate-400">
                 </label>
             </div>
+
+            @if ($assignmentEditable && array_key_exists('claim', $actions))
+                <div class="mt-4 flex flex-col gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-sky-400/30 dark:bg-sky-500/10">
+                    <div>
+                        <p class="text-sm font-bold text-sky-900 dark:text-sky-100">Pilih rute ini sebagai driver</p>
+                        <p class="mt-1 text-xs text-sky-700 dark:text-sky-300">Isi nama kernet, kendaraan, dan nomor polisi di atas, kemudian pilih rute.</p>
+                        @if ($errors->has('data.kernet_name') || $errors->has('data.vehicle_name') || $errors->has('data.vehicle_plate') || $errors->has('action'))
+                            <p class="mt-2 text-xs font-bold text-rose-600">{{ $errors->first('action') ?: $errors->first('data.kernet_name') ?: $errors->first('data.vehicle_name') ?: $errors->first('data.vehicle_plate') }}</p>
+                        @endif
+                    </div>
+                    <button
+                        type="button"
+                        wire:click="claimRoute"
+                        wire:loading.attr="disabled"
+                        wire:target="claimRoute"
+                        class="h-11 shrink-0 rounded-xl bg-sky-700 px-5 text-xs font-bold text-white transition hover:bg-sky-800 disabled:cursor-wait disabled:opacity-60 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
+                    >
+                        <span wire:loading.remove wire:target="claimRoute">Pilih rute ini</span>
+                        <span wire:loading wire:target="claimRoute">Memproses...</span>
+                    </button>
+                </div>
+            @endif
         </section>
 
         <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:shadow-none">
@@ -313,36 +335,23 @@
 
             <div class="mt-4 flex flex-wrap justify-end gap-2">
                 @foreach ($actions as $action => $label)
+                    @continue($action === 'claim')
                     @php
                         $authorized = in_array($action, ['verify', 'revision'], true)
                             ? $canApprove
                             : ($action === 'submit' ? $canSubmit : $canUpdate);
                     @endphp
                     @if ($authorized)
-                        @if ($action === 'claim')
-                            <button
-                                type="button"
-                                wire:click="claimRoute"
-                                wire:confirm="Pilih rute ini?"
-                                wire:loading.attr="disabled"
-                                wire:target="claimRoute"
-                                class="h-10 rounded-xl bg-slate-800 px-4 text-xs font-bold text-white transition hover:bg-slate-900 disabled:cursor-wait disabled:opacity-60 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400"
-                            >
-                                <span wire:loading.remove wire:target="claimRoute">{{ $label }}</span>
-                                <span wire:loading wire:target="claimRoute">Memproses...</span>
-                            </button>
-                        @else
-                            <button
-                                type="button"
-                                wire:click="workflow('{{ $action }}')"
-                                wire:confirm="Lanjutkan aksi {{ $label }}?"
-                                wire:loading.attr="disabled"
-                                wire:target="workflow"
-                                class="h-10 rounded-xl px-4 text-xs font-bold text-white transition disabled:cursor-wait disabled:opacity-60 {{ in_array($action, ['release', 'revision'], true) ? 'bg-rose-600 hover:bg-rose-700 dark:bg-rose-500 dark:text-slate-950 dark:hover:bg-rose-400' : (in_array($action, ['submit', 'verify'], true) ? 'bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400' : 'bg-slate-800 hover:bg-slate-900 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400') }}"
-                            >
-                                {{ $label }}
-                            </button>
-                        @endif
+                        <button
+                            type="button"
+                            wire:click="workflow('{{ $action }}')"
+                            wire:confirm="Lanjutkan aksi {{ $label }}?"
+                            wire:loading.attr="disabled"
+                            wire:target="workflow"
+                            class="h-10 rounded-xl px-4 text-xs font-bold text-white transition disabled:cursor-wait disabled:opacity-60 {{ in_array($action, ['release', 'revision'], true) ? 'bg-rose-600 hover:bg-rose-700 dark:bg-rose-500 dark:text-slate-950 dark:hover:bg-rose-400' : (in_array($action, ['submit', 'verify'], true) ? 'bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400' : 'bg-slate-800 hover:bg-slate-900 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400') }}"
+                        >
+                            {{ $label }}
+                        </button>
                     @endif
                 @endforeach
             </div>

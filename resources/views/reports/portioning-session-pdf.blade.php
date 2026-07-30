@@ -135,7 +135,7 @@
                     </td>
                     <td>
                         <div class="signature-name">{{ $verifierName }}</div>
-                        <div class="signature-role">Asisten Lapangan</div>
+                        <div class="signature-role">Kepala SPPG</div>
                     </td>
                 </tr>
             </tbody>

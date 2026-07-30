@@ -3,6 +3,7 @@ package id.sppg.mobile.data.remote
 import com.google.gson.annotations.SerializedName
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
@@ -70,6 +71,76 @@ interface MobileApi {
         @Path("module") module: String,
         @Path("id") id: Long,
     ): Response<OperationalRecordResponse>
+
+    @POST("operational-modules/{module}/records")
+    suspend fun createOperationalRecord(
+        @Header("Authorization") authorization: String,
+        @Path("module") module: String,
+        @Body request: OperationalSaveRequest,
+    ): Response<OperationalRecordResponse>
+
+    @PUT("operational-modules/{module}/records/{id}")
+    suspend fun updateOperationalRecord(
+        @Header("Authorization") authorization: String,
+        @Path("module") module: String,
+        @Path("id") id: Long,
+        @Body request: OperationalSaveRequest,
+    ): Response<OperationalRecordResponse>
+
+    @DELETE("operational-modules/{module}/records/{id}")
+    suspend fun deleteOperationalRecord(
+        @Header("Authorization") authorization: String,
+        @Path("module") module: String,
+        @Path("id") id: Long,
+    ): Response<MessageResponse>
+
+    @POST("operational-modules/{module}/records/{id}/actions/{action}")
+    suspend fun runOperationalAction(
+        @Header("Authorization") authorization: String,
+        @Path("module") module: String,
+        @Path("id") id: Long,
+        @Path("action") action: String,
+        @Body request: OperationalActionRequest,
+    ): Response<OperationalRecordResponse>
+
+    @POST("operational-modules/{module}/records/{id}/relations/{relation}")
+    suspend fun createOperationalRelation(
+        @Header("Authorization") authorization: String,
+        @Path("module") module: String,
+        @Path("id") id: Long,
+        @Path("relation") relation: String,
+        @Body request: OperationalRelationSaveRequest,
+    ): Response<OperationalRelationItemResponse>
+
+    @PUT("operational-modules/{module}/records/{id}/relations/{relation}/{item}")
+    suspend fun updateOperationalRelation(
+        @Header("Authorization") authorization: String,
+        @Path("module") module: String,
+        @Path("id") id: Long,
+        @Path("relation") relation: String,
+        @Path("item") item: Long,
+        @Body request: OperationalRelationSaveRequest,
+    ): Response<OperationalRelationItemResponse>
+
+    @DELETE("operational-modules/{module}/records/{id}/relations/{relation}/{item}")
+    suspend fun deleteOperationalRelation(
+        @Header("Authorization") authorization: String,
+        @Path("module") module: String,
+        @Path("id") id: Long,
+        @Path("relation") relation: String,
+        @Path("item") item: Long,
+    ): Response<MessageResponse>
+
+    @POST("operational-modules/{module}/records/{id}/relations/{relation}/{item}/actions/{action}")
+    suspend fun runOperationalRelationAction(
+        @Header("Authorization") authorization: String,
+        @Path("module") module: String,
+        @Path("id") id: Long,
+        @Path("relation") relation: String,
+        @Path("item") item: Long,
+        @Path("action") action: String,
+        @Body request: OperationalActionRequest,
+    ): Response<MessageResponse>
 }
 
 data class LoginRequest(
@@ -107,7 +178,10 @@ data class MobileUnit(
 )
 
 data class MessageResponse(val message: String)
-data class ApiError(val message: String?)
+data class ApiError(
+    val message: String?,
+    val errors: Map<String, List<String>>?,
+)
 
 data class PaginatedFieldPlans(
     val data: List<FieldPlan>,
@@ -229,6 +303,8 @@ data class OperationalModule(
     val description: String,
     val permission: String,
     @SerializedName("record_count") val recordCount: Int,
+    @SerializedName("can_create") val canCreate: Boolean,
+    @SerializedName("form_fields") val formFields: List<OperationalFormField>?,
 )
 
 data class OperationalRecordsResponse(
@@ -252,6 +328,42 @@ data class OperationalRecord(
     val metrics: List<OperationalMetric>,
     val fields: List<OperationalField>?,
     val sections: List<OperationalSection>?,
+    @SerializedName("form_fields") val formFields: List<OperationalFormField>?,
+    val capabilities: OperationalCapabilities?,
+)
+
+data class OperationalFormField(
+    val key: String,
+    val label: String,
+    val type: String,
+    val value: String?,
+    val required: Boolean,
+    val editable: Boolean,
+    val options: Map<String, String>?,
+)
+
+data class OperationalCapabilities(
+    @SerializedName("can_update") val canUpdate: Boolean,
+    @SerializedName("can_delete") val canDelete: Boolean,
+    val actions: List<OperationalAction>?,
+)
+
+data class OperationalSaveRequest(val fields: Map<String, String?>)
+data class OperationalActionRequest(val notes: String?)
+data class OperationalRelationSaveRequest(
+    val fields: Map<String, String?>,
+    val files: Map<String, String>,
+)
+data class OperationalRelationItemResponse(val data: OperationalRelationItem)
+data class OperationalRelationItem(
+    val id: Long,
+    @SerializedName("form_fields") val formFields: List<OperationalFormField>,
+)
+
+data class OperationalAction(
+    val key: String,
+    val label: String,
+    @SerializedName("notes_required") val notesRequired: Boolean,
 )
 
 data class OperationalMetric(
@@ -269,10 +381,18 @@ data class OperationalSection(
     val key: String,
     val title: String,
     val items: List<OperationalSectionItem>,
+    @SerializedName("can_create") val canCreate: Boolean,
+    @SerializedName("empty_form_fields") val emptyFormFields: List<OperationalFormField>?,
 )
 
 data class OperationalSectionItem(
     val id: Long,
     val title: String,
     val fields: List<OperationalField>,
+    @SerializedName("form_fields") val formFields: List<OperationalFormField>?,
+    @SerializedName("can_update") val canUpdate: Boolean,
+    @SerializedName("can_delete") val canDelete: Boolean,
+    val actions: List<OperationalRelationAction>?,
 )
+
+data class OperationalRelationAction(val key: String, val label: String)

@@ -17,9 +17,9 @@ class PortioningSessionPdfController extends Controller
         $portioningSession->loadMissing('verifier.roles');
         abort_unless(
             $portioningSession->status === OperationalReportStatus::Verified
-                && $portioningSession->verifier?->hasRole(UserRole::AsistenLapangan->value),
+                && $portioningSession->verifier?->hasRole(UserRole::KepalaSppg->value),
             403,
-            'Laporan hanya dapat diekspor setelah diverifikasi Asisten Lapangan.',
+            'Laporan hanya dapat diekspor setelah diverifikasi Kepala SPPG.',
         );
 
         $portioningSession->load([

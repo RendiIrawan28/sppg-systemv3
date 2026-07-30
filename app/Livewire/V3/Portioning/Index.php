@@ -4,9 +4,12 @@ namespace App\Livewire\V3\Portioning;
 
 use App\Enums\OperationalReportStatus;
 use App\Enums\PortioningSessionState;
+use App\Enums\UserRole;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Models\FieldDistributionPlan;
 use App\Models\PortioningRouteRecord;
 use App\Models\PortioningSession;
+use App\Services\FieldOperationalPlanGenerator;
 use App\Services\PortioningWorkflow;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -22,6 +25,8 @@ class Index extends Component
     use WithFileUploads;
 
     public ?int $selectedId = null;
+
+    public string $productionPlanId = '';
 
     /** @var array<int, array<string, mixed>> */
     public array $routeRecords = [];
@@ -108,6 +113,47 @@ class Index extends Component
         $session = $workflow->start($this->record($this->selectedId), auth()->user());
         $this->select($session->id);
         session()->flash('v3.status', 'Pemorsian dimulai. Catat rute pertama beserta jumlah dan dokumentasinya.');
+    }
+
+    public function createFromProductionPlan(FieldOperationalPlanGenerator $generator): void
+    {
+        abort_unless($this->allowed('portioning.create'), 403);
+
+        $data = $this->validate([
+            'productionPlanId' => ['required', 'integer'],
+        ], [], [
+            'productionPlanId' => 'rencana produksi',
+        ]);
+        $plan = FieldDistributionPlan::query()
+            ->where('sppg_unit_id', $this->currentUnit()->getKey())
+            ->where('status', 'activated')
+            ->find($data['productionPlanId']);
+
+        if (! $plan) {
+            throw ValidationException::withMessages([
+                'productionPlanId' => 'Rencana produksi tidak aktif atau tidak ditemukan.',
+            ]);
+        }
+        $plan->load('destinations');
+        if ($plan->destinations->doesntContain(fn ($destination): bool => (int) $destination->total_portions > 0)) {
+            throw ValidationException::withMessages([
+                'productionPlanId' => 'Rencana produksi belum memiliki tujuan dengan jumlah porsi.',
+            ]);
+        }
+
+        $existingSession = PortioningSession::query()
+            ->where('field_distribution_plan_id', $plan->getKey())
+            ->first();
+        $session = $generator->generatePortioningSession($plan, auth()->user());
+
+        $this->productionPlanId = '';
+        $this->select($session->getKey());
+        session()->flash(
+            'v3.status',
+            $existingSession
+                ? 'Sesi Pemorsian dari rencana produksi berhasil dibuka.'
+                : 'Sesi Pemorsian berhasil dibuat dari rencana produksi tanpa pengambilan Gudang.',
+        );
     }
 
     public function saveRoute(): void
@@ -323,8 +369,8 @@ class Index extends Component
         session()->flash(
             'v3.status',
             $session->status === OperationalReportStatus::Verified
-                ? 'Laporan Pemorsian telah diverifikasi Asisten Lapangan dan siap diekspor.'
-                : 'Laporan disetujui Kepala Divisi Pemorsian dan menunggu verifikasi Asisten Lapangan.',
+                ? 'Laporan Pemorsian telah diverifikasi Kepala SPPG dan siap diekspor Asisten Lapangan.'
+                : 'Laporan disetujui Kepala Divisi Pemorsian dan menunggu verifikasi Kepala SPPG.',
         );
     }
 
@@ -342,6 +388,17 @@ class Index extends Component
     public function render()
     {
         $unit = $this->currentUnit();
+        $productionPlans = FieldDistributionPlan::query()
+            ->with(['destinations', 'portioningSession'])
+            ->where('sppg_unit_id', $unit->id)
+            ->where('status', 'activated')
+            ->orderByDesc('production_date')
+            ->orderByDesc('distribution_date')
+            ->orderByDesc('id')
+            ->get();
+        $selectedProductionPlan = filled($this->productionPlanId)
+            ? $productionPlans->firstWhere('id', (int) $this->productionPlanId)
+            : null;
         $records = PortioningSession::query()
             ->with([
                 'processingBatch',
@@ -364,11 +421,14 @@ class Index extends Component
             ...$this->shellData($unit),
             'records' => $records,
             'selected' => $selected,
+            'productionPlans' => $productionPlans,
+            'selectedProductionPlan' => $selectedProductionPlan,
             'routesRecorded' => $routesRecorded,
             'leftoverDeclared' => $leftoverDeclared,
+            'canCreate' => $this->allowed('portioning.create'),
             'canEdit' => $this->allowed('portioning.update'),
             'canSubmit' => $this->allowed('portioning.submit'),
-            'canApprove' => $this->allowed('portioning.approve'),
+            'canApprove' => $this->canReview($selected),
             'canExport' => $this->allowed('portioning.export'),
         ])->layout('layouts.v3', ['title' => 'Pemorsian']);
     }
@@ -501,5 +561,26 @@ class Index extends Component
         return PortioningSession::query()
             ->where('sppg_unit_id', $this->currentUnit()->id)
             ->findOrFail($id);
+    }
+
+    private function canReview(?PortioningSession $session): bool
+    {
+        if (! $session || ! $this->allowed('portioning.approve')) {
+            return false;
+        }
+
+        $user = auth()->user();
+        if ($user->is_super_admin) {
+            return in_array($session->status, [
+                OperationalReportStatus::Submitted,
+                OperationalReportStatus::DivisionApproved,
+            ], true);
+        }
+
+        return match ($session->status) {
+            OperationalReportStatus::Submitted => $user->hasRole(UserRole::KepalaDivisiPemorsian->value),
+            OperationalReportStatus::DivisionApproved => $user->hasRole(UserRole::KepalaSppg->value),
+            default => false,
+        };
     }
 }

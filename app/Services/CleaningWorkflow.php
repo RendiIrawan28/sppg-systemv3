@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\CleaningFindingSeverity;
 use App\Enums\CleaningSessionState;
 use App\Enums\OperationalReportStatus;
+use App\Models\CleaningArea;
 use App\Models\CleaningSession;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -83,9 +84,25 @@ class CleaningWorkflow
         return $this->complete($session, $actor, ['notes' => $notes]);
     }
 
-    public function submissionIssues(CleaningSession $session): array
+    public function submissionIssues(CleaningSession $session, ?User $actor = null): array
     {
         $date = $session->scheduled_date?->toDateString();
+        $actor ??= auth()->user() instanceof User ? auth()->user() : $session->petugas;
+        if ($actor) {
+            app(CleaningScheduleService::class)->ensureForDate((int) $session->sppg_unit_id, $date, $actor);
+        }
+
+        $requiredAreaIds = CleaningArea::query()
+            ->where('sppg_unit_id', $session->sppg_unit_id)
+            ->where('is_active', true)
+            ->where(function ($query): void {
+                $query->whereNull('auto_schedule')->orWhere('auto_schedule', true);
+            })
+            ->where(function ($query): void {
+                $query->whereNull('frequency')->orWhere('frequency', 'daily');
+            })
+            ->pluck('id');
+
         $sessions = CleaningSession::query()
             ->where('sppg_unit_id', $session->sppg_unit_id)
             ->whereDate('scheduled_date', $date)
@@ -96,6 +113,12 @@ class CleaningWorkflow
         $issues = [];
         if ($sessions->isEmpty()) {
             return ['Belum ada sesi kebersihan untuk tanggal tersebut.'];
+        }
+
+        $missingAreaIds = $requiredAreaIds->diff($sessions->pluck('cleaning_area_id'));
+        if ($missingAreaIds->isNotEmpty()) {
+            $names = CleaningArea::query()->whereKey($missingAreaIds)->pluck('name')->implode(', ');
+            $issues[] = 'Sesi area wajib belum tersedia: '.$names.'.';
         }
 
         foreach ($sessions as $dailySession) {
@@ -116,7 +139,7 @@ class CleaningWorkflow
     {
         return DB::transaction(function () use ($session, $actor, $notes): CleaningSession {
             $session = $this->lockedSession($session);
-            $issues = $this->submissionIssues($session);
+            $issues = $this->submissionIssues($session, $actor);
             if ($issues !== []) {
                 throw ValidationException::withMessages(['submission' => implode(' ', $issues)]);
             }
@@ -125,6 +148,7 @@ class CleaningWorkflow
             $sessions = CleaningSession::query()
                 ->where('sppg_unit_id', $session->sppg_unit_id)
                 ->whereDate('scheduled_date', $date)
+                ->whereHas('cleaningArea', fn ($query) => $query->where('is_active', true))
                 ->whereIn('status', [OperationalReportStatus::Draft->value, OperationalReportStatus::RevisionRequired->value])
                 ->lockForUpdate()
                 ->get();
@@ -161,6 +185,7 @@ class CleaningWorkflow
             $sessions = CleaningSession::query()
                 ->where('sppg_unit_id', $session->sppg_unit_id)
                 ->whereDate('scheduled_date', $date)
+                ->whereHas('cleaningArea', fn ($query) => $query->where('is_active', true))
                 ->where('status', $session->status->value)
                 ->lockForUpdate()
                 ->get();
@@ -191,6 +216,7 @@ class CleaningWorkflow
             $sessions = CleaningSession::query()
                 ->where('sppg_unit_id', $session->sppg_unit_id)
                 ->whereDate('scheduled_date', $date)
+                ->whereHas('cleaningArea', fn ($query) => $query->where('is_active', true))
                 ->where('status', $session->status->value)
                 ->lockForUpdate()
                 ->get();
@@ -228,11 +254,11 @@ class CleaningWorkflow
         if ($mandatory->contains(fn ($item): bool => $item->result === 'fail' && blank($item->notes))) {
             $issues[] = 'Item yang tidak terpenuhi wajib memiliki evaluasi.';
         }
-        if (! $session->documentations->contains('phase', 'after')) {
+        if (! $session->documentations->contains(fn ($documentation): bool => $documentation->phase === 'after' && filled($documentation->photo_path))) {
             $issues[] = 'Minimal satu foto hasil kebersihan wajib tersedia.';
         }
-        if ($session->waste_presence === 'yes' && ! $session->waste_handover_report_id) {
-            $issues[] = 'Berita acara limbah wajib dibuat karena terdapat limbah.';
+        if ($session->waste_presence === 'yes' && ! $session->wasteHandoverReport?->isOperationallyUsable()) {
+            $issues[] = 'Berita acara limbah wajib dibuat dan diajukan karena terdapat limbah.';
         }
         if (! in_array($session->waste_presence, ['yes', 'none'], true)) {
             $issues[] = 'Pilih apakah terdapat limbah pada pekerjaan ini.';

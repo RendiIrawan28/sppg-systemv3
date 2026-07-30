@@ -4,13 +4,68 @@ namespace App\Services;
 
 use App\Enums\OperationalReportStatus;
 use App\Enums\WasteDivision;
+use App\Models\CleaningSession;
+use App\Models\PreparationSession;
 use App\Models\User;
+use App\Models\WashingSession;
 use App\Models\WasteHandoverReport;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class WasteHandoverWorkflow
 {
+    /** @param array<string, mixed> $data
+     *  @return array<string, mixed>
+     */
+    public function normalizeAndValidateSource(array $data, int $unitId, ?int $ignoreReportId = null): array
+    {
+        $sourceType = filled($data['source_type'] ?? null) ? trim((string) $data['source_type']) : null;
+        $sourceId = filled($data['source_id'] ?? null) ? (int) $data['source_id'] : null;
+
+        if (($sourceType === null) xor ($sourceId === null)) {
+            throw ValidationException::withMessages([
+                'data.source_type' => 'Jenis sumber dan ID sumber harus diisi bersamaan.',
+            ]);
+        }
+
+        if ($sourceType === null) {
+            return $data;
+        }
+
+        [$division, $model] = $this->sourceDefinition($sourceType);
+        /** @var Model|null $source */
+        $source = $model::query()
+            ->where('sppg_unit_id', $unitId)
+            ->find($sourceId);
+
+        if (! $source) {
+            throw ValidationException::withMessages([
+                'data.source_id' => 'Sumber berita acara tidak ditemukan pada Unit SPPG aktif.',
+            ]);
+        }
+
+        $duplicate = WasteHandoverReport::query()
+            ->where('sppg_unit_id', $unitId)
+            ->where('source_type', $sourceType)
+            ->where('source_id', $sourceId)
+            ->when($ignoreReportId, fn ($query) => $query->where('id', '!=', $ignoreReportId))
+            ->exists();
+
+        if ($duplicate) {
+            throw ValidationException::withMessages([
+                'data.source_id' => 'Sumber ini sudah mempunyai Berita Acara Limbah.',
+            ]);
+        }
+
+        $data['source_type'] = $sourceType;
+        $data['source_id'] = $sourceId;
+        $data['division_type'] = $division->value;
+        $data['source_reference'] = $this->sourceReference($source);
+
+        return $data;
+    }
+
     public function submit(WasteHandoverReport $report, User $actor, ?string $notes = null): WasteHandoverReport
     {
         $this->ensurePermission($report, $actor, 'submit');
@@ -114,6 +169,17 @@ class WasteHandoverWorkflow
         if (! $report->handed_over_at) {
             $errors['handed_over_at'] = 'Tanggal dan waktu serah-terima wajib diisi.';
         }
+        if ($report->source_type || $report->source_id) {
+            try {
+                $this->normalizeAndValidateSource($report->only([
+                    'source_type', 'source_id', 'division_type', 'source_reference',
+                ]), (int) $report->sppg_unit_id, $report->getKey());
+            } catch (ValidationException $exception) {
+                foreach ($exception->errors() as $field => $messages) {
+                    $errors[$field] = is_array($messages) ? (string) ($messages[0] ?? 'Sumber berita acara tidak valid.') : (string) $messages;
+                }
+            }
+        }
         if ($report->items->isEmpty()) {
             $errors['items'] = 'Minimal satu item limbah wajib tersedia.';
         }
@@ -134,6 +200,29 @@ class WasteHandoverWorkflow
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
         }
+    }
+
+    private function sourceDefinition(string $sourceType): array
+    {
+        return match ($sourceType) {
+            'preparation_session' => [WasteDivision::Preparation, PreparationSession::class],
+            'washing_session' => [WasteDivision::Washing, WashingSession::class],
+            'cleaning_session' => [WasteDivision::Cleaning, CleaningSession::class],
+            default => throw ValidationException::withMessages([
+                'data.source_type' => 'Jenis sumber berita acara tidak didukung.',
+            ]),
+        };
+    }
+
+    private function sourceReference(Model $source): ?string
+    {
+        foreach (['session_number', 'report_number', 'run_number'] as $field) {
+            if (filled($source->getAttribute($field))) {
+                return (string) $source->getAttribute($field);
+            }
+        }
+
+        return class_basename($source).' #'.$source->getKey();
     }
 
     private function ensurePermission(WasteHandoverReport $report, User $actor, string $action): void

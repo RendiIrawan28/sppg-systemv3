@@ -58,7 +58,7 @@ final class AccessControl
             'cleaning' => $operational,
 
             'field_planning' => [...$crud, 'submit', 'export'],
-            'field_daily_reports' => ['view', 'export'],
+            'field_daily_reports' => ['view', 'update', 'submit', 'approve', 'export'],
             'field_incidents' => ['view', 'create', 'update', 'resolve'],
             'incidents' => ['view', 'create', 'update', 'close'],
             'sanitation' => ['view', 'manage', 'verify'],
@@ -151,14 +151,14 @@ final class AccessControl
 
             // Approval rencana H-3 dan laporan Asisten Lapangan.
             ...self::module('field_planning', ['view', 'export']),
-            ...self::module('field_daily_reports', ['view', 'export']),
+            ...self::module('field_daily_reports', ['view', 'approve', 'export']),
             ...self::module('field_incidents', ['view']),
 
-            // Kepala SPPG memberi persetujuan akhir laporan divisi selain Pemorsian,
+            // Kepala SPPG memberi persetujuan akhir seluruh laporan divisi,
             // tetapi tidak boleh membuat atau mengubah transaksi operasional.
             ...self::module('preparation', ['view', 'approve', 'export']),
             ...self::module('processing', ['view', 'approve', 'export']),
-            ...self::module('portioning', ['view', 'export']),
+            ...self::module('portioning', ['view', 'approve']),
             ...self::module('distribution', ['view', 'approve', 'export']),
             ...self::module('washing', ['view', 'approve', 'export']),
             ...self::module('cleaning', ['view', 'approve', 'export']),
@@ -216,11 +216,11 @@ final class AccessControl
             ...self::module('menus', ['view']),
             ...self::module('nutrition', ['view']),
             ...self::module('field_planning', ['view', 'create', 'update', 'delete', 'submit', 'export']),
-            ...self::module('field_daily_reports', ['view', 'export']),
+            ...self::module('field_daily_reports', ['view', 'update', 'submit', 'export']),
             ...self::module('field_incidents', ['view', 'create', 'update', 'resolve']),
             ...self::module('incidents', ['view', 'create', 'update']),
             ...self::operationalViewPermissions(),
-            ...self::module('portioning', ['approve', 'export']),
+            ...self::module('portioning', ['export']),
             ...self::module('sanitation', ['view', 'manage', 'verify']),
             ...self::module('security', ['view']),
         ];
@@ -309,23 +309,33 @@ final class AccessControl
     /** @return array<int, string> */
     private static function divisionHeadPermissions(string $prefix): array
     {
+        $actions = ['view', 'create', 'update', 'delete', 'submit', 'approve', 'export'];
+        if ($prefix === 'portioning') {
+            $actions = array_values(array_diff($actions, ['export']));
+        }
+
         return [
             'dashboard.view', 'reports.view', 'reports.export',
             'menus.view', 'ingredients.view', 'nutrition.view',
             'incidents.view', 'incidents.create', 'incidents.update', 'incidents.close',
             'security.view',
-            ...self::module($prefix, ['view', 'create', 'update', 'delete', 'submit', 'approve', 'export']),
+            ...self::module($prefix, $actions),
         ];
     }
 
     /** @return array<int, string> */
     private static function divisionStaffPermissions(string $prefix): array
     {
+        $actions = ['view', 'create', 'update', 'delete', 'submit', 'export'];
+        if ($prefix === 'portioning') {
+            $actions = array_values(array_diff($actions, ['export']));
+        }
+
         return [
             'dashboard.view', 'reports.view',
             'menus.view', 'ingredients.view',
             'incidents.view', 'incidents.create', 'incidents.update',
-            ...self::module($prefix, ['view', 'create', 'update', 'delete', 'submit', 'export']),
+            ...self::module($prefix, $actions),
         ];
     }
 

@@ -54,8 +54,6 @@ final class OperationalModuleRegistry
                     $this->field('product_name', 'Nama hasil produksi', 'text', true),
                     $this->field('target_output_quantity', 'Target hasil', 'number', true),
                     $this->field('target_output_unit', 'Satuan target', 'text', true),
-                    $this->field('actual_output_quantity', 'Realisasi hasil', 'number'),
-                    $this->field('actual_output_unit', 'Satuan realisasi'),
                     $this->field('petugas_id', 'Penanggung jawab', 'select', true, 'users'),
                     $this->field('notes', 'Catatan', 'textarea'),
                 ],
@@ -68,11 +66,14 @@ final class OperationalModuleRegistry
                     'temperatureLogs' => $this->relation('Pemantauan suhu', [
                         $this->field('checked_at', 'Waktu makanan matang', 'datetime', true),
                         $this->field('product_name', 'Produk', 'text', true), $this->field('temperature_celsius', 'Suhu aktual °C', 'number', true),
+                        $this->field('photo_path', 'Foto pengukuran suhu', 'file', true),
                         $this->field('notes', 'Catatan', 'textarea'),
                     ]),
                     'documentations' => $this->relation('Dokumentasi', [
                         $this->field('photo_path', 'Foto makanan matang', 'file', true), $this->field('caption', 'Nama makanan', 'text', true),
-                        $this->field('captured_at', 'Waktu foto', 'datetime'), $this->field('sort_order', 'Urutan', 'number'),
+                        $this->field('output_quantity', 'Jumlah hasil makanan', 'number', true),
+                        $this->field('output_unit', 'Satuan hasil', 'text', true),
+                        $this->field('captured_at', 'Waktu foto', 'datetime', true), $this->field('sort_order', 'Urutan', 'number'),
                     ]),
                 ],
             ],
@@ -84,6 +85,10 @@ final class OperationalModuleRegistry
                     $this->field('portioning_date', 'Tanggal pemorsian', 'date', true),
                     $this->field('menu_name_snapshot', 'Menu', 'text', true),
                     $this->field('target_small_portions', 'Target kecil', 'number'), $this->field('target_large_portions', 'Target besar', 'number'),
+                    $this->field('leftover_mode', 'Kondisi sisa makanan', 'select', true, [
+                        'none' => 'Tidak ada sisa makanan',
+                        'present' => 'Ada sisa makanan',
+                    ]),
                     $this->field('notes', 'Catatan', 'textarea'),
                 ],
                 'relations' => [
@@ -152,7 +157,7 @@ final class OperationalModuleRegistry
                         $this->field('recipient_position', 'Jabatan penerima'),
                         $this->field('handover_photo_path', 'Foto serah-terima', 'file'),
                         $this->field('failure_reason', 'Alasan pengiriman sebagian/gagal', 'textarea'),
-                        $this->field('status', 'Status tujuan', 'select', true, DistributionStopStatus::class),
+                        [...$this->field('status', 'Status tujuan', 'select', true, DistributionStopStatus::class), 'editable' => false],
                         $this->field('notes', 'Catatan tujuan', 'textarea'),
                     ]),
                 ],
@@ -179,6 +184,12 @@ final class OperationalModuleRegistry
                     $this->field('receiving_difference', 'Selisih penerimaan', 'number'),
                     $this->field('has_food_waste', 'Terdapat limbah makanan', 'boolean'),
                     $this->field('no_waste_confirmed', 'Konfirmasi tidak ada limbah', 'boolean'),
+                    $this->field('waste_first_party_name', 'Nama pihak penyerah limbah'),
+                    $this->field('waste_first_party_position', 'Jabatan pihak penyerah'),
+                    $this->field('waste_first_party_address', 'Alamat pihak penyerah', 'textarea'),
+                    $this->field('waste_second_party_name', 'Nama penerima limbah'),
+                    $this->field('waste_second_party_position', 'Jabatan penerima limbah'),
+                    $this->field('waste_second_party_address', 'Alamat penerima limbah', 'textarea'),
                     $this->field('waste_handover_notes', 'Catatan serah-terima limbah', 'textarea'),
                     $this->field('notes', 'Catatan pencucian', 'textarea'),
                 ],
@@ -307,6 +318,8 @@ final class OperationalModuleRegistry
             'portioning_sessions' => PortioningSession::query()->where('sppg_unit_id', $unitId)->latest('portioning_date'),
             'distribution_runs' => DistributionRun::query()->where('sppg_unit_id', $unitId)->latest('distribution_date'),
             'container_collection_runs' => ContainerCollectionRun::query()->where('sppg_unit_id', $unitId)->latest('collection_date'),
+            'washing_sessions' => WashingSession::query()->where('sppg_unit_id', $unitId)->latest('washing_date'),
+            'cleaning_sessions' => CleaningSession::query()->where('sppg_unit_id', $unitId)->latest('scheduled_date'),
             default => null,
         };
 
@@ -319,6 +332,7 @@ final class OperationalModuleRegistry
             'processing_batches' => 'batch_number',
             'portioning_sessions' => 'session_number',
             'distribution_runs', 'container_collection_runs' => 'run_number',
+            'washing_sessions', 'cleaning_sessions' => 'session_number',
         };
 
         return $query->limit(250)->pluck($label, 'id')->all();

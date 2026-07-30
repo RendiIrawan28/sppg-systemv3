@@ -108,6 +108,15 @@ class WasteHandoverReport extends Model
             ->latest();
     }
 
+    public function isOperationallyUsable(): bool
+    {
+        return in_array($this->status, [
+            OperationalReportStatus::Submitted,
+            OperationalReportStatus::DivisionApproved,
+            OperationalReportStatus::Verified,
+        ], true);
+    }
+
     public function petugas(): BelongsTo
     {
         return $this->belongsTo(User::class, 'petugas_id');

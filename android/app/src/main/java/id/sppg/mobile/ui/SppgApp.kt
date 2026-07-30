@@ -74,6 +74,16 @@ private sealed interface AppScreen {
     data class FieldPlanEdit(val id: Long) : AppScreen
     data class OperationalRecords(val slug: String, val label: String) : AppScreen
     data class OperationalDetail(val slug: String, val label: String, val id: Long) : AppScreen
+    data class OperationalEdit(val slug: String, val label: String, val id: Long) : AppScreen
+    data class OperationalCreate(val slug: String, val label: String) : AppScreen
+    data class OperationalRelationEdit(
+        val slug: String,
+        val label: String,
+        val recordId: Long,
+        val sectionKey: String,
+        val sectionTitle: String,
+        val itemId: Long?,
+    ) : AppScreen
 }
 
 @Composable
@@ -181,6 +191,16 @@ private fun AuthenticatedContent(
             onRecordClick = {
                 screen = AppScreen.OperationalDetail(current.slug, current.label, it)
             },
+            onCreate = {
+                operationalViewModel.prepareCreate(current.slug)
+                if (current.slug == "keamanan") {
+                    operationalViewModel.createRecord(current.slug) { id ->
+                        screen = AppScreen.OperationalDetail(current.slug, current.label, id)
+                    }
+                } else {
+                    screen = AppScreen.OperationalCreate(current.slug, current.label)
+                }
+            },
         )
         is AppScreen.OperationalDetail -> OperationalRecordDetailScreen(
             state = operationalState,
@@ -192,6 +212,103 @@ private fun AuthenticatedContent(
                 screen = AppScreen.OperationalRecords(current.slug, current.label)
             },
             onLoad = operationalViewModel::loadRecord,
+            onEdit = {
+                operationalViewModel.prepareEdit()
+                screen = AppScreen.OperationalEdit(current.slug, current.label, current.id)
+            },
+            onDelete = {
+                operationalViewModel.deleteRecord(current.slug, current.id) {
+                    screen = AppScreen.OperationalRecords(current.slug, current.label)
+                }
+            },
+            onAction = { action, notes ->
+                operationalViewModel.runAction(current.slug, current.id, action, notes)
+            },
+            onRelationCreate = { section ->
+                operationalViewModel.prepareRelationCreate(section.key)
+                screen = AppScreen.OperationalRelationEdit(
+                    current.slug, current.label, current.id, section.key, section.title, null,
+                )
+            },
+            onRelationEdit = { section, item ->
+                operationalViewModel.prepareRelationEdit(section.key, item.id)
+                screen = AppScreen.OperationalRelationEdit(
+                    current.slug, current.label, current.id, section.key, section.title, item.id,
+                )
+            },
+            onRelationDelete = { section, item ->
+                operationalViewModel.deleteRelation(current.slug, current.id, section.key, item.id)
+            },
+            onRelationAction = { section, item, action ->
+                operationalViewModel.runRelationAction(
+                    current.slug, current.id, section.key, item.id, action,
+                )
+            },
+        )
+        is AppScreen.OperationalEdit -> OperationalRecordEditScreen(
+            state = operationalState,
+            moduleLabel = current.label,
+            isCreate = false,
+            onBack = {
+                operationalViewModel.clearFeedback()
+                screen = AppScreen.OperationalDetail(current.slug, current.label, current.id)
+            },
+            onPrepare = operationalViewModel::prepareEdit,
+            onValueChange = operationalViewModel::updateEditValue,
+            onFileSelected = operationalViewModel::updateEditFile,
+            fileValues = operationalState.editFiles,
+            onSave = {
+                operationalViewModel.saveRecord(current.slug, current.id) {
+                    screen = AppScreen.OperationalDetail(current.slug, current.label, current.id)
+                }
+            },
+        )
+        is AppScreen.OperationalCreate -> OperationalRecordEditScreen(
+            state = operationalState,
+            moduleLabel = current.label,
+            isCreate = true,
+            onBack = {
+                operationalViewModel.clearFeedback()
+                screen = AppScreen.OperationalRecords(current.slug, current.label)
+            },
+            onPrepare = { operationalViewModel.prepareCreate(current.slug) },
+            onValueChange = operationalViewModel::updateEditValue,
+            onFileSelected = operationalViewModel::updateEditFile,
+            fileValues = operationalState.editFiles,
+            onSave = {
+                operationalViewModel.createRecord(current.slug) { id ->
+                    screen = AppScreen.OperationalDetail(current.slug, current.label, id)
+                }
+            },
+        )
+        is AppScreen.OperationalRelationEdit -> OperationalRecordEditScreen(
+            state = operationalState,
+            moduleLabel = current.sectionTitle,
+            isCreate = current.itemId == null,
+            onBack = {
+                operationalViewModel.clearFeedback()
+                screen = AppScreen.OperationalDetail(current.slug, current.label, current.recordId)
+            },
+            onPrepare = {
+                if (current.itemId == null) {
+                    operationalViewModel.prepareRelationCreate(current.sectionKey)
+                } else {
+                    operationalViewModel.prepareRelationEdit(current.sectionKey, current.itemId)
+                }
+            },
+            onValueChange = operationalViewModel::updateEditValue,
+            onFileSelected = operationalViewModel::updateEditFile,
+            fileValues = operationalState.editFiles,
+            onSave = {
+                operationalViewModel.saveRelation(
+                    current.slug,
+                    current.recordId,
+                    current.sectionKey,
+                    current.itemId,
+                ) {
+                    screen = AppScreen.OperationalDetail(current.slug, current.label, current.recordId)
+                }
+            },
         )
     }
 }

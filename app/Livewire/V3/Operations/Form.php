@@ -101,6 +101,26 @@ class Form extends Component
         $this->uploads[$name] = array_values($this->uploads[$name] ?? []);
     }
 
+    public function addWashingResultPhoto(): void
+    {
+        abort_unless(
+            $this->module === 'pencucian'
+            && $this->allowed('washing.update')
+            && $this->record()->state === \App\Enums\WashingSessionState::Washing,
+            403,
+        );
+
+        $this->relations['documentations'][] = [
+            '_id' => null,
+            'phase' => 'after',
+            'photo_path' => '',
+            'caption' => '',
+            'captured_at' => now()->format('Y-m-d\TH:i'),
+            'sort_order' => count($this->relations['documentations'] ?? []) + 1,
+            '_locked' => false,
+        ];
+    }
+
     public function save(): void
     {
         if ($this->module === 'distribusi') {
@@ -146,17 +166,27 @@ class Form extends Component
     {
         abort_unless($this->module === 'distribusi', 404);
 
-        $this->validate([
-            'data.kernet_name' => ['required', 'string', 'max:255'],
-            'data.vehicle_name' => ['required', 'string', 'max:255'],
-            'data.vehicle_plate' => ['required', 'string', 'max:50'],
-        ], [
-            'data.kernet_name.required' => 'Nama kernet wajib diisi.',
-            'data.vehicle_name.required' => 'Kendaraan wajib diisi.',
-            'data.vehicle_plate.required' => 'Nomor polisi wajib diisi.',
-        ]);
+        $this->runAction(function (): string {
+            abort_unless($this->allowed('distribution.update'), 403);
+            $this->validate([
+                'data.kernet_name' => ['required', 'string', 'max:255'],
+                'data.vehicle_name' => ['required', 'string', 'max:255'],
+                'data.vehicle_plate' => ['required', 'string', 'max:50'],
+            ], [
+                'data.kernet_name.required' => 'Nama kernet wajib diisi.',
+                'data.vehicle_name.required' => 'Kendaraan wajib diisi.',
+                'data.vehicle_plate.required' => 'Nomor polisi wajib diisi.',
+            ]);
 
-        $this->workflow('claim');
+            $run = app(DistributionWorkflow::class)->claimRoute(
+                $this->record(),
+                auth()->user(),
+                $this->data,
+            );
+            $this->fillFromRecord($run);
+
+            return "Rute {$run->route_name} berhasil dipilih. Lanjutkan dengan mulai memuat.";
+        });
     }
 
     public function workflow(string $action): void
@@ -385,6 +415,9 @@ class Form extends Component
         if ($record && $this->module === 'pencucian') {
             $record->loadMissing('wasteHandoverReport');
         }
+        $washingDailyIssues = $record && $this->module === 'pencucian'
+            ? app(WashingWorkflow::class)->submissionIssues($record)
+            : [];
 
         $options = [];
         foreach ([...$definition['fields'], ...collect($definition['relations'])->flatMap(fn ($relation) => $relation['fields'])->all()] as $field) {
@@ -402,6 +435,7 @@ class Form extends Component
             'canApprove' => $this->allowed($definition['permission'].'.approve'),
             'canOperateRoute' => $record ? $this->canOperateRoute($record) : false,
             'actions' => $record ? $this->availableActions($record) : [],
+            'washingDailyIssues' => $washingDailyIssues,
         ])->layout('layouts.v3', ['title' => ($record ? 'Rincian ' : 'Tambah ').$definition['label']]);
     }
 
@@ -496,7 +530,7 @@ class Form extends Component
                         abort_unless($id !== null, 403);
                     }
 
-                    $child = $id ? $relation->whereKey($id)->firstOrFail() : $relation->make();
+                    $child = $id ? (clone $relation)->whereKey($id)->firstOrFail() : $relation->make();
                     if (! (bool) ($row['_locked'] ?? false)) {
                         $child->fill($values)->save();
                     }
@@ -505,7 +539,7 @@ class Form extends Component
 
                 if (! ($this->module === 'distribusi' && $name === 'stops')
                     && ! ($this->module === 'kebersihan' && $name === 'checklistItems')) {
-                    $relation->when($kept !== [], fn ($query) => $query->whereNotIn('id', $kept))->delete();
+                    (clone $relation)->when($kept !== [], fn ($query) => $query->whereNotIn('id', $kept))->delete();
                 }
             }
 

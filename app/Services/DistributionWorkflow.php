@@ -9,13 +9,13 @@ use App\Enums\DistributionStopStatus;
 use App\Enums\FieldDistributionPlanStatus;
 use App\Enums\OperationalReportStatus;
 use App\Models\ContainerCollectionRun;
+use App\Models\ContainerCollectionTask;
 use App\Models\DistributionRun;
 use App\Models\DistributionStop;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use Throwable;
 
 class DistributionWorkflow
 {
@@ -418,6 +418,16 @@ class DistributionWorkflow
                 || $run->status !== OperationalReportStatus::RevisionRequired) {
                 throw ValidationException::withMessages([
                     'status' => 'Data tujuan hanya dapat dikoreksi ketika laporan berstatus Perlu Revisi.',
+                ]);
+            }
+
+            $collectionTask = ContainerCollectionTask::query()
+                ->where('distribution_stop_id', $stop->getKey())
+                ->lockForUpdate()
+                ->first();
+            if ($collectionTask && (int) $collectionTask->collected_containers > 0) {
+                throw ValidationException::withMessages([
+                    'stop' => 'Data tujuan tidak dapat diubah karena pengambilan ompreng sudah dimulai. Gunakan koreksi tercatat oleh Kepala Divisi.',
                 ]);
             }
 
@@ -933,15 +943,11 @@ class DistributionWorkflow
             return;
         }
 
-        try {
-            app(FieldDistributionPlanWorkflow::class)->complete(
-                $plan,
-                $actor,
-                'Seluruh rute distribusi telah kembali ke SPPG.',
-            );
-        } catch (Throwable $exception) {
-            report($exception);
-        }
+        app(FieldDistributionPlanWorkflow::class)->complete(
+            $plan,
+            $actor,
+            'Seluruh rute distribusi makanan telah kembali ke SPPG.',
+        );
     }
 
     private function lockedRun(DistributionRun $run): DistributionRun

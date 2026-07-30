@@ -102,23 +102,19 @@ class BeneficiaryPeriodAggregateService
                 });
 
             $period->forceFill([
-                'status' => 'active',
+                'status' => in_array($period->status, ['draft', 'revision_required'], true)
+                    ? $period->status
+                    : 'draft',
                 'destination_count' => count($keptDestinationIds),
                 'total_members' => $grandTotal,
                 'active_members' => $grandTotal,
-                'submitted_by' => null,
-                'submitted_at' => null,
-                'approved_by' => null,
-                'approved_at' => null,
-                'locked_at' => null,
-                'closed_at' => null,
             ])->save();
 
             $period->histories()->create([
                 'user_id' => $actor->getKey(),
                 'action' => 'save_aggregate_counts',
                 'from_status' => $fromStatus,
-                'to_status' => 'active',
+                'to_status' => $period->status,
                 'notes' => '',
                 'metadata' => [
                     'destination_count' => count($keptDestinationIds),

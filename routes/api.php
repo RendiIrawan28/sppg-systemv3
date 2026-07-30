@@ -18,7 +18,22 @@ Route::prefix('mobile')->group(function (): void {
         Route::post('/field-plans/{plan}/activate', [FieldPlanController::class, 'activate']);
         Route::get('/operational-modules', [MobileOperationalController::class, 'modules']);
         Route::get('/operational-modules/{module}/records', [MobileOperationalController::class, 'index']);
+        Route::post('/operational-modules/{module}/records', [MobileOperationalController::class, 'store']);
         Route::get('/operational-modules/{module}/records/{record}', [MobileOperationalController::class, 'show'])
             ->whereNumber('record');
+        Route::put('/operational-modules/{module}/records/{record}', [MobileOperationalController::class, 'update'])
+            ->whereNumber('record');
+        Route::delete('/operational-modules/{module}/records/{record}', [MobileOperationalController::class, 'destroy'])
+            ->whereNumber('record');
+        Route::post('/operational-modules/{module}/records/{record}/actions/{action}', [MobileOperationalController::class, 'action'])
+            ->whereNumber('record');
+        Route::post('/operational-modules/{module}/records/{record}/relations/{relation}', [MobileOperationalController::class, 'storeRelation'])
+            ->whereNumber('record');
+        Route::put('/operational-modules/{module}/records/{record}/relations/{relation}/{item}', [MobileOperationalController::class, 'updateRelation'])
+            ->whereNumber(['record', 'item']);
+        Route::delete('/operational-modules/{module}/records/{record}/relations/{relation}/{item}', [MobileOperationalController::class, 'destroyRelation'])
+            ->whereNumber(['record', 'item']);
+        Route::post('/operational-modules/{module}/records/{record}/relations/{relation}/{item}/actions/{action}', [MobileOperationalController::class, 'relationAction'])
+            ->whereNumber(['record', 'item']);
     });
 });

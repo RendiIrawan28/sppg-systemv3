@@ -175,8 +175,12 @@ class FieldDistributionPlanWorkflow
 
     public function complete(FieldDistributionPlan $plan, User $actor, ?string $notes = null): void
     {
+        $plan->refresh();
+        if ($plan->status === FieldDistributionPlanStatus::Completed) {
+            return;
+        }
         if ($plan->status !== FieldDistributionPlanStatus::Activated) {
-            throw new DomainException('Hanya rencana yang sudah diproses divisi yang dapat diselesaikan.');
+            throw new DomainException('Hanya rencana yang sudah diaktifkan yang dapat diselesaikan.');
         }
 
         $hasOpenDistributionRoute = $plan->distributionRuns()
@@ -195,14 +199,8 @@ class FieldDistributionPlanWorkflow
                 $plan,
                 FieldDistributionPlanStatus::Completed,
                 $actor,
-                $notes,
+                $notes ?: 'Seluruh rute pengantaran makanan telah kembali ke SPPG.',
                 ['completed_at' => now()],
-            );
-
-            app(FieldDailyReportGenerator::class)->generateAutomatic(
-                (int) $plan->sppg_unit_id,
-                $plan->distribution_date->toDateString(),
-                $actor,
             );
         });
     }

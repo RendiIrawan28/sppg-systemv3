@@ -108,8 +108,13 @@ class MobileOperationalRecordTransformer
             'gudang-pengambilan' => ['purpose_reference', 'reference_number_snapshot'],
             'gudang-retur' => ['ingredient_name_snapshot'],
             'persiapan' => ['purpose_reference'],
+            'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => ['output_name', 'source_ingredient_name_snapshot'],
+            'pengambilan-ompreng-tugas' => ['destination_name'],
+            'pengambilan-ompreng' => ['run_number', 'driver_name_snapshot'],
+            'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan' => ['source_reference', 'report_number'],
             'lapangan-insiden' => ['title'],
             'lapangan-laporan' => ['operational_summary', 'report_number'],
+            'keamanan' => ['officer_name_snapshot'],
             'pengolahan' => ['product_name', 'menu_name_snapshot'],
             'pemorsian', 'distribusi', 'pencucian' => ['menu_name_snapshot'],
             'kebersihan' => ['before_condition'],
@@ -133,8 +138,13 @@ class MobileOperationalRecordTransformer
             'gudang-pengambilan' => filled($record->getAttribute('division_code')) ? 'Divisi '.Str::headline((string) $record->getAttribute('division_code')) : null,
             'gudang-retur' => filled($record->getAttribute('reason')) ? Str::limit((string) $record->getAttribute('reason'), 90) : null,
             'persiapan' => filled($record->getAttribute('notes')) ? Str::limit((string) $record->getAttribute('notes'), 90) : null,
+            'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => filled($record->getAttribute('storage_location')) ? 'Disimpan di '.$record->getAttribute('storage_location') : null,
+            'pengambilan-ompreng-tugas' => filled($record->getAttribute('address')) ? Str::limit((string) $record->getAttribute('address'), 90) : null,
+            'pengambilan-ompreng' => filled($record->getAttribute('vehicle_plate')) ? 'Kendaraan '.$record->getAttribute('vehicle_plate') : null,
+            'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan' => filled($record->getAttribute('second_party_name')) ? 'Diserahkan kepada '.$record->getAttribute('second_party_name') : null,
             'lapangan-insiden' => filled($record->getAttribute('location')) ? (string) $record->getAttribute('location') : null,
             'lapangan-laporan' => 'Ringkasan otomatis kegiatan lapangan',
+            'keamanan' => filled($record->getAttribute('scheduled_end_at')) ? 'Shift keamanan 12 jam' : null,
             'pengolahan' => filled($record->getAttribute('menu_name_snapshot')) ? (string) $record->getAttribute('menu_name_snapshot') : null,
             'distribusi' => filled($record->getAttribute('vehicle_plate')) ? 'Kendaraan '.$record->getAttribute('vehicle_plate') : null,
             'pencucian' => filled($record->getAttribute('washing_area')) ? (string) $record->getAttribute('washing_area') : null,
@@ -145,7 +155,7 @@ class MobileOperationalRecordTransformer
 
     private function assignee(string $slug, Model $record): ?string
     {
-        foreach (['petugas_name_snapshot', 'driver_name', 'received_by_name'] as $field) {
+        foreach (['petugas_name_snapshot', 'driver_name_snapshot', 'driver_name', 'received_by_name'] as $field) {
             if (filled($record->getAttribute($field))) {
                 return (string) $record->getAttribute($field);
             }
@@ -161,9 +171,14 @@ class MobileOperationalRecordTransformer
             'gudang-stok' => [['balance_quantity', 'Saldo'], ['movements_count', 'Mutasi']],
             'gudang-pengambilan' => [['items_count', 'Barang']],
             'gudang-retur' => [['requested_quantity', 'Diajukan'], ['actual_quantity', 'Aktual']],
-            'persiapan' => [['items_count', 'Bahan'], ['deviations_count', 'Deviasi']],
+            'persiapan' => [['items_count', 'Bahan']],
+            'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => [['available_quantity', 'Tersedia'], ['withdrawals_count', 'Pengambilan']],
+            'pengambilan-ompreng-tugas' => [['target_containers', 'Target'], ['remaining_containers', 'Sisa']],
+            'pengambilan-ompreng' => [['total_collected', 'Diambil'], ['items_count', 'Tujuan']],
+            'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan' => [['items_count', 'Jenis limbah']],
             'lapangan-insiden' => [],
             'lapangan-laporan' => [['completed_destinations', 'Tujuan selesai'], ['delivered_portions', 'Porsi terkirim']],
+            'keamanan' => [['reports_count', 'Laporan'], ['reports_expected', 'Target']],
             'pengolahan' => [['target_output_quantity', 'Target'], ['actual_output_quantity', 'Realisasi']],
             'pemorsian' => [['target_small_portions', 'Target kecil'], ['target_large_portions', 'Target besar']],
             'distribusi' => [['planned_small_portions', 'Porsi kecil'], ['planned_large_portions', 'Porsi besar']],

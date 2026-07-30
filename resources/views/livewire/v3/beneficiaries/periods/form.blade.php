@@ -1,16 +1,17 @@
-<x-v3.shell :$unit :$navigation :$roleLabel :title="$periodId ? 'Ubah Jumlah Penerima' : 'Input Jumlah Penerima'" eyebrow="Jumlah per tujuan dan kategori">
+<div>
+<x-v3.shell :$unit :$navigation :$roleLabel :title="$periodId ? 'Ubah Periode Penerima' : 'Buat Periode Penerima'" eyebrow="Periode penerima 14 hari">
     <div class="mx-auto max-w-6xl space-y-5">
         <div>
             <a wire:navigate href="{{ route('v3.beneficiary-periods.index') }}" class="inline-flex items-center gap-2 text-xs font-bold text-sky-700 hover:text-sky-900"><x-v3.icon name="arrow-left" class="size-4" /> Kembali ke data penerima</a>
-            <h2 class="mt-3 text-2xl font-bold tracking-tight text-slate-950">{{ $periodId ? 'Perbarui jumlah penerima' : 'Masukkan jumlah penerima' }}</h2>
-            <p class="mt-1 text-sm text-slate-500">Isi angka per sekolah atau Posyandu. Nama masing-masing penerima tidak diperlukan.</p>
+            <h2 class="mt-3 text-2xl font-bold tracking-tight text-slate-950">{{ $periodId ? 'Perbarui draft periode penerima' : 'Buat periode penerima 14 hari' }}</h2>
+            <p class="mt-1 text-sm text-slate-500">Pilih sumber data dari master penerima bernama atau masukkan jumlah per kategori secara manual.</p>
         </div>
 
         <form wire:submit="save" class="space-y-5">
             @error('form') <div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ $message }}</div> @enderror
 
             <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-                <div class="flex items-start gap-3 border-b border-slate-100 pb-5"><span class="grid size-11 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700 ring-1 ring-sky-100"><x-v3.icon name="calendar" class="size-5" /></span><div><p class="text-[10px] font-bold uppercase tracking-[.16em] text-sky-700">Periode berlaku</p><h3 class="mt-1 text-lg font-bold text-slate-950">Data langsung aktif setelah disimpan</h3></div></div>
+                <div class="flex items-start gap-3 border-b border-slate-100 pb-5"><span class="grid size-11 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700 ring-1 ring-sky-100"><x-v3.icon name="calendar" class="size-5" /></span><div><p class="text-[10px] font-bold uppercase tracking-[.16em] text-sky-700">Periode berlaku</p><h3 class="mt-1 text-lg font-bold text-slate-950">Draft periode 14 hari</h3><p class="mt-1 text-xs text-slate-500">Setelah disimpan, periode diajukan, disetujui, lalu diaktifkan.</p></div></div>
                 @php($inputClass = 'h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm text-slate-900 outline-none focus:border-sky-400 focus:ring-4 focus:ring-sky-100')
                 <div class="mt-5 grid gap-5 sm:grid-cols-2">
                     <label><span class="mb-2 block text-sm font-semibold text-slate-700">Kode data <b class="text-rose-600">*</b></span><input wire:model="code" class="{{ $inputClass }}">@error('code')<span class="mt-1 block text-xs text-rose-600">{{ $message }}</span>@enderror</label>
@@ -21,6 +22,26 @@
                 </div>
             </section>
 
+            <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <div><p class="text-[10px] font-bold uppercase tracking-[.16em] text-sky-700">Sumber data</p><h3 class="mt-1 text-lg font-bold text-slate-950">Pilih cara mengisi penerima</h3></div>
+                <div class="mt-4 grid gap-3 md:grid-cols-2">
+                    <label class="cursor-pointer rounded-2xl border p-4 transition {{ $inputMode === 'master' ? 'border-sky-400 bg-sky-50 ring-2 ring-sky-100' : 'border-slate-200 hover:border-sky-200' }}">
+                        <span class="flex items-start gap-3">
+                            <input wire:model.live="inputMode" type="radio" value="master" class="mt-1 size-4 border-slate-300 text-sky-600 focus:ring-sky-500">
+                            <span><span class="block text-sm font-bold text-slate-900">Otomatis dari master penerima</span><span class="mt-1 block text-xs leading-5 text-slate-500">Sistem mengambil snapshot penerima aktif beserta nama, instansi, kelas, kelompok, dan kategori porsinya.</span></span>
+                        </span>
+                    </label>
+                    <label class="cursor-pointer rounded-2xl border p-4 transition {{ $inputMode === 'manual' ? 'border-sky-400 bg-sky-50 ring-2 ring-sky-100' : 'border-slate-200 hover:border-sky-200' }}">
+                        <span class="flex items-start gap-3">
+                            <input wire:model.live="inputMode" type="radio" value="manual" class="mt-1 size-4 border-slate-300 text-sky-600 focus:ring-sky-500">
+                            <span><span class="block text-sm font-bold text-slate-900">Input jumlah manual</span><span class="mt-1 block text-xs leading-5 text-slate-500">Gunakan bila klien belum memiliki data penerima berdasarkan nama. Isi jumlah per sekolah/Posyandu dan kategori.</span></span>
+                        </span>
+                    </label>
+                </div>
+                @error('inputMode')<span class="mt-2 block text-xs text-rose-600">{{ $message }}</span>@enderror
+            </section>
+
+            @if ($inputMode === 'manual')
             <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                 <div class="flex flex-col justify-between gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-center">
                     <div><p class="text-[10px] font-bold uppercase tracking-[.16em] text-sky-700">Jumlah penerima</p><h3 class="mt-1 text-lg font-bold text-slate-950">Sekolah dan Posyandu</h3><p class="mt-1 text-xs text-slate-500">Kolom kosong dianggap nol.</p></div>
@@ -58,15 +79,21 @@
                     @endforeach
                 </div>
             </section>
+            @else
+                <section class="rounded-2xl border border-sky-200 bg-sky-50 p-5 text-sm leading-6 text-sky-900">
+                    <strong>Snapshot otomatis:</strong> saat draft disimpan, sistem menyalin seluruh penerima aktif dari modul Penerima Manfaat. Perubahan pada master setelah itu tidak mengubah periode ini sampai tombol “Perbarui snapshot” digunakan.
+                </section>
+            @endif
 
-            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800"><strong>Langsung digunakan:</strong> setelah disimpan, jumlah ini menjadi sumber penyusunan menu, perhitungan porsi, kebutuhan bahan, dan Rencana Lapangan pada rentang tanggal yang dipilih.</div>
+            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-xs leading-5 text-emerald-800"><strong>Sumber modul berikutnya:</strong> setelah periode disetujui dan diaktifkan, jumlahnya digunakan untuk penyusunan menu, perhitungan porsi, kebutuhan bahan, dan Rencana Lapangan.</div>
 
             <div class="flex flex-col-reverse justify-between gap-3 sm:flex-row sm:items-center">
                 @if ($periodId && (auth()->user()->is_super_admin || auth()->user()->can('beneficiary_periods.delete')))
                     <button type="button" wire:click="delete" wire:confirm="Hapus data jumlah penerima ini?" class="inline-flex h-12 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold text-rose-700 hover:bg-rose-50"><x-v3.icon name="trash" class="size-4" /> Hapus data</button>
                 @else<span></span>@endif
-                <div class="flex gap-3"><a wire:navigate href="{{ route('v3.beneficiary-periods.index') }}" class="inline-flex h-12 items-center rounded-xl border border-slate-200 px-5 text-sm font-bold text-slate-600 hover:bg-slate-50">Batal</a><button type="submit" wire:loading.attr="disabled" class="inline-flex h-12 min-w-44 items-center justify-center rounded-xl bg-[#081d3a] px-5 text-sm font-bold text-white shadow-lg disabled:opacity-60"><span wire:loading.remove wire:target="save">Simpan & aktifkan</span><span wire:loading wire:target="save">Menyimpan...</span></button></div>
+                <div class="flex gap-3"><a wire:navigate href="{{ route('v3.beneficiary-periods.index') }}" class="inline-flex h-12 items-center rounded-xl border border-slate-200 px-5 text-sm font-bold text-slate-600 hover:bg-slate-50">Batal</a><button type="submit" wire:loading.attr="disabled" class="inline-flex h-12 min-w-44 items-center justify-center rounded-xl bg-[#081d3a] px-5 text-sm font-bold text-white shadow-lg disabled:opacity-60"><span wire:loading.remove wire:target="save">Simpan draft</span><span wire:loading wire:target="save">Menyimpan...</span></button></div>
             </div>
         </form>
     </div>
 </x-v3.shell>
+</div>

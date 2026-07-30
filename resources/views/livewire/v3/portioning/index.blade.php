@@ -15,6 +15,63 @@
             </p>
         </section>
 
+        @if($canCreate)
+            <section class="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+                <div class="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
+                    <div>
+                        <p class="text-xs font-bold uppercase tracking-[.14em] text-sky-700">Buat sesi manual</p>
+                        <h3 class="mt-1 text-lg font-bold text-slate-900">Akses data rencana produksi</h3>
+                        <p class="mt-1 max-w-3xl text-sm text-slate-600">Pilih rencana produksi aktif untuk membuat sesi Pemorsian tanpa mencatat pengambilan barang dari Gudang terlebih dahulu.</p>
+                    </div>
+                    <div class="rounded-xl bg-white px-4 py-3 text-xs text-slate-600 ring-1 ring-sky-100">
+                        Menu, tanggal, target porsi, dan rute akan diambil otomatis.
+                    </div>
+                </div>
+
+                <div class="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                    <label>
+                        <span class="mb-1 block text-xs font-semibold text-slate-700">Rencana produksi</span>
+                        <select wire:model.live="productionPlanId" class="h-11 w-full rounded-xl border border-sky-200 bg-white px-3 text-sm">
+                            <option value="">Pilih rencana produksi aktif</option>
+                            @forelse($productionPlans as $plan)
+                                <option value="{{ $plan->id }}">
+                                    {{ $plan->plan_number }} · {{ $plan->menu_name_snapshot }} · {{ $plan->distribution_date?->format('d-m-Y') }}
+                                    {{ $plan->portioningSession ? '· sesi sudah tersedia' : '' }}
+                                </option>
+                            @empty
+                                <option value="" disabled>Belum ada rencana produksi aktif</option>
+                            @endforelse
+                        </select>
+                        @error('productionPlanId') <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
+                    </label>
+                    <button type="button" wire:click="createFromProductionPlan" wire:loading.attr="disabled" wire:target="createFromProductionPlan" @disabled(!$selectedProductionPlan) class="h-11 rounded-xl bg-sky-700 px-5 text-xs font-bold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50">
+                        {{ $selectedProductionPlan?->portioningSession ? 'Buka sesi Pemorsian' : 'Buat sesi Pemorsian' }}
+                    </button>
+                </div>
+
+                @if($selectedProductionPlan)
+                    <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div class="rounded-xl border border-sky-100 bg-white p-3">
+                            <p class="text-[10px] font-bold uppercase text-slate-400">Menu</p>
+                            <p class="mt-1 text-sm font-bold text-slate-800">{{ $selectedProductionPlan->menu_name_snapshot }}</p>
+                        </div>
+                        <div class="rounded-xl border border-sky-100 bg-white p-3">
+                            <p class="text-[10px] font-bold uppercase text-slate-400">Tanggal Pemorsian</p>
+                            <p class="mt-1 text-sm font-bold text-slate-800">{{ $selectedProductionPlan->distribution_date?->translatedFormat('d F Y') }}</p>
+                        </div>
+                        <div class="rounded-xl border border-sky-100 bg-white p-3">
+                            <p class="text-[10px] font-bold uppercase text-slate-400">Target porsi</p>
+                            <p class="mt-1 text-sm font-bold text-slate-800">{{ number_format($selectedProductionPlan->planned_small_portions, 0, ',', '.') }} kecil · {{ number_format($selectedProductionPlan->planned_large_portions, 0, ',', '.') }} besar</p>
+                        </div>
+                        <div class="rounded-xl border border-sky-100 bg-white p-3">
+                            <p class="text-[10px] font-bold uppercase text-slate-400">Rute/Tujuan</p>
+                            <p class="mt-1 text-sm font-bold text-slate-800">{{ number_format($selectedProductionPlan->destinations->where('total_portions', '>', 0)->count(), 0, ',', '.') }} tujuan</p>
+                        </div>
+                    </div>
+                @endif
+            </section>
+        @endif
+
         <div class="grid gap-5 xl:grid-cols-[350px_minmax(0,1fr)]">
             <aside class="h-fit rounded-2xl border border-slate-200 bg-white p-4">
                 <h3 class="font-bold">Sesi Pemorsian</h3>
@@ -269,12 +326,12 @@
                     @endif
                     @if($canApprove && in_array($selected->status, [\App\Enums\OperationalReportStatus::Submitted, \App\Enums\OperationalReportStatus::DivisionApproved], true))
                         <section class="rounded-2xl border border-sky-200 bg-sky-50 p-5">
-                            <h3 class="font-bold text-slate-900">{{ $selected->status === \App\Enums\OperationalReportStatus::Submitted ? 'Pemeriksaan Kepala Divisi Pemorsian' : 'Verifikasi akhir Asisten Lapangan' }}</h3>
-                            <p class="mt-1 text-xs text-slate-600">{{ $selected->status === \App\Enums\OperationalReportStatus::Submitted ? 'Pastikan jumlah porsi, dokumentasi rute, dan sisa makanan telah sesuai.' : 'Setelah diverifikasi Asisten Lapangan, laporan dapat diekspor ke PDF.' }}</p>
+                            <h3 class="font-bold text-slate-900">{{ $selected->status === \App\Enums\OperationalReportStatus::Submitted ? 'Pemeriksaan Kepala Divisi Pemorsian' : 'Verifikasi akhir Kepala SPPG' }}</h3>
+                            <p class="mt-1 text-xs text-slate-600">{{ $selected->status === \App\Enums\OperationalReportStatus::Submitted ? 'Pastikan jumlah porsi, dokumentasi rute, dan sisa makanan telah sesuai.' : 'Setelah diverifikasi Kepala SPPG, laporan dapat diekspor oleh Asisten Lapangan.' }}</p>
                             <textarea wire:model="reviewNotes" class="mt-3 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm" placeholder="Catatan pemeriksa"></textarea>
                             <div class="mt-3 flex justify-end gap-2">
                                 <button type="button" wire:click="requestRevision" class="rounded-xl px-4 py-2 text-xs font-bold text-rose-700">Minta revisi</button>
-                                <button type="button" wire:click="approve" class="rounded-xl bg-sky-700 px-4 py-2 text-xs font-bold text-white">{{ $selected->status === \App\Enums\OperationalReportStatus::Submitted ? 'Setujui sebagai Kepala Divisi' : 'Verifikasi sebagai Asisten Lapangan' }}</button>
+                                <button type="button" wire:click="approve" class="rounded-xl bg-sky-700 px-4 py-2 text-xs font-bold text-white">{{ $selected->status === \App\Enums\OperationalReportStatus::Submitted ? 'Setujui sebagai Kepala Divisi' : 'Verifikasi sebagai Kepala SPPG' }}</button>
                             </div>
                         </section>
                     @endif

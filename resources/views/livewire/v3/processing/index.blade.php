@@ -165,26 +165,13 @@
                             <div class="flex flex-wrap items-end justify-between gap-3">
                                 <div>
                                     <h3 class="font-bold text-slate-900">2. Berat/jumlah dan dokumentasi makanan jadi</h3>
-                                    <p class="mt-1 text-xs text-slate-500">Isi ringkasan total batch, lalu tambahkan setiap data hasil makanan jadi beserta berat/jumlah, satuan, dan fotonya.</p>
+                                    <p class="mt-1 text-xs text-slate-500">Tambahkan setiap data hasil makanan jadi beserta berat/jumlah, satuan, dan fotonya.</p>
                                 </div>
                                 @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
                                     <button type="button" wire:click="addFinishedOutputDocumentation" class="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-50">
                                         + Tambah data hasil
                                     </button>
                                 @endif
-                            </div>
-
-                            <div class="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_220px]">
-                                <label>
-                                    <span class="mb-1 block text-xs font-semibold text-slate-600">Total hasil batch</span>
-                                    <input wire:model="actualOutputQuantity" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) type="number" min="0" step=".001" class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="Contoh: 120">
-                                    @error('actualOutputQuantity') <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
-                                </label>
-                                <label>
-                                    <span class="mb-1 block text-xs font-semibold text-slate-600">Satuan ringkasan batch</span>
-                                    <input wire:model="actualOutputUnit" @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress) class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm" placeholder="pack, loyang, pcs, kg">
-                                    @error('actualOutputUnit') <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
-                                </label>
                             </div>
 
                             <div class="mt-4 space-y-3">

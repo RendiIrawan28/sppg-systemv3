@@ -64,17 +64,7 @@
                 }
             };
 
-            document.addEventListener('livewire:init', () => {
-                document.documentElement.dataset.livewireReady = 'true';
-                window.Livewire?.hook?.('request', () => {
-                    document.documentElement.dataset.livewireRequests = String(Number(document.documentElement.dataset.livewireRequests || 0) + 1);
-                });
-                hideWarning();
-            });
-            document.addEventListener('livewire:initialized', () => {
-                document.documentElement.dataset.livewireInitialized = 'true';
-                document.documentElement.dataset.livewireComponents = String(window.Livewire?.all?.().length ?? 0);
-            });
+            document.addEventListener('livewire:init', hideWarning);
             window.addEventListener('load', () => window.setTimeout(showWarning, 1500), { once: true });
         })();
     </script>
