@@ -1,5 +1,6 @@
 package id.sppg.mobile.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import id.sppg.mobile.core.notification.NotificationNavigationStore
 import id.sppg.mobile.data.session.UserSession
 import id.sppg.mobile.ui.theme.SppgTheme
 import id.sppg.mobile.ui.theme.ForestDark
@@ -69,6 +71,8 @@ import id.sppg.mobile.ui.theme.Leaf
 
 private sealed interface AppScreen {
     data object Dashboard : AppScreen
+    data object Tasks : AppScreen
+    data object Security : AppScreen
     data object FieldPlans : AppScreen
     data class FieldPlanDetail(val id: Long) : AppScreen
     data class FieldPlanEdit(val id: Long) : AppScreen
@@ -91,6 +95,8 @@ fun SppgApp(
     authViewModel: AuthViewModel,
     fieldPlanViewModel: FieldPlanViewModel,
     operationalViewModel: OperationalViewModel,
+    notificationViewModel: NotificationViewModel,
+    securityViewModel: SecurityViewModel,
 ) {
     val state by authViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -106,9 +112,13 @@ fun SppgApp(
             else -> AuthenticatedContent(
                 session = requireNotNull(state.session),
                 isLoggingOut = state.isSubmitting,
-                onLogout = authViewModel::logout,
+                noticeMessage = state.noticeMessage,
+                onDismissNotice = authViewModel::dismissNotice,
+                onLogout = { notificationViewModel.unregisterDevice(authViewModel::logout) },
                 fieldPlanViewModel = fieldPlanViewModel,
                 operationalViewModel = operationalViewModel,
+                notificationViewModel = notificationViewModel,
+                securityViewModel = securityViewModel,
             )
         }
     }
@@ -118,31 +128,119 @@ fun SppgApp(
 private fun AuthenticatedContent(
     session: UserSession,
     isLoggingOut: Boolean,
+    noticeMessage: String?,
+    onDismissNotice: () -> Unit,
     onLogout: () -> Unit,
     fieldPlanViewModel: FieldPlanViewModel,
     operationalViewModel: OperationalViewModel,
+    notificationViewModel: NotificationViewModel,
+    securityViewModel: SecurityViewModel,
 ) {
     var screen: AppScreen by remember(session.token) { mutableStateOf(AppScreen.Dashboard) }
     val fieldPlanState by fieldPlanViewModel.uiState.collectAsStateWithLifecycle()
     val operationalState by operationalViewModel.uiState.collectAsStateWithLifecycle()
+    val notificationState by notificationViewModel.uiState.collectAsStateWithLifecycle()
+    val securityState by securityViewModel.uiState.collectAsStateWithLifecycle()
+    val watermarkProfile = remember(session.userName, session.roleLabel) {
+        PhotoWatermarkProfile(
+            name = session.userName,
+            division = session.roleLabel,
+        )
+    }
 
     LaunchedEffect(session.token) {
         fieldPlanViewModel.resetSession()
         operationalViewModel.resetSession()
+        notificationViewModel.resetSession()
+        securityViewModel.resetSession()
         operationalViewModel.loadModules(force = true)
+        notificationViewModel.registerDevice()
+        notificationViewModel.load(force = true)
     }
+
+    val notificationNavigation by NotificationNavigationStore.event.collectAsStateWithLifecycle()
+    LaunchedEffect(notificationNavigation, session.token) {
+        notificationNavigation?.let { event ->
+            screen = when (event.screen) {
+                "security" -> AppScreen.Security
+                "tasks", "notifications" -> AppScreen.Tasks
+                else -> AppScreen.Dashboard
+            }
+            NotificationNavigationStore.consume()
+        }
+    }
+
+    NotificationPermissionEffect()
+
+    fun navigateBack() {
+        screen = when (val current = screen) {
+            AppScreen.Dashboard -> AppScreen.Dashboard
+            AppScreen.Tasks -> AppScreen.Dashboard
+            AppScreen.Security -> AppScreen.Dashboard
+            AppScreen.FieldPlans -> AppScreen.Dashboard
+            is AppScreen.FieldPlanDetail -> {
+                fieldPlanViewModel.clearDetail()
+                AppScreen.FieldPlans
+            }
+            is AppScreen.FieldPlanEdit -> AppScreen.FieldPlanDetail(current.id)
+            is AppScreen.OperationalRecords -> AppScreen.Dashboard
+            is AppScreen.OperationalDetail -> {
+                operationalViewModel.clearDetail()
+                AppScreen.OperationalRecords(current.slug, current.label)
+            }
+            is AppScreen.OperationalEdit -> AppScreen.OperationalDetail(current.slug, current.label, current.id)
+            is AppScreen.OperationalCreate -> AppScreen.OperationalRecords(current.slug, current.label)
+            is AppScreen.OperationalRelationEdit ->
+                AppScreen.OperationalDetail(current.slug, current.label, current.recordId)
+        }
+    }
+
+    BackHandler(enabled = screen != AppScreen.Dashboard) { navigateBack() }
 
     when (val current = screen) {
         AppScreen.Dashboard -> DashboardScreen(
             session = session,
             isLoggingOut = isLoggingOut,
             operationalState = operationalState,
+            noticeMessage = noticeMessage,
+            onDismissNotice = onDismissNotice,
             onLogout = onLogout,
+            pendingTaskCount = notificationState.tasks.size,
+            onOpenTasks = { screen = AppScreen.Tasks },
             onOpenFieldPlans = { screen = AppScreen.FieldPlans },
             onLoadOperationalModules = operationalViewModel::loadModules,
             onOpenOperational = { slug, label ->
-                screen = AppScreen.OperationalRecords(slug, label)
+                screen = if (slug == "keamanan") {
+                    AppScreen.Security
+                } else {
+                    AppScreen.OperationalRecords(slug, label)
+                }
             },
+        )
+        AppScreen.Tasks -> TaskListScreen(
+            state = notificationState,
+            onBack = { screen = AppScreen.Dashboard },
+            onRefresh = { notificationViewModel.load(force = true) },
+            onLoad = { notificationViewModel.load() },
+            onTaskClick = { task ->
+                screen = if (task.screen == "security") AppScreen.Security else AppScreen.Tasks
+            },
+            onNotificationClick = { notification ->
+                notificationViewModel.markRead(notification) { target ->
+                    screen = if (target == "security") AppScreen.Security else AppScreen.Tasks
+                }
+            },
+            onMarkAllRead = notificationViewModel::markAllRead,
+        )
+        AppScreen.Security -> SecurityScreen(
+            state = securityState,
+            watermarkProfile = watermarkProfile,
+            onBack = { screen = AppScreen.Dashboard },
+            onLoad = { securityViewModel.load() },
+            onRefresh = { securityViewModel.load(force = true) },
+            onStartShift = securityViewModel::startShift,
+            onSubmitReport = securityViewModel::submitReport,
+            onClearFeedback = securityViewModel::clearFeedback,
         )
         AppScreen.FieldPlans -> FieldPlanListScreen(
             state = fieldPlanState,
@@ -249,6 +347,7 @@ private fun AuthenticatedContent(
             state = operationalState,
             moduleLabel = current.label,
             isCreate = false,
+            watermarkProfile = watermarkProfile,
             onBack = {
                 operationalViewModel.clearFeedback()
                 screen = AppScreen.OperationalDetail(current.slug, current.label, current.id)
@@ -267,6 +366,7 @@ private fun AuthenticatedContent(
             state = operationalState,
             moduleLabel = current.label,
             isCreate = true,
+            watermarkProfile = watermarkProfile,
             onBack = {
                 operationalViewModel.clearFeedback()
                 screen = AppScreen.OperationalRecords(current.slug, current.label)
@@ -285,6 +385,7 @@ private fun AuthenticatedContent(
             state = operationalState,
             moduleLabel = current.sectionTitle,
             isCreate = current.itemId == null,
+            watermarkProfile = watermarkProfile,
             onBack = {
                 operationalViewModel.clearFeedback()
                 screen = AppScreen.OperationalDetail(current.slug, current.label, current.recordId)
@@ -493,7 +594,11 @@ private fun DashboardScreen(
     session: UserSession,
     isLoggingOut: Boolean,
     operationalState: OperationalUiState,
+    noticeMessage: String?,
+    onDismissNotice: () -> Unit,
     onLogout: () -> Unit,
+    pendingTaskCount: Int,
+    onOpenTasks: () -> Unit,
     onOpenFieldPlans: () -> Unit,
     onLoadOperationalModules: (Boolean) -> Unit,
     onOpenOperational: (String, String) -> Unit,
@@ -547,6 +652,30 @@ private fun DashboardScreen(
         ) {
             item {
                 DashboardHero(session)
+                if (!noticeMessage.isNullOrBlank()) {
+                    Spacer(Modifier.height(14.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        ),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text(
+                                "Koneksi belum diverifikasi",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            Spacer(Modifier.height(5.dp))
+                            Text(
+                                noticeMessage,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            )
+                            TextButton(onClick = onDismissNotice) { Text("Tutup") }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(26.dp))
                 Text(
                     text = "Ruang kerja Anda",
@@ -558,6 +687,19 @@ private fun DashboardScreen(
                     "Pilih modul untuk melihat pekerjaan hari ini.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            item {
+                FeatureCard(
+                    feature = FeatureItem(
+                        title = "Tugas Saya",
+                        description = "Lihat pekerjaan yang jatuh tempo dan riwayat notifikasi.",
+                        status = "$pendingTaskCount tugas aktif",
+                        isAvailable = true,
+                        visualSlug = "tasks",
+                    ),
+                    onClick = onOpenTasks,
                 )
             }
 

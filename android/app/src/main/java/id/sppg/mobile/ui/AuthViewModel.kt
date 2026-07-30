@@ -16,6 +16,7 @@ data class AuthUiState(
     val isSubmitting: Boolean = false,
     val session: UserSession? = null,
     val errorMessage: String? = null,
+    val noticeMessage: String? = null,
 )
 
 class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
@@ -24,8 +25,33 @@ class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
 
     init {
         viewModelScope.launch {
+            repository.sessionEvents.collect { event ->
+                if (!event.message.isNullOrBlank()) {
+                    _uiState.update {
+                        it.copy(errorMessage = event.message, noticeMessage = null)
+                    }
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            val bootstrap = repository.bootstrap()
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    session = bootstrap.session,
+                    noticeMessage = bootstrap.warningMessage,
+                )
+            }
+
             repository.session.collect { session ->
-                _uiState.update { it.copy(isLoading = false, session = session) }
+                _uiState.update { current ->
+                    current.copy(
+                        isLoading = false,
+                        session = session,
+                        isSubmitting = false,
+                    )
+                }
             }
         }
     }
@@ -37,7 +63,9 @@ class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }
+            _uiState.update {
+                it.copy(isSubmitting = true, errorMessage = null, noticeMessage = null)
+            }
             repository.login(login, password)
                 .onFailure { error ->
                     _uiState.update {
@@ -49,16 +77,24 @@ class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
     }
 
     fun logout() {
-        val session = _uiState.value.session ?: return
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true) }
-            repository.logout(session)
-            _uiState.update { AuthUiState(isLoading = false) }
+            _uiState.update { it.copy(isSubmitting = true, noticeMessage = null) }
+            repository.logout()
+            _uiState.update {
+                AuthUiState(
+                    isLoading = false,
+                    errorMessage = null,
+                )
+            }
         }
     }
 
     fun dismissError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun dismissNotice() {
+        _uiState.update { it.copy(noticeMessage = null) }
     }
 
     companion object {
@@ -71,4 +107,3 @@ class AuthViewModel(private val repository: AuthRepository) : ViewModel() {
             }
     }
 }
-

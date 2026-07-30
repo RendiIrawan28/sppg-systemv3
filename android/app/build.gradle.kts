@@ -1,7 +1,23 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
 }
+
+val firebaseConfigPresent = file("google-services.json").exists()
+if (firebaseConfigPresent) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
+fun String.asBuildConfigString(): String =
+    "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val debugApiBaseUrl = providers.gradleProperty("SPPG_DEBUG_API_BASE_URL")
+    .orElse("http://10.94.231.176:8000/api/mobile/")
+    .get()
+val releaseApiBaseUrl = providers.gradleProperty("SPPG_RELEASE_API_BASE_URL")
+    .orElse("https://localhost/api/mobile/")
+    .get()
 
 android {
     namespace = "id.sppg.mobile"
@@ -11,14 +27,27 @@ android {
         applicationId = "id.sppg.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 3
+        versionName = "2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    buildTypes {
+        getByName("debug") {
+            buildConfigField("String", "API_BASE_URL", debugApiBaseUrl.asBuildConfigString())
+            manifestPlaceholders["usesCleartextTraffic"] = "true"
+        }
+        getByName("release") {
+            isMinifyEnabled = false
+            buildConfigField("String", "API_BASE_URL", releaseApiBaseUrl.asBuildConfigString())
+            manifestPlaceholders["usesCleartextTraffic"] = "false"
+        }
+    }
+
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -51,10 +80,12 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
 
+    implementation(platform("com.google.firebase:firebase-bom:34.16.0"))
+    implementation("com.google.firebase:firebase-messaging")
+
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
-

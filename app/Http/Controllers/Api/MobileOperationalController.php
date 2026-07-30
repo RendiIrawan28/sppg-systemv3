@@ -183,6 +183,7 @@ class MobileOperationalController extends Controller
             }
             $this->applySystemValues($item, $request, (int) $systemUnit->id(), creating: true);
             $item->save();
+            $this->storeRecordFiles($request, $module, $item, $definition);
             $initializer->initialize($item->refresh(), $request->user());
             if (str_starts_with($module, 'ba-limbah-')) {
                 $this->linkWasteHandoverSource($item);
@@ -215,9 +216,12 @@ class MobileOperationalController extends Controller
         $item = $this->findRecord($definition, $record, (int) $systemUnit->id());
         abort_unless($this->isEditable($item), 422, 'Data sudah dikunci dan tidak dapat diubah.');
 
-        $item->fill($this->validatedValues($request, $definition));
-        $this->applySystemValues($item, $request, (int) $systemUnit->id());
-        $item->save();
+        DB::transaction(function () use ($request, $module, $definition, $item, $systemUnit): void {
+            $item->fill($this->validatedValues($request, $definition));
+            $this->applySystemValues($item, $request, (int) $systemUnit->id());
+            $item->save();
+            $this->storeRecordFiles($request, $module, $item, $definition);
+        });
 
         return response()->json([
             'message' => 'Perubahan berhasil disimpan.',
@@ -544,6 +548,9 @@ class MobileOperationalController extends Controller
                 'label' => $field['label'],
                 'type' => $field['type'] ?? 'text',
                 'value' => $this->formValue($item->getAttribute($name), $field['type'] ?? 'text'),
+                'file_url' => ($field['type'] ?? null) === 'file' && filled($item->getAttribute($name))
+                    ? url(Storage::disk('public')->url($item->getAttribute($name)))
+                    : null,
                 'required' => (bool) ($field['required'] ?? false),
                 'editable' => $editable,
                 'options' => isset($field['options'])
@@ -977,6 +984,34 @@ class MobileOperationalController extends Controller
         }
     }
 
+    /** @param array<string,mixed> $definition */
+    private function storeRecordFiles(Request $request, string $module, Model $item, array $definition): void
+    {
+        foreach ($definition['fields'] ?? [] as $field) {
+            if (($field['type'] ?? null) !== 'file') {
+                continue;
+            }
+            $encoded = $request->input('files.'.$field['name']);
+            if (blank($encoded)) {
+                continue;
+            }
+            $path = $this->storeEncodedImage(
+                (string) $encoded,
+                "mobile/{$module}/records",
+                'files.'.$field['name'],
+            );
+            $oldPath = $item->getAttribute($field['name']);
+            $item->setAttribute($field['name'], $path);
+            if ($item->isFillable('photo_original_name')) {
+                $item->setAttribute('photo_original_name', basename($path));
+            }
+            $item->save();
+            if ($oldPath && $oldPath !== $path) {
+                Storage::disk('public')->delete($oldPath);
+            }
+        }
+    }
+
     /** @return array<string,mixed> */
     private function applyRelationDefaults(
         string $module,
@@ -1047,6 +1082,7 @@ class MobileOperationalController extends Controller
         $path = $this->storeEncodedImage(
             (string) $request->input('files.photo_path'),
             'mobile/keamanan/reports',
+            'files.photo_path',
         );
         try {
             $report = app(SecurityMonitoringService::class)->submitReport(
@@ -1065,14 +1101,14 @@ class MobileOperationalController extends Controller
         ], 201);
     }
 
-    private function storeEncodedImage(string $encoded, string $directory): string
+    private function storeEncodedImage(string $encoded, string $directory, string $errorKey = 'files.photo_path'): string
     {
         if (! preg_match('/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/s', $encoded, $matches)) {
-            throw ValidationException::withMessages(['files.photo_path' => 'Format foto tidak didukung.']);
+            throw ValidationException::withMessages([$errorKey => 'Format foto tidak didukung.']);
         }
         $contents = base64_decode($matches[2], true);
         if ($contents === false || strlen($contents) > 5 * 1024 * 1024 || @getimagesizefromstring($contents) === false) {
-            throw ValidationException::withMessages(['files.photo_path' => 'Foto tidak valid atau ukurannya melebihi 5 MB.']);
+            throw ValidationException::withMessages([$errorKey => 'Foto tidak valid atau ukurannya melebihi 5 MB.']);
         }
         $extension = match ($matches[1]) {
             'image/png' => 'png',

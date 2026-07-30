@@ -7,6 +7,7 @@ use App\Models\SecurityReport;
 use App\Models\SecurityShift;
 use App\Models\SppgUnit;
 use App\Models\User;
+use App\Services\Mobile\MobileTaskService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -18,7 +19,7 @@ class SecurityMonitoringService
     {
         abort_unless($actor->can('security.create'), 403);
 
-        return DB::transaction(function () use ($unit, $actor, $startedAt): SecurityShift {
+        $shift = DB::transaction(function () use ($unit, $actor, $startedAt): SecurityShift {
             $activeShift = SecurityShift::query()
                 ->where('sppg_unit_id', $unit->getKey())
                 ->where('officer_id', $actor->getKey())
@@ -46,6 +47,10 @@ class SecurityMonitoringService
                 'updated_by' => $actor->getKey(),
             ]);
         });
+
+        app(MobileTaskService::class)->syncSecurityShiftTasks($shift);
+
+        return $shift;
     }
 
     public function submitReport(
@@ -56,7 +61,7 @@ class SecurityMonitoringService
     ): SecurityReport {
         abort_unless($actor->can('security.create'), 403);
 
-        return DB::transaction(function () use ($shift, $actor, $data, $reportedAt): SecurityReport {
+        $report = DB::transaction(function () use ($shift, $actor, $data, $reportedAt): SecurityReport {
             $shift = SecurityShift::query()->whereKey($shift->getKey())->lockForUpdate()->firstOrFail();
             abort_unless($actor->is_super_admin || (int) $shift->officer_id === (int) $actor->getKey(), 403);
 
@@ -101,5 +106,9 @@ class SecurityMonitoringService
 
             return $report->refresh();
         });
+
+        app(MobileTaskService::class)->completeSecurityReportTask($report);
+
+        return $report;
     }
 }

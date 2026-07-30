@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "298315010322",
+    "project_id": "sppg-nogotirto",
+    "storage_bucket": "sppg-nogotirto.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:298315010322:android:0c9cecf6dac122cfeb23cb",
+        "android_client_info": {
+          "package_name": "id.sppg.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB4xHxpXQ1tPhv_ccRnp_HDTIJ4T9HrSfM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

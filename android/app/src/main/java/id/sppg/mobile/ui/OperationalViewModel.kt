@@ -162,7 +162,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         if (_uiState.value.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, errorMessage = null, successMessage = null) }
-            repository.updateRecord(module, id, _uiState.value.editValues)
+            repository.updateRecord(module, id, _uiState.value.editValues, _uiState.value.editFiles)
                 .onSuccess {
                     val refreshed = repository.getRecord(module, id).getOrNull() ?: it
                     _uiState.update { state ->
@@ -179,7 +179,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         if (_uiState.value.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, errorMessage = null, successMessage = null) }
-            repository.createRecord(module, _uiState.value.editValues)
+            repository.createRecord(module, _uiState.value.editValues, _uiState.value.editFiles)
                 .onSuccess { record ->
                     val refreshed = repository.getRecord(module, record.id).getOrNull() ?: record
                     _uiState.update { state ->

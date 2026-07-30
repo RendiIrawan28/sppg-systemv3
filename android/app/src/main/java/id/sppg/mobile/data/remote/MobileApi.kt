@@ -141,17 +141,72 @@ interface MobileApi {
         @Path("action") action: String,
         @Body request: OperationalActionRequest,
     ): Response<MessageResponse>
+
+
+    @POST("device-tokens")
+    suspend fun registerDeviceToken(
+        @Header("Authorization") authorization: String,
+        @Body request: RegisterDeviceTokenRequest,
+    ): Response<DeviceTokenResponse>
+
+    @DELETE("device-tokens/{installationId}")
+    suspend fun unregisterDeviceToken(
+        @Header("Authorization") authorization: String,
+        @Path("installationId") installationId: String,
+    ): Response<MessageResponse>
+
+    @GET("tasks")
+    suspend fun tasks(
+        @Header("Authorization") authorization: String,
+        @Query("status") status: String = "pending",
+        @Query("per_page") perPage: Int = 50,
+    ): Response<MobileTasksResponse>
+
+    @GET("notifications")
+    suspend fun notifications(
+        @Header("Authorization") authorization: String,
+    ): Response<MobileNotificationsResponse>
+
+    @POST("notifications/{id}/read")
+    suspend fun readNotification(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+    ): Response<MessageResponse>
+
+    @POST("notifications/read-all")
+    suspend fun readAllNotifications(
+        @Header("Authorization") authorization: String,
+    ): Response<MessageResponse>
+
+    @GET("security/overview")
+    suspend fun securityOverview(
+        @Header("Authorization") authorization: String,
+    ): Response<SecurityOverviewResponse>
+
+    @POST("security/shifts")
+    suspend fun startSecurityShift(
+        @Header("Authorization") authorization: String,
+    ): Response<SecurityShiftResponse>
+
+    @POST("security/shifts/{id}/reports")
+    suspend fun submitSecurityReport(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+        @Body request: SubmitSecurityReportRequest,
+    ): Response<SecurityShiftResponse>
 }
 
 data class LoginRequest(
     val login: String,
     val password: String,
     @SerializedName("device_name") val deviceName: String,
+    @SerializedName("device_id") val deviceId: String,
 )
 
 data class LoginResponse(
     @SerializedName("access_token") val accessToken: String,
     @SerializedName("token_type") val tokenType: String,
+    @SerializedName("expires_at") val expiresAt: String?,
     val user: MobileUser,
 )
 
@@ -348,7 +403,10 @@ data class OperationalCapabilities(
     val actions: List<OperationalAction>?,
 )
 
-data class OperationalSaveRequest(val fields: Map<String, String?>)
+data class OperationalSaveRequest(
+    val fields: Map<String, String?>,
+    val files: Map<String, String> = emptyMap(),
+)
 data class OperationalActionRequest(val notes: String?)
 data class OperationalRelationSaveRequest(
     val fields: Map<String, String?>,
@@ -375,6 +433,8 @@ data class OperationalField(
     val key: String,
     val label: String,
     val value: String,
+    val type: String? = null,
+    @SerializedName("file_url") val fileUrl: String? = null,
 )
 
 data class OperationalSection(
@@ -396,3 +456,143 @@ data class OperationalSectionItem(
 )
 
 data class OperationalRelationAction(val key: String, val label: String)
+
+
+data class RegisterDeviceTokenRequest(
+    @SerializedName("fcm_token") val fcmToken: String,
+    @SerializedName("installation_id") val installationId: String,
+    @SerializedName("device_name") val deviceName: String,
+    @SerializedName("app_version") val appVersion: String,
+    val platform: String = "android",
+)
+
+data class DeviceTokenResponse(
+    val message: String,
+    val data: DeviceTokenData,
+)
+
+data class DeviceTokenData(
+    val id: Long,
+    val registered: Boolean,
+)
+
+data class MobileTasksResponse(
+    val data: List<MobileTaskItem>,
+    val meta: MobileTaskMeta,
+)
+
+data class MobileTaskMeta(
+    @SerializedName("current_page") val currentPage: Int,
+    @SerializedName("last_page") val lastPage: Int,
+    val total: Int,
+    @SerializedName("pending_count") val pendingCount: Int,
+    @SerializedName("unread_notification_count") val unreadNotificationCount: Int,
+)
+
+data class MobileTaskItem(
+    val id: Long,
+    val uuid: String,
+    val type: String,
+    val title: String,
+    val description: String?,
+    val priority: String,
+    val status: String,
+    val screen: String?,
+    val payload: Map<String, String>?,
+    @SerializedName("due_at") val dueAt: String?,
+    @SerializedName("is_overdue") val isOverdue: Boolean,
+    @SerializedName("completed_at") val completedAt: String?,
+)
+
+data class MobileNotificationsResponse(
+    val data: List<MobileNotificationItem>,
+    val meta: MobileNotificationMeta,
+)
+
+data class MobileNotificationMeta(
+    @SerializedName("unread_count") val unreadCount: Int,
+)
+
+data class MobileNotificationItem(
+    val id: Long,
+    val title: String,
+    val body: String,
+    val type: String,
+    val channel: String,
+    val screen: String?,
+    val payload: Map<String, String>?,
+    @SerializedName("delivery_status") val deliveryStatus: String,
+    @SerializedName("created_at") val createdAt: String?,
+    @SerializedName("read_at") val readAt: String?,
+)
+
+data class SecurityOverviewResponse(val data: SecurityOverview)
+
+data class SecurityOverview(
+    @SerializedName("active_shift") val activeShift: SecurityShiftData?,
+    @SerializedName("recent_shifts") val recentShifts: List<SecurityShiftSummary>,
+    @SerializedName("pending_tasks") val pendingTasks: List<SecurityTaskSummary>,
+    @SerializedName("can_start_shift") val canStartShift: Boolean,
+)
+
+data class SecurityShiftResponse(
+    val message: String,
+    val data: SecurityShiftData,
+)
+
+data class SecurityShiftData(
+    val id: Long,
+    val uuid: String,
+    @SerializedName("officer_name") val officerName: String,
+    @SerializedName("started_at") val startedAt: String?,
+    @SerializedName("scheduled_end_at") val scheduledEndAt: String?,
+    @SerializedName("completed_at") val completedAt: String?,
+    val status: String,
+    @SerializedName("reports_expected") val reportsExpected: Int,
+    @SerializedName("reports_count") val reportsCount: Int,
+    @SerializedName("next_report_sequence") val nextReportSequence: Int?,
+    @SerializedName("next_report_due_at") val nextReportDueAt: String?,
+    @SerializedName("report_due") val reportDue: Boolean,
+    val reports: List<SecurityReportItem>,
+)
+
+data class SecurityShiftSummary(
+    val id: Long,
+    @SerializedName("started_at") val startedAt: String?,
+    @SerializedName("completed_at") val completedAt: String?,
+    val status: String,
+    @SerializedName("reports_count") val reportsCount: Int,
+    @SerializedName("reports_expected") val reportsExpected: Int,
+)
+
+data class SecurityTaskSummary(
+    val id: Long,
+    @SerializedName("sequence_number") val sequenceNumber: Int?,
+    val title: String,
+    @SerializedName("due_at") val dueAt: String?,
+    @SerializedName("is_overdue") val isOverdue: Boolean,
+)
+
+data class SecurityReportItem(
+    val id: Long,
+    @SerializedName("sequence_number") val sequenceNumber: Int,
+    @SerializedName("due_at") val dueAt: String?,
+    @SerializedName("reported_at") val reportedAt: String?,
+    val situation: String,
+    @SerializedName("gate_secure") val gateSecure: Boolean,
+    @SerializedName("perimeter_secure") val perimeterSecure: Boolean,
+    @SerializedName("access_activity") val accessActivity: String?,
+    @SerializedName("visitor_activity") val visitorActivity: String?,
+    val notes: String?,
+    @SerializedName("photo_url") val photoUrl: String?,
+)
+
+data class SubmitSecurityReportRequest(
+    val situation: String,
+    @SerializedName("gate_secure") val gateSecure: Boolean,
+    @SerializedName("perimeter_secure") val perimeterSecure: Boolean,
+    @SerializedName("access_activity") val accessActivity: String?,
+    @SerializedName("visitor_activity") val visitorActivity: String?,
+    val notes: String?,
+    val photo: String,
+)

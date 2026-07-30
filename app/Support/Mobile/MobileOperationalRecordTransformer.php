@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class MobileOperationalRecordTransformer
@@ -72,6 +73,10 @@ class MobileOperationalRecordTransformer
                 'key' => $field['name'],
                 'label' => $field['label'],
                 'value' => $display,
+                'type' => $field['type'] ?? 'text',
+                'file_url' => ($field['type'] ?? null) === 'file' && filled($value)
+                    ? url(Storage::disk('public')->url($value))
+                    : null,
             ];
         })->filter(fn (array $field): bool => filled($field['value']))->values()->all();
     }

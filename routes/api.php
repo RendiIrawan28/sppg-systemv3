@@ -2,15 +2,29 @@
 
 use App\Http\Controllers\Api\FieldPlanController;
 use App\Http\Controllers\Api\MobileAuthController;
+use App\Http\Controllers\Api\MobileDeviceTokenController;
+use App\Http\Controllers\Api\MobileNotificationController;
+use App\Http\Controllers\Api\MobileSecurityController;
+use App\Http\Controllers\Api\MobileTaskController;
 use App\Http\Controllers\Api\MobileOperationalController;
+use App\Http\Middleware\EnsureMobileAccessToken;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('mobile')->group(function (): void {
     Route::post('/login', [MobileAuthController::class, 'login']);
 
-    Route::middleware('auth:sanctum')->group(function (): void {
+    Route::middleware(['auth:sanctum', EnsureMobileAccessToken::class])->group(function (): void {
         Route::get('/user', [MobileAuthController::class, 'user']);
         Route::post('/logout', [MobileAuthController::class, 'logout']);
+        Route::post('/device-tokens', [MobileDeviceTokenController::class, 'store']);
+        Route::delete('/device-tokens/{installationId}', [MobileDeviceTokenController::class, 'destroy']);
+        Route::get('/tasks', [MobileTaskController::class, 'index']);
+        Route::get('/notifications', [MobileNotificationController::class, 'index']);
+        Route::post('/notifications/read-all', [MobileNotificationController::class, 'readAll']);
+        Route::post('/notifications/{notification}/read', [MobileNotificationController::class, 'read']);
+        Route::get('/security/overview', [MobileSecurityController::class, 'overview']);
+        Route::post('/security/shifts', [MobileSecurityController::class, 'start']);
+        Route::post('/security/shifts/{shift}/reports', [MobileSecurityController::class, 'report']);
         Route::get('/field-plans', [FieldPlanController::class, 'index']);
         Route::get('/field-plans/{plan}', [FieldPlanController::class, 'show']);
         Route::put('/field-plans/{plan}', [FieldPlanController::class, 'update']);

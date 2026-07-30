@@ -1,8 +1,5 @@
 package id.sppg.mobile.ui
 
-import android.util.Base64
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -25,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Assignment
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Person
@@ -64,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -75,7 +74,6 @@ import id.sppg.mobile.data.remote.OperationalSection
 import id.sppg.mobile.data.remote.OperationalSectionItem
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.io.ByteArrayOutputStream
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -539,6 +537,7 @@ fun OperationalRecordEditScreen(
     state: OperationalUiState,
     moduleLabel: String,
     isCreate: Boolean,
+    watermarkProfile: PhotoWatermarkProfile,
     onBack: () -> Unit,
     onPrepare: () -> Unit,
     onValueChange: (String, String?) -> Unit,
@@ -598,6 +597,7 @@ fun OperationalRecordEditScreen(
                     value = state.editValues[field.key],
                     onValueChange = { onValueChange(field.key, it) },
                     hasSelectedFile = fileValues.containsKey(field.key),
+                    watermarkProfile = watermarkProfile,
                     onSelectFile = { onFileSelected(field.key, it) },
                 )
             }
@@ -639,30 +639,34 @@ private fun OperationalFormInput(
     value: String?,
     onValueChange: (String?) -> Unit,
     hasSelectedFile: Boolean,
+    watermarkProfile: PhotoWatermarkProfile,
     onSelectFile: (String) -> Unit,
 ) {
     val label = field.label + if (field.required) " *" else ""
     val context = LocalContext.current
+    var photoError by remember(field.key) { mutableStateOf<String?>(null) }
     val photoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
-            runCatching {
-                val bitmap = context.contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
-                    ?: error("Foto tidak dapat dibaca.")
-                val output = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)
-                val bytes = output.toByteArray()
-                require(bytes.size <= 5 * 1024 * 1024) { "Ukuran foto maksimal 5 MB." }
-                "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
-            }.onSuccess(onSelectFile)
+            runCatching { watermarkedPhotoDataUri(context, uri, watermarkProfile).second }
+                .onSuccess {
+                    photoError = null
+                    onSelectFile(it)
+                }
+                .onFailure { error ->
+                    photoError = error.message ?: "Foto tidak dapat dibaca."
+                }
         }
     }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
         if (bitmap != null) {
-            val output = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 88, output)
-            onSelectFile(
-                "data:image/jpeg;base64," + Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP),
-            )
+            runCatching { watermarkedPhotoDataUri(bitmap, watermarkProfile).second }
+                .onSuccess {
+                    photoError = null
+                    onSelectFile(it)
+                }
+                .onFailure { error ->
+                    photoError = error.message ?: "Foto tidak dapat diproses."
+                }
         }
     }
 
@@ -702,6 +706,14 @@ private fun OperationalFormInput(
                     ) {
                         Text("Galeri")
                     }
+                }
+                photoError?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
         }
@@ -912,6 +924,7 @@ private fun OperationalSectionCard(
 
 @Composable
 private fun OperationalFieldRow(field: OperationalField) {
+    val uriHandler = LocalUriHandler.current
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(
             field.label,
@@ -920,12 +933,23 @@ private fun OperationalFieldRow(field: OperationalField) {
             style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.width(16.dp))
-        Text(
-            field.value,
-            modifier = Modifier.weight(1f),
-            fontWeight = FontWeight.Medium,
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        if (!field.fileUrl.isNullOrBlank()) {
+            TextButton(
+                onClick = { uriHandler.openUri(field.fileUrl) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Buka dokumen", fontWeight = FontWeight.SemiBold)
+            }
+        } else {
+            Text(
+                field.value,
+                modifier = Modifier.weight(1f),
+                fontWeight = FontWeight.Medium,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
     }
 }
 

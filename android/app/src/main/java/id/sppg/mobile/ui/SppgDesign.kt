@@ -15,6 +15,7 @@ import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.Map
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.SetMeal
@@ -42,6 +43,7 @@ data class ModuleVisual(
 @Composable
 fun moduleVisual(slug: String): ModuleVisual = when {
     slug == "field-plans" -> ModuleVisual(Icons.Outlined.Map, Forest, MaterialTheme.colorScheme.primaryContainer)
+    slug == "tasks" -> ModuleVisual(Icons.Outlined.Notifications, Color(0xFF2F6F8F), Color(0xFFDCEFFA))
     slug.startsWith("lapangan") -> ModuleVisual(Icons.AutoMirrored.Outlined.Assignment, Color(0xFF266E91), Color(0xFFDCEFFA))
     slug.startsWith("gudang") -> ModuleVisual(Icons.Outlined.Inventory2, Color(0xFF9B5C12), Color(0xFFFFE9C9))
     slug == "persiapan" -> ModuleVisual(Icons.Outlined.SetMeal, Color(0xFF6A65A8), Color(0xFFEAE7FF))

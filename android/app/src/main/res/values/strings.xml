@@ -1,7 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">SPPG Mobile</string>
-    <!-- Emulator Android mengakses Laravel lokal melalui 10.0.2.2. -->
-    <string name="api_base_url">http://192.168.1.32:8000/api/mobile/</string>
+    <string name="app_name">SPPG Nogotirto</string>
 </resources>
-

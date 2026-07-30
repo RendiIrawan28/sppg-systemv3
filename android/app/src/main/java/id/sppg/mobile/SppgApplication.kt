@@ -1,6 +1,7 @@
 package id.sppg.mobile
 
 import android.app.Application
+import id.sppg.mobile.core.notification.NotificationChannels
 import id.sppg.mobile.data.AppContainer
 
 class SppgApplication : Application() {
@@ -9,7 +10,7 @@ class SppgApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        NotificationChannels.create(this)
         container = AppContainer(this)
     }
 }
-
