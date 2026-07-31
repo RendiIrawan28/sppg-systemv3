@@ -12,7 +12,7 @@ fun String.asBuildConfigString(): String =
     "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val debugApiBaseUrl = providers.gradleProperty("SPPG_DEBUG_API_BASE_URL")
-    .orElse("http://192.168.1.32:8000/api/mobile/")
+    .orElse("http://192.168.18.14:8000/api/mobile/")
     .get()
 val releaseApiBaseUrl = providers.gradleProperty("SPPG_RELEASE_API_BASE_URL")
     .orElse("https://localhost/api/mobile/")
@@ -27,7 +27,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 5
-        versionName = "2.0"
+        versionName = "2.1"
 
         buildConfigField("boolean", "FIREBASE_CONFIG_PRESENT", firebaseConfigPresent.toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

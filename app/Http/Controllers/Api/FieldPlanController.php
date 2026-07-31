@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 class FieldPlanController extends Controller
 {
@@ -112,18 +113,25 @@ class FieldPlanController extends Controller
         ]);
 
         try {
-            $workflow->submit(
+            $result = $workflow->submit(
                 $plan,
                 $request->user(),
                 filled($data['notes'] ?? null) ? trim((string) $data['notes']) : null,
             );
-        } catch (DomainException $exception) {
+        } catch (DomainException|RuntimeException $exception) {
             throw ValidationException::withMessages(['plan' => [$exception->getMessage()]]);
         }
 
+        $generated = $result['operational_documents'] ?? [];
+        $hasOperationalWork = filled($generated['processing_batch'] ?? null)
+            || filled($generated['portioning_session'] ?? null)
+            || ! empty($generated['distribution_runs'] ?? []);
+
         return response()->json([
-            'message' => 'Rencana berhasil diaktifkan. Dokumen operasional dibuat manual pada setiap modul divisi.',
-            'generated' => [],
+            'message' => $hasOperationalWork
+                ? 'Rencana berhasil diaktifkan. Batch Pengolahan, sesi Pemorsian, dan rute Distribusi telah disiapkan.'
+                : 'Rencana berhasil diaktifkan tanpa pekerjaan produksi karena seluruh tujuan tidak menerima pelayanan.',
+            'generated' => $generated,
             'data' => new MobileFieldPlanResource(
                 $plan->refresh()->load('destinations.recipientGroups'),
             ),

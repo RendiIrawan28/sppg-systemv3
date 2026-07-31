@@ -157,13 +157,19 @@ class FieldDistributionPlanWorkflow
                 ]
             );
 
-            $runs = app(FieldOperationalPlanGenerator::class)
-                ->generateDistributionRuns($plan->refresh(), $actor);
+            $plan->refresh();
+            $documents = (int) $plan->planned_total_portions > 0
+                ? app(FieldOperationalPlanGenerator::class)->generate($plan, $actor)
+                : [
+                    'processing_batch' => null,
+                    'portioning_session' => null,
+                    'distribution_run' => null,
+                    'distribution_runs' => [],
+                    'skipped' => ['Seluruh tujuan tidak menerima pelayanan sehingga pekerjaan produksi dan distribusi tidak dibentuk.'],
+                ];
 
             return [
-                'operational_documents' => [
-                    'distribution_runs' => $runs->pluck('run_number')->all(),
-                ],
+                'operational_documents' => $documents,
             ];
         });
     }

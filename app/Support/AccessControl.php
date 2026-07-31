@@ -58,7 +58,7 @@ final class AccessControl
             'cleaning' => $operational,
 
             'field_planning' => [...$crud, 'submit', 'export'],
-            'field_daily_reports' => ['view', 'update', 'submit', 'approve', 'export'],
+            'field_daily_reports' => ['view', 'create', 'update', 'submit', 'approve', 'export'],
             'field_incidents' => ['view', 'create', 'update', 'resolve'],
             'incidents' => ['view', 'create', 'update', 'close'],
             'sanitation' => ['view', 'manage', 'verify'],
@@ -187,6 +187,7 @@ final class AccessControl
             ...self::module('posyandus', ['view', 'create', 'update', 'delete', 'import', 'export']),
             ...self::module('beneficiaries', ['view', 'create', 'update', 'delete', 'import', 'export']),
             ...self::module('beneficiary_periods', ['view', 'create', 'update', 'delete', 'import', 'copy', 'submit', 'export']),
+            ...self::module('daily_beneficiary_confirmations', ['view', 'create', 'update', 'delete', 'submit', 'export']),
             ...self::module('menus', ['view']),
             ...self::module('nutrition', ['view']),
             ...self::module('measurement_units', ['view', 'manage']),
@@ -213,10 +214,11 @@ final class AccessControl
             ...self::module('posyandus', ['view', 'create', 'update', 'delete', 'import', 'export']),
             ...self::module('beneficiaries', ['view', 'create', 'update', 'delete', 'import', 'export']),
             ...self::module('beneficiary_periods', ['view', 'create', 'update', 'delete', 'import', 'copy', 'submit', 'export']),
+            ...self::module('daily_beneficiary_confirmations', ['view', 'create', 'update', 'delete', 'submit', 'export']),
             ...self::module('menus', ['view']),
             ...self::module('nutrition', ['view']),
             ...self::module('field_planning', ['view', 'create', 'update', 'delete', 'submit', 'export']),
-            ...self::module('field_daily_reports', ['view', 'update', 'submit', 'export']),
+            ...self::module('field_daily_reports', ['view', 'create', 'update', 'submit', 'export']),
             ...self::module('field_incidents', ['view', 'create', 'update', 'resolve']),
             ...self::module('incidents', ['view', 'create', 'update']),
             ...self::operationalViewPermissions(),
@@ -277,6 +279,7 @@ final class AccessControl
             ...self::module('stock', ['view', 'create', 'update', 'delete', 'approve', 'export']),
             ...self::module('ingredients', ['view']),
             ...self::module('nutrition', ['view']),
+            ...self::module('field_incidents', ['view', 'create', 'update', 'resolve']),
         ];
     }
 
@@ -287,7 +290,7 @@ final class AccessControl
             'dashboard.view', 'reports.view',
             ...self::module('security', ['view', 'create', 'update', 'close']),
             ...self::module('incidents', ['view', 'create', 'update']),
-            ...self::module('field_incidents', ['view', 'create', 'update']),
+            ...self::module('field_incidents', ['view', 'create', 'update', 'resolve']),
         ];
     }
 
@@ -318,6 +321,7 @@ final class AccessControl
             'dashboard.view', 'reports.view', 'reports.export',
             'menus.view', 'ingredients.view', 'nutrition.view',
             'incidents.view', 'incidents.create', 'incidents.update', 'incidents.close',
+            ...self::module('field_incidents', ['view', 'create', 'update', 'resolve']),
             'security.view',
             ...self::module($prefix, $actions),
         ];
@@ -335,6 +339,7 @@ final class AccessControl
             'dashboard.view', 'reports.view',
             'menus.view', 'ingredients.view',
             'incidents.view', 'incidents.create', 'incidents.update',
+            ...self::module('field_incidents', ['view', 'create', 'update', 'resolve']),
             ...self::module($prefix, $actions),
         ];
     }

@@ -177,7 +177,7 @@ class OperationalHandoverFlow
                     ->where('sppg_unit_id', $washingSession->sppg_unit_id)
                     ->where('cleaning_area_id', $area->getKey())
                     ->whereDate('scheduled_date', $date)
-                    ->where('shift', 'evening')
+                    ->where('shift', 'afternoon')
                     ->exists();
 
                 if ($exists) {
@@ -188,7 +188,7 @@ class OperationalHandoverFlow
                     'sppg_unit_id' => $washingSession->sppg_unit_id,
                     'cleaning_area_id' => $area->getKey(),
                     'scheduled_date' => $date,
-                    'shift' => 'evening',
+                    'shift' => 'afternoon',
                     'scheduled_start_at' => Carbon::parse($date.' 14:00:00'),
                     'state' => CleaningSessionState::Planned,
                     'created_by' => $actor->getKey(),
@@ -260,7 +260,7 @@ class OperationalHandoverFlow
                     ->where('sppg_unit_id', $reference->sppg_unit_id)
                     ->where('cleaning_area_id', $area->getKey())
                     ->whereDate('scheduled_date', $date)
-                    ->where('shift', 'evening')
+                    ->where('shift', 'afternoon')
                     ->exists();
 
                 if ($exists) {
@@ -271,7 +271,7 @@ class OperationalHandoverFlow
                     'sppg_unit_id' => $reference->sppg_unit_id,
                     'cleaning_area_id' => $area->getKey(),
                     'scheduled_date' => $date,
-                    'shift' => 'evening',
+                    'shift' => 'afternoon',
                     'scheduled_start_at' => $scheduledStartAt,
                     'state' => CleaningSessionState::Planned,
                     'created_by' => $actor->getKey(),

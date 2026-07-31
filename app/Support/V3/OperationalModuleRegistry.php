@@ -4,6 +4,8 @@ namespace App\Support\V3;
 
 use App\Enums\CleaningFindingSeverity;
 use App\Enums\CleaningFindingStatus;
+use App\Enums\DistributionIncidentSeverity;
+use App\Enums\DistributionIncidentStatus;
 use App\Enums\DistributionStopStatus;
 use App\Enums\WashingDeviationSeverity;
 use App\Enums\WashingDeviationStatus;
@@ -74,6 +76,20 @@ final class OperationalModuleRegistry
                         $this->field('output_quantity', 'Jumlah hasil makanan', 'number', true),
                         $this->field('output_unit', 'Satuan hasil', 'text', true),
                         $this->field('captured_at', 'Waktu foto', 'datetime', true), $this->field('sort_order', 'Urutan', 'number'),
+                    ]),
+                    'returns' => $this->relation('Retur bahan ke Gudang', [
+                        $this->field('processing_material_usage_id', 'Bahan yang diretur', 'select', true, 'processing_material_usages_returnable'),
+                        [...$this->field('return_number', 'Nomor retur'), 'editable' => false],
+                        [...$this->field('return_date', 'Tanggal retur', 'date'), 'editable' => false],
+                        [...$this->field('ingredient_name_snapshot', 'Bahan'), 'editable' => false],
+                        [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
+                        $this->field('requested_quantity', 'Jumlah retur', 'number', true),
+                        [...$this->field('actual_quantity', 'Jumlah diterima Gudang', 'number'), 'editable' => false],
+                        [...$this->field('warehouse_disposition', 'Keputusan Gudang'), 'editable' => false],
+                        $this->field('reason', 'Alasan retur', 'textarea', true),
+                        $this->field('photo_path', 'Foto bahan retur', 'file'),
+                        [...$this->field('status', 'Status'), 'editable' => false],
+                        [...$this->field('warehouse_notes', 'Catatan Gudang', 'textarea'), 'editable' => false],
                     ]),
                 ],
             ],
@@ -159,6 +175,18 @@ final class OperationalModuleRegistry
                         $this->field('failure_reason', 'Alasan pengiriman sebagian/gagal', 'textarea'),
                         [...$this->field('status', 'Status tujuan', 'select', true, DistributionStopStatus::class), 'editable' => false],
                         $this->field('notes', 'Catatan tujuan', 'textarea'),
+                    ]),
+                    'incidents' => $this->relation('Insiden distribusi', [
+                        $this->field('distribution_stop_id', 'Tujuan terkait', 'select', false, 'distribution_stops_current_run'),
+                        $this->field('occurred_at', 'Waktu kejadian', 'datetime', true),
+                        $this->field('category', 'Kategori', 'text', true),
+                        $this->field('severity', 'Tingkat', 'select', true, DistributionIncidentSeverity::class),
+                        $this->field('description', 'Deskripsi', 'textarea', true),
+                        $this->field('immediate_action', 'Tindakan langsung', 'textarea'),
+                        [...$this->field('status', 'Status', 'select', false, DistributionIncidentStatus::class), 'editable' => false],
+                        $this->field('photo_path', 'Foto bukti', 'file'),
+                        $this->field('notes', 'Catatan', 'textarea'),
+                        [...$this->field('resolved_at', 'Diselesaikan', 'datetime'), 'editable' => false],
                     ]),
                 ],
             ],

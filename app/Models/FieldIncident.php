@@ -67,6 +67,13 @@ class FieldIncident extends Model
         });
     }
 
+    public function getEvidencePhotoAttribute(): ?string
+    {
+        $paths = $this->evidence_paths ?? [];
+
+        return is_array($paths) ? ($paths[0] ?? null) : null;
+    }
+
     public function sppgUnit(): BelongsTo
     {
         return $this->belongsTo(SppgUnit::class);

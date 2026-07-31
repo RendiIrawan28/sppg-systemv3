@@ -18,6 +18,158 @@ use Illuminate\Validation\ValidationException;
 
 class WarehouseWithdrawalService
 {
+    public function createMobileDraft(
+        int $unitId,
+        string $divisionCode,
+        string $referenceSelection,
+        ?string $purposeReference,
+        ?string $shift,
+        ?string $notes,
+        User $actor,
+    ): WarehouseWithdrawal {
+        $permission = match ($divisionCode) {
+            'persiapan' => 'preparation.update',
+            'pengolahan' => 'processing.update',
+            'pemorsian' => 'portioning.update',
+            default => null,
+        };
+        abort_unless($permission && $actor->can($permission), 403);
+
+        $actorDivisions = collect($actor->getRoleNames())
+            ->map(fn (string $role): ?string => \App\Support\DivisionRole::divisionCodeForRole($role))
+            ->filter()
+            ->unique();
+        $privileged = $actor->is_super_admin || $actor->hasAnyRole(['super_admin', 'admin_sppg', 'kepala_sppg']);
+        if (! $privileged && ! $actorDivisions->contains($divisionCode)) {
+            throw ValidationException::withMessages(['division' => 'Divisi pengguna tidak sesuai dengan pengambilan Gudang.']);
+        }
+
+        if (! preg_match('/^(record|plan):(\d+)$/', $referenceSelection, $matches)) {
+            throw ValidationException::withMessages(['fields.reference_selection' => 'Referensi pekerjaan tidak valid.']);
+        }
+
+        $selectionType = $matches[1];
+        $referenceId = (int) $matches[2];
+        $referenceType = match ($divisionCode) {
+            'persiapan' => 'field_plan',
+            'pengolahan' => 'processing_batch',
+            'pemorsian' => 'portioning_session',
+        };
+
+        if ($selectionType === 'plan') {
+            $plan = FieldDistributionPlan::query()
+                ->where('sppg_unit_id', $unitId)
+                ->where('status', 'activated')
+                ->find($referenceId);
+            if (! $plan) {
+                throw ValidationException::withMessages(['fields.reference_selection' => 'Rencana distribusi aktif tidak ditemukan.']);
+            }
+
+            $referenceId = match ($divisionCode) {
+                'persiapan' => $plan->getKey(),
+                'pengolahan' => app(FieldOperationalPlanGenerator::class)
+                    ->generateProcessingBatch($plan, $actor)->getKey(),
+                'pemorsian' => app(FieldOperationalPlanGenerator::class)
+                    ->generatePortioningSession($plan, $actor)->getKey(),
+            };
+        }
+
+        [$referenceType, $referenceNumber] = $this->resolveReference(
+            $unitId,
+            $divisionCode,
+            $referenceType,
+            $referenceId,
+        );
+
+        return WarehouseWithdrawal::query()->create([
+            'sppg_unit_id' => $unitId,
+            'withdrawal_date' => today(),
+            'division_code' => $divisionCode,
+            'reference_type' => $referenceType,
+            'reference_id' => $referenceId,
+            'reference_number_snapshot' => $referenceNumber,
+            'purpose_reference' => trim((string) $purposeReference) ?: $referenceNumber,
+            'shift' => filled($shift) ? trim((string) $shift) : null,
+            'status' => WarehouseWithdrawal::DRAFT,
+            'notes' => filled($notes) ? trim((string) $notes) : null,
+            'taken_by' => $actor->getKey(),
+        ]);
+    }
+
+    public function submitMobileDraft(WarehouseWithdrawal $withdrawal, User $actor): WarehouseWithdrawal
+    {
+        return DB::transaction(function () use ($withdrawal, $actor): WarehouseWithdrawal {
+            $withdrawal = WarehouseWithdrawal::query()
+                ->lockForUpdate()
+                ->with(['items.lot.ingredient'])
+                ->findOrFail($withdrawal->getKey());
+
+            if (! $withdrawal->isEditable() || (int) $withdrawal->taken_by !== (int) $actor->getKey()) {
+                throw ValidationException::withMessages(['status' => 'Pengambilan tidak dapat diajukan oleh pengguna ini.']);
+            }
+            if ($withdrawal->items->isEmpty()) {
+                throw ValidationException::withMessages(['items' => 'Minimal satu bahan wajib ditambahkan sebelum pengambilan diajukan.']);
+            }
+            if ($withdrawal->items->pluck('inventory_lot_id')->filter()->duplicates()->isNotEmpty()) {
+                throw ValidationException::withMessages(['items' => 'Lot yang sama cukup dicatat satu kali.']);
+            }
+
+            [$referenceType, $referenceNumber] = $this->resolveReference(
+                (int) $withdrawal->sppg_unit_id,
+                (string) $withdrawal->division_code,
+                (string) $withdrawal->reference_type,
+                (int) $withdrawal->reference_id,
+            );
+
+            $lots = InventoryLot::query()
+                ->with('ingredient')
+                ->where('sppg_unit_id', $withdrawal->sppg_unit_id)
+                ->whereIn('id', $withdrawal->items->pluck('inventory_lot_id'))
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+            if ($lots->count() !== $withdrawal->items->count()) {
+                throw ValidationException::withMessages(['items' => 'Salah satu lot tidak tersedia atau bukan milik unit ini.']);
+            }
+
+            $requestedByLot = collect();
+            foreach ($withdrawal->items as $item) {
+                $lot = $lots->get($item->inventory_lot_id);
+                $quantity = (float) $item->requested_quantity;
+                $this->assertLotCanBeWithdrawn($lot, $quantity, $this->availableQuantity($lot, $withdrawal->getKey()));
+                if (blank($item->photo_path)) {
+                    throw ValidationException::withMessages(['items' => "Foto pengambilan lot {$lot->lot_number} wajib dilampirkan."]);
+                }
+                if (in_array($lot->storage_type, ['freezer', 'chiller'], true)
+                    && ! is_numeric($item->pickup_temperature_celsius)) {
+                    throw ValidationException::withMessages(['items' => "Suhu pengambilan lot {$lot->lot_number} wajib dicatat."]);
+                }
+
+                $item->forceFill([
+                    'ingredient_id' => $lot->ingredient_id,
+                    'ingredient_name_snapshot' => $lot->ingredient?->name ?: 'Bahan',
+                    'lot_number_snapshot' => $lot->lot_number,
+                    'expiry_date_snapshot' => $lot->expired_date,
+                    'unit_snapshot' => $lot->unit_snapshot,
+                    'taken_quantity_kg' => $lot->unit_snapshot === 'kg' ? $quantity : 0,
+                ])->save();
+                $requestedByLot->put($lot->getKey(), $quantity);
+            }
+
+            $this->assertFefoAllocation(
+                (int) $withdrawal->sppg_unit_id,
+                $lots,
+                $requestedByLot,
+                $withdrawal->getKey(),
+            );
+            $withdrawal->forceFill([
+                'reference_type' => $referenceType,
+                'reference_number_snapshot' => $referenceNumber,
+            ])->save();
+
+            return $this->submit($withdrawal->refresh(), $actor);
+        });
+    }
     /**
      * @param  array<int, array{inventory_lot_id: int|string, quantity: float|int|string, photo_path: string, pickup_temperature_celsius?: float|int|string|null}>  $rows
      */

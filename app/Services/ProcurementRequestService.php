@@ -295,13 +295,18 @@ class ProcurementRequestService
             ]);
         }
 
-        $this->assertSupplierAndPriceComplete($request);
-        $this->recalculate($request);
-        $request->forceFill([
-            'status' => ProcurementRequest::STATUS_ORDERED,
-            'ordered_by' => $user->id,
-            'ordered_at' => now(),
-        ])->save();
+        DB::transaction(function () use ($request, $user): void {
+            $this->assertSupplierAndPriceComplete($request);
+            $this->recalculate($request);
+            $request->forceFill([
+                'status' => ProcurementRequest::STATUS_ORDERED,
+                'ordered_by' => $user->id,
+                'ordered_at' => now(),
+            ])->save();
+
+            app(StockReceiptService::class)
+                ->createGroupedFromProcurementRequest($request->refresh()->load('items'));
+        });
     }
 
     public function recalculate(ProcurementRequest $request): void

@@ -163,6 +163,13 @@ class ProcessingBatch extends Model
             ->orderBy('id');
     }
 
+    public function returns(): HasMany
+    {
+        return $this->hasMany(ProcessingReturn::class)
+            ->orderByDesc('submitted_at')
+            ->orderByDesc('id');
+    }
+
     public function histories(): HasMany
     {
         return $this->hasMany(ProcessingHistory::class)->latest();

@@ -1,5 +1,9 @@
 package id.sppg.mobile.ui
 
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.content.Context
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -69,12 +73,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import id.sppg.mobile.data.remote.OperationalField
 import id.sppg.mobile.data.remote.OperationalAction
 import id.sppg.mobile.data.remote.OperationalRecord
 import id.sppg.mobile.data.remote.OperationalSection
 import id.sppg.mobile.data.remote.OperationalSectionItem
+import java.io.File
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -738,16 +746,25 @@ private fun OperationalFormInput(
                 }
         }
     }
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
-        if (bitmap != null) {
-            runCatching { watermarkedPhotoDataUri(bitmap, watermarkProfile).second }
-                .onSuccess {
-                    photoError = null
-                    onSelectFile(it)
+    var pendingCameraTarget by remember(field.key) { mutableStateOf<OperationalCameraCaptureTarget?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val target = pendingCameraTarget
+        pendingCameraTarget = null
+        if (success && target != null) {
+            runCatching {
+                require(target.file.exists() && target.file.length() > 0L) {
+                    "Kamera tidak menghasilkan file foto."
                 }
-                .onFailure { error ->
-                    photoError = error.message ?: "Foto tidak dapat diproses."
-                }
+                watermarkedPhotoDataUri(target.file, watermarkProfile).second
+            }.onSuccess {
+                photoError = null
+                onSelectFile(it)
+            }.onFailure { error ->
+                photoError = error.message ?: "Foto dari kamera tidak dapat diproses."
+            }
+            target.file.delete()
+        } else {
+            target?.file?.delete()
         }
     }
 
@@ -774,7 +791,18 @@ private fun OperationalFormInput(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Button(
-                        onClick = { cameraLauncher.launch(null) },
+                        onClick = {
+                            photoError = null
+                            runCatching { createOperationalCameraCaptureTarget(context) }
+                                .onSuccess { target ->
+                                    pendingCameraTarget?.file?.delete()
+                                    pendingCameraTarget = target
+                                    cameraLauncher.launch(target.uri)
+                                }
+                                .onFailure { error ->
+                                    photoError = error.message ?: "Kamera tidak dapat dibuka."
+                                }
+                        },
                         modifier = Modifier.weight(1f),
                     ) {
                         Icon(Icons.Outlined.PhotoCamera, contentDescription = null)
@@ -832,6 +860,11 @@ private fun OperationalFormInput(
                 )
             }
         }
+        field.type == "date" || field.type == "datetime" -> OperationalDatePickerInput(
+            field = field,
+            value = value,
+            onValueChange = onValueChange,
+        )
         field.type == "select" && !field.options.isNullOrEmpty() -> {
             var expanded by remember(field.key) { mutableStateOf(false) }
             ExposedDropdownMenuBox(
@@ -896,6 +929,111 @@ private fun OperationalFormInput(
             minLines = if (field.type == "textarea") 3 else 1,
             shape = RoundedCornerShape(16.dp),
         )
+    }
+}
+
+private val apiDateFormatter: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+private val displayDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy")
+private val apiDateTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm")
+private val displayDateTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm")
+private val legacyDateTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+
+private fun parseOperationalDate(value: String?): LocalDate? = value
+    ?.takeIf { it.isNotBlank() }
+    ?.let { raw ->
+        runCatching { LocalDate.parse(raw.take(10), apiDateFormatter) }.getOrNull()
+    }
+
+private fun parseOperationalDateTime(value: String?): LocalDateTime? = value
+    ?.takeIf { it.isNotBlank() }
+    ?.let { raw ->
+        runCatching { LocalDateTime.parse(raw) }.getOrNull()
+            ?: runCatching { LocalDateTime.parse(raw.take(16), apiDateTimeFormatter) }.getOrNull()
+            ?: runCatching { LocalDateTime.parse(raw.take(16), legacyDateTimeFormatter) }.getOrNull()
+    }
+
+private fun operationalDateDisplay(value: String?, type: String): String = when (type) {
+    "datetime" -> parseOperationalDateTime(value)?.format(displayDateTimeFormatter)
+    else -> parseOperationalDate(value)?.format(displayDateFormatter)
+}.orEmpty()
+
+@Composable
+private fun OperationalDatePickerInput(
+    field: id.sppg.mobile.data.remote.OperationalFormField,
+    value: String?,
+    onValueChange: (String?) -> Unit,
+) {
+    val context = LocalContext.current
+    val isDateTime = field.type == "datetime"
+    val label = field.label + if (field.required) " *" else ""
+
+    fun openPicker() {
+        val currentDateTime = parseOperationalDateTime(value)
+        val currentDate = currentDateTime?.toLocalDate()
+            ?: parseOperationalDate(value)
+            ?: LocalDate.now()
+        DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                val selectedDate = LocalDate.of(year, month + 1, day)
+                if (!isDateTime) {
+                    onValueChange(selectedDate.format(apiDateFormatter))
+                } else {
+                    val currentTime = currentDateTime?.toLocalTime() ?: LocalTime.now()
+                    TimePickerDialog(
+                        context,
+                        { _, hour, minute ->
+                            onValueChange(
+                                selectedDate.atTime(hour, minute).format(apiDateTimeFormatter),
+                            )
+                        },
+                        currentTime.hour,
+                        currentTime.minute,
+                        true,
+                    ).show()
+                }
+            },
+            currentDate.year,
+            currentDate.monthValue - 1,
+            currentDate.dayOfMonth,
+        ).show()
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            onClick = ::openPicker,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(label, style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        operationalDateDisplay(value, field.type).ifBlank {
+                            if (isDateTime) "Pilih tanggal dan waktu" else "Pilih tanggal"
+                        },
+                        color = if (value.isNullOrBlank()) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        fontWeight = if (value.isNullOrBlank()) FontWeight.Normal else FontWeight.SemiBold,
+                    )
+                }
+                Icon(Icons.Outlined.CalendarMonth, contentDescription = "Pilih tanggal")
+            }
+        }
+        if (!field.required && !value.isNullOrBlank()) {
+            TextButton(onClick = { onValueChange(null) }) {
+                Text("Hapus tanggal")
+            }
+        }
     }
 }
 
@@ -1118,3 +1256,22 @@ private fun formatOperationalDate(value: String): String = runCatching {
         DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.forLanguageTag("id-ID")),
     )
 }.getOrDefault(value)
+
+private data class OperationalCameraCaptureTarget(
+    val file: File,
+    val uri: Uri,
+)
+
+private fun createOperationalCameraCaptureTarget(context: Context): OperationalCameraCaptureTarget {
+    val directory = File(context.cacheDir, "images").apply {
+        check(exists() || mkdirs()) { "Folder sementara kamera tidak dapat dibuat." }
+    }
+    val file = File.createTempFile("operational_", ".jpg", directory)
+    val uri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        file,
+    )
+    return OperationalCameraCaptureTarget(file = file, uri = uri)
+}
+
