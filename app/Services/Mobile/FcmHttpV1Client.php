@@ -5,20 +5,23 @@ namespace App\Services\Mobile;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
+use Throwable;
 
 class FcmHttpV1Client
 {
     /** @return array<string, mixed> */
     public function send(string $registrationToken, array $message): array
     {
-        $projectId = (string) config('mobile.firebase.project_id');
-        if (! config('mobile.firebase.enabled') || blank($projectId)) {
-            throw new RuntimeException('Firebase Cloud Messaging belum dikonfigurasi.');
+        $status = $this->configurationStatus();
+        if (! $status['configured']) {
+            throw new RuntimeException($status['message']);
         }
 
+        $projectId = (string) config('mobile.firebase.project_id');
         $response = Http::acceptJson()
             ->withToken($this->accessToken())
             ->timeout(20)
+            ->retry(2, 500, throw: false)
             ->post("https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send", [
                 'message' => [
                     'token' => $registrationToken,
@@ -29,6 +32,53 @@ class FcmHttpV1Client
         $response->throw();
 
         return $response->json() ?? [];
+    }
+
+    /**
+     * Status aman untuk ditampilkan pada halaman diagnostik. Path dan isi
+     * service account tidak pernah dikembalikan ke aplikasi mobile.
+     *
+     * @return array{configured: bool, enabled: bool, project_id_set: bool, credentials_readable: bool, openssl_available: bool, message: string}
+     */
+    public function configurationStatus(): array
+    {
+        $enabled = (bool) config('mobile.firebase.enabled');
+        $projectIdSet = filled(config('mobile.firebase.project_id'));
+        $opensslAvailable = function_exists('openssl_sign');
+        $credentialsReadable = false;
+        $credentialsValid = false;
+
+        try {
+            $credentials = $this->credentials();
+            $credentialsReadable = true;
+            $credentialsValid = filled($credentials['client_email'] ?? null)
+                && filled($credentials['private_key'] ?? null);
+        } catch (Throwable) {
+            // Detail file tidak diekspos ke aplikasi mobile.
+        }
+
+        $configured = $enabled
+            && $projectIdSet
+            && $credentialsReadable
+            && $credentialsValid
+            && $opensslAvailable;
+
+        $message = match (true) {
+            ! $enabled => 'Firebase belum diaktifkan pada konfigurasi Laravel.',
+            ! $projectIdSet => 'FIREBASE_PROJECT_ID belum diisi.',
+            ! $credentialsReadable || ! $credentialsValid => 'Service account Firebase belum tersedia atau tidak valid.',
+            ! $opensslAvailable => 'Ekstensi OpenSSL PHP belum tersedia.',
+            default => 'Konfigurasi Firebase server siap digunakan.',
+        };
+
+        return [
+            'configured' => $configured,
+            'enabled' => $enabled,
+            'project_id_set' => $projectIdSet,
+            'credentials_readable' => $credentialsReadable && $credentialsValid,
+            'openssl_available' => $opensslAvailable,
+            'message' => $message,
+        ];
     }
 
     private function accessToken(): string
@@ -55,10 +105,13 @@ class FcmHttpV1Client
             }
 
             $assertion = $unsigned.'.'.$this->base64Url($signature);
-            $response = Http::asForm()->timeout(20)->post($tokenUri, [
-                'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-                'assertion' => $assertion,
-            ]);
+            $response = Http::asForm()
+                ->timeout(20)
+                ->retry(2, 500, throw: false)
+                ->post($tokenUri, [
+                    'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                    'assertion' => $assertion,
+                ]);
             $response->throw();
             $accessToken = trim((string) $response->json('access_token'));
             if ($accessToken === '') {

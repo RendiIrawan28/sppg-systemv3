@@ -1,5 +1,6 @@
 package id.sppg.mobile.data
 
+import android.content.Context
 import id.sppg.mobile.data.remote.ApiErrorHandler
 import id.sppg.mobile.data.remote.MobileApi
 import id.sppg.mobile.data.remote.OperationalActionRequest
@@ -10,12 +11,20 @@ import id.sppg.mobile.data.remote.OperationalSaveRequest
 import id.sppg.mobile.data.remote.SessionExpiredException
 import id.sppg.mobile.data.remote.safeApiCall
 import id.sppg.mobile.data.session.SessionStore
+import java.io.File
 import java.io.IOException
+
+data class OperationalPage(
+    val records: List<OperationalRecord>,
+    val currentPage: Int,
+    val lastPage: Int,
+)
 
 class OperationalRepository(
     private val api: MobileApi,
     private val sessionStore: SessionStore,
     private val errorHandler: ApiErrorHandler,
+    private val context: Context,
 ) {
     suspend fun getModules(): Result<List<OperationalModule>> = safeApiCall(errorHandler) {
         val response = api.operationalModules(authorization())
@@ -23,10 +32,15 @@ class OperationalRepository(
         response.body()?.data ?: throw IOException("Ruang kerja tidak tersedia.")
     }
 
-    suspend fun getRecords(module: String): Result<List<OperationalRecord>> = safeApiCall(errorHandler) {
-        val response = api.operationalRecords(authorization(), module)
+    suspend fun getRecords(module: String, page: Int = 1): Result<OperationalPage> = safeApiCall(errorHandler) {
+        val response = api.operationalRecords(authorization(), module, page = page)
         if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
-        response.body()?.data ?: throw IOException("Daftar pekerjaan tidak tersedia.")
+        val body = response.body() ?: throw IOException("Daftar pekerjaan tidak tersedia.")
+        OperationalPage(
+            records = body.data,
+            currentPage = body.meta?.currentPage ?: page,
+            lastPage = body.meta?.lastPage ?: page,
+        )
     }
 
     suspend fun getRecord(module: String, id: Long): Result<OperationalRecord> = safeApiCall(errorHandler) {
@@ -73,14 +87,20 @@ class OperationalRepository(
         response.body()?.message ?: "Data berhasil dihapus."
     }
 
-    suspend fun runAction(module: String, id: Long, action: String, notes: String?): Result<OperationalRecord> =
-        safeApiCall(errorHandler) {
+    suspend fun runAction(
+        module: String,
+        id: Long,
+        action: String,
+        notes: String?,
+        fields: Map<String, String?> = emptyMap(),
+        files: Map<String, String> = emptyMap(),
+    ): Result<OperationalRecord> = safeApiCall(errorHandler) {
             val response = api.runOperationalAction(
                 authorization(),
                 module,
                 id,
                 action,
-                OperationalActionRequest(notes),
+                OperationalActionRequest(notes, fields, files),
             )
             if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
             response.body()?.data ?: throw IOException("Tahap pekerjaan tidak dapat diperbarui.")
@@ -132,6 +152,21 @@ class OperationalRepository(
         )
         if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
         response.body()?.message ?: "Status tujuan berhasil diperbarui."
+    }
+
+    suspend fun downloadDocument(module: String, id: Long): Result<File> = safeApiCall(errorHandler) {
+        val response = api.operationalDocument(authorization(), module, id)
+        if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
+        val body = response.body() ?: throw IOException("Dokumen tidak tersedia.")
+        val directory = File(context.cacheDir, "documents").apply { mkdirs() }
+        val filename = response.headers()["Content-Disposition"]
+            ?.substringAfter("filename=", "")
+            ?.trim('"', '\'', ' ')
+            ?.takeIf { it.isNotBlank() }
+            ?: "$module-$id.pdf"
+        val file = File(directory, filename.replace(Regex("[^A-Za-z0-9._-]"), "-"))
+        body.byteStream().use { input -> file.outputStream().use { output -> input.copyTo(output) } }
+        file
     }
 
     private suspend fun authorization(): String {

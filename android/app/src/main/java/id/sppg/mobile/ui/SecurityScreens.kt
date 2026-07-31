@@ -6,7 +6,6 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -53,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -90,41 +91,67 @@ fun SecurityScreen(
     var notes by remember { mutableStateOf("") }
     var photo by remember { mutableStateOf("") }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
-    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingCameraTarget by remember { mutableStateOf<CameraCaptureTarget?>(null) }
     var photoError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
-    fun usePhoto(uri: Uri) {
+    fun applyProcessedPhoto(bitmap: Bitmap, dataUri: String) {
+        preview = bitmap
+        photo = dataUri
+        photoError = null
+    }
+
+    fun useGalleryPhoto(uri: Uri) {
         photoError = null
         onClearFeedback()
 
         runCatching {
             watermarkedPhotoDataUri(context, uri, watermarkProfile)
         }.onSuccess { (bitmap, dataUri) ->
-            preview = bitmap
-            photo = dataUri
+            applyProcessedPhoto(bitmap, dataUri)
         }.onFailure { error ->
-            preview = null
-            photo = ""
-            photoError = error.message ?: "Foto tidak dapat dibaca. Gunakan foto JPG, PNG, atau WEBP."
+            // Foto lama tetap dipertahankan agar kegagalan memilih foto baru
+            // tidak menghapus laporan yang sudah siap dikirim.
+            photoError = error.message
+                ?: "Foto tidak dapat dibaca. Coba simpan foto ke perangkat lalu pilih kembali."
         }
     }
 
-    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+    fun useCameraPhoto(target: CameraCaptureTarget) {
+        photoError = null
+        onClearFeedback()
+
+        runCatching {
+            require(target.file.exists() && target.file.length() > 0L) {
+                "Kamera tidak menghasilkan file foto."
+            }
+            watermarkedPhotoDataUri(target.file, watermarkProfile)
+        }.onSuccess { (bitmap, dataUri) ->
+            applyProcessedPhoto(bitmap, dataUri)
+        }.onFailure { error ->
+            photoError = error.message ?: "Foto dari kamera tidak dapat diproses."
+        }
+
+        target.file.delete()
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            usePhoto(uri)
+            useGalleryPhoto(uri)
         } else {
             photoError = "Tidak ada foto yang dipilih."
         }
     }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        val uri = pendingCameraUri
-        if (success && uri != null) {
-            usePhoto(uri)
+        val target = pendingCameraTarget
+        pendingCameraTarget = null
+
+        if (success && target != null) {
+            useCameraPhoto(target)
         } else {
+            target?.file?.delete()
             photoError = "Pengambilan foto dibatalkan atau kamera tidak menghasilkan foto."
         }
-        pendingCameraUri = null
     }
 
     fun resetForm() {
@@ -137,7 +164,8 @@ fun SecurityScreen(
         photo = ""
         preview = null
         photoError = null
-        pendingCameraUri = null
+        pendingCameraTarget?.file?.delete()
+        pendingCameraTarget = null
     }
 
     Scaffold(
@@ -275,13 +303,14 @@ fun SecurityScreen(
                                                 if (!hasCameraApplication(context)) {
                                                     photoError = "Aplikasi kamera tidak ditemukan pada perangkat ini."
                                                 } else {
-                                                    runCatching { createCameraUri(context) }
-                                                        .onSuccess { uri ->
-                                                            pendingCameraUri = uri
-                                                            cameraLauncher.launch(uri)
+                                                    runCatching { createCameraCaptureTarget(context) }
+                                                        .onSuccess { target ->
+                                                            pendingCameraTarget?.file?.delete()
+                                                            pendingCameraTarget = target
+                                                            cameraLauncher.launch(target.uri)
                                                         }
                                                         .onFailure { error ->
-                                                            pendingCameraUri = null
+                                                            pendingCameraTarget = null
                                                             photoError = error.message
                                                                 ?: "Penyimpanan sementara untuk kamera tidak dapat dibuat."
                                                         }
@@ -297,7 +326,13 @@ fun SecurityScreen(
                                             onClick = {
                                                 photoError = null
                                                 galleryLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                                    arrayOf(
+                                                        "image/jpeg",
+                                                        "image/png",
+                                                        "image/webp",
+                                                        "image/heic",
+                                                        "image/heif",
+                                                    ),
                                                 )
                                             },
                                             modifier = Modifier.weight(1f),
@@ -412,6 +447,7 @@ private fun SecurityFeedback(message: String, isError: Boolean) {
 
 @Composable
 private fun SecurityReportCard(report: SecurityReportItem) {
+    val uriHandler = LocalUriHandler.current
     Card(shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -432,6 +468,17 @@ private fun SecurityReportCard(report: SecurityReportItem) {
                 Spacer(Modifier.height(6.dp))
                 Text(report.notes, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (!report.photoUrl.isNullOrBlank()) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = { uriHandler.openUri(report.photoUrl) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Outlined.OpenInNew, contentDescription = null)
+                    Spacer(Modifier.size(6.dp))
+                    Text("Lihat foto laporan")
+                }
+            }
         }
     }
 }
@@ -439,8 +486,20 @@ private fun SecurityReportCard(report: SecurityReportItem) {
 private fun hasCameraApplication(context: Context): Boolean =
     Intent(MediaStore.ACTION_IMAGE_CAPTURE).resolveActivity(context.packageManager) != null
 
-private fun createCameraUri(context: Context): Uri {
-    val directory = File(context.cacheDir, "images").apply { mkdirs() }
+private data class CameraCaptureTarget(
+    val file: File,
+    val uri: Uri,
+)
+
+private fun createCameraCaptureTarget(context: Context): CameraCaptureTarget {
+    val directory = File(context.cacheDir, "images").apply {
+        check(exists() || mkdirs()) { "Folder sementara kamera tidak dapat dibuat." }
+    }
     val file = File.createTempFile("security_", ".jpg", directory)
-    return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val uri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        file,
+    )
+    return CameraCaptureTarget(file = file, uri = uri)
 }

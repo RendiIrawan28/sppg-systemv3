@@ -21,6 +21,9 @@ data class OperationalUiState(
     val activeModule: String? = null,
     val modules: List<OperationalModule> = emptyList(),
     val records: List<OperationalRecord> = emptyList(),
+    val currentPage: Int = 1,
+    val lastPage: Int = 1,
+    val isLoadingMore: Boolean = false,
     val selectedRecord: OperationalRecord? = null,
     val editValues: Map<String, String?> = emptyMap(),
     val editFiles: Map<String, String> = emptyMap(),
@@ -57,15 +60,49 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                 it.copy(
                     isLoading = true,
                     activeModule = module,
-                    records = if (it.activeModule == module) it.records else emptyList(),
+                    records = if (it.activeModule == module && !force) it.records else emptyList(),
+                    currentPage = 1,
+                    lastPage = 1,
+                    isLoadingMore = false,
                     selectedRecord = null,
                     errorMessage = null,
                 )
             }
-            repository.getRecords(module)
-                .onSuccess { records -> _uiState.update { it.copy(records = records) } }
+            repository.getRecords(module, page = 1)
+                .onSuccess { page ->
+                    _uiState.update {
+                        it.copy(
+                            records = page.records,
+                            currentPage = page.currentPage,
+                            lastPage = page.lastPage,
+                        )
+                    }
+                }
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    fun loadMoreRecords() {
+        val current = _uiState.value
+        val module = current.activeModule ?: return
+        if (current.isLoading || current.isLoadingMore || current.currentPage >= current.lastPage) return
+
+        viewModelScope.launch {
+            val nextPage = _uiState.value.currentPage + 1
+            _uiState.update { it.copy(isLoadingMore = true, errorMessage = null) }
+            repository.getRecords(module, page = nextPage)
+                .onSuccess { page ->
+                    _uiState.update { state ->
+                        state.copy(
+                            records = (state.records + page.records).distinctBy { it.id },
+                            currentPage = page.currentPage,
+                            lastPage = page.lastPage,
+                        )
+                    }
+                }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            _uiState.update { it.copy(isLoadingMore = false) }
         }
     }
 
@@ -216,11 +253,18 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         }
     }
 
-    fun runAction(module: String, id: Long, action: String, notes: String?) {
+    fun runAction(
+        module: String,
+        id: Long,
+        action: String,
+        notes: String?,
+        fields: Map<String, String?> = emptyMap(),
+        files: Map<String, String> = emptyMap(),
+    ) {
         if (_uiState.value.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, errorMessage = null, successMessage = null) }
-            repository.runAction(module, id, action, notes)
+            repository.runAction(module, id, action, notes, fields, files)
                 .onSuccess { record ->
                     _uiState.update { state ->
                         state.copy(
@@ -296,6 +340,17 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                         .onSuccess { record -> _uiState.update { state -> state.copy(selectedRecord = record) } }
                     _uiState.update { it.copy(successMessage = message) }
                 }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            _uiState.update { it.copy(isSaving = false) }
+        }
+    }
+
+    fun downloadDocument(module: String, id: Long, onReady: (java.io.File) -> Unit) {
+        if (_uiState.value.isSaving) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, errorMessage = null, successMessage = null) }
+            repository.downloadDocument(module, id)
+                .onSuccess { file -> onReady(file) }
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isSaving = false) }
         }

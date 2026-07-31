@@ -59,6 +59,7 @@ class PreparationOutput extends Model
     {
         return in_array($this->target_division, [$division, 'both'], true)
             && in_array($this->state, [self::AVAILABLE, self::PARTIALLY_TAKEN], true)
+            && (! $this->expires_at || $this->expires_at->isFuture())
             && (float) $this->available_quantity > 0;
     }
 }

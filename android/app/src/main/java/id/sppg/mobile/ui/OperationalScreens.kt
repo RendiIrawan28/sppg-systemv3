@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Card
@@ -85,6 +87,7 @@ fun OperationalRecordListScreen(
     onBack: () -> Unit,
     onLoad: (String) -> Unit,
     onRefresh: () -> Unit,
+    onLoadMore: () -> Unit,
     onRecordClick: (Long) -> Unit,
     onCreate: () -> Unit,
 ) {
@@ -155,6 +158,25 @@ fun OperationalRecordListScreen(
                         record = record,
                         onClick = { onRecordClick(record.id) },
                     )
+                }
+                if (state.currentPage < state.lastPage) {
+                    item(key = "load-more-$module-${state.currentPage}") {
+                        OutlinedButton(
+                            onClick = onLoadMore,
+                            enabled = !state.isLoadingMore,
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            if (state.isLoadingMore) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text("Muat data berikutnya")
+                        }
+                    }
                 }
             }
         }
@@ -274,7 +296,9 @@ fun OperationalRecordDetailScreen(
     onLoad: (String, Long) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onAction: (String, String?) -> Unit,
+    watermarkProfile: PhotoWatermarkProfile,
+    onAction: (String, String?, Map<String, String?>, Map<String, String>) -> Unit,
+    onOpenDocument: () -> Unit,
     onRelationCreate: (OperationalSection) -> Unit,
     onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
@@ -284,6 +308,8 @@ fun OperationalRecordDetailScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var selectedAction by remember { mutableStateOf<OperationalAction?>(null) }
     var actionNotes by remember { mutableStateOf("") }
+    var actionValues by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
+    var actionFiles by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var relationToDelete by remember {
         mutableStateOf<Pair<OperationalSection, OperationalSectionItem>?>(null)
     }
@@ -305,34 +331,70 @@ fun OperationalRecordDetailScreen(
         )
     }
     selectedAction?.let { action ->
+        val requiredReady = action.fields.orEmpty().all { field ->
+            if (!field.required) true
+            else if (field.type == "file") actionFiles[field.key].isNullOrBlank().not()
+            else actionValues[field.key].isNullOrBlank().not()
+        }
         AlertDialog(
-            onDismissRequest = { selectedAction = null },
+            onDismissRequest = {
+                selectedAction = null
+                actionValues = emptyMap()
+                actionFiles = emptyMap()
+            },
             title = { Text(action.label) },
             text = {
-                Column {
-                    Text("Pastikan data pekerjaan sudah benar sebelum melanjutkan.")
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = actionNotes,
-                        onValueChange = { actionNotes = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(if (action.notesRequired) "Alasan *" else "Catatan (opsional)") },
-                        minLines = 3,
-                    )
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 520.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item { Text("Pastikan data pekerjaan sudah benar sebelum melanjutkan.") }
+                    items(action.fields.orEmpty(), key = { "action-field-${it.key}" }) { field ->
+                        OperationalFormInput(
+                            field = field,
+                            value = actionValues[field.key],
+                            onValueChange = { value -> actionValues = actionValues + (field.key to value) },
+                            hasSelectedFile = actionFiles.containsKey(field.key),
+                            watermarkProfile = watermarkProfile,
+                            onSelectFile = { data -> actionFiles = actionFiles + (field.key to data) },
+                        )
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = actionNotes,
+                            onValueChange = { actionNotes = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text(if (action.notesRequired) "Alasan *" else "Catatan (opsional)") },
+                            minLines = 3,
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Button(
-                    enabled = !state.isSaving && (!action.notesRequired || actionNotes.isNotBlank()),
+                    enabled = !state.isSaving
+                        && requiredReady
+                        && (!action.notesRequired || actionNotes.isNotBlank()),
                     onClick = {
-                        onAction(action.key, actionNotes.trim().ifBlank { null })
+                        onAction(
+                            action.key,
+                            actionNotes.trim().ifBlank { null },
+                            actionValues,
+                            actionFiles,
+                        )
                         selectedAction = null
                         actionNotes = ""
+                        actionValues = emptyMap()
+                        actionFiles = emptyMap()
                     },
                 ) { Text("Ya, lanjutkan") }
             },
             dismissButton = {
-                TextButton(onClick = { selectedAction = null }) { Text("Batal") }
+                TextButton(onClick = {
+                    selectedAction = null
+                    actionValues = emptyMap()
+                    actionFiles = emptyMap()
+                }) { Text("Batal") }
             },
         )
     }
@@ -387,7 +449,10 @@ fun OperationalRecordDetailScreen(
                 onAction = {
                     selectedAction = it
                     actionNotes = ""
+                    actionValues = it.fields.orEmpty().associate { field -> field.key to field.value }
+                    actionFiles = emptyMap()
                 },
+                onOpenDocument = onOpenDocument,
                 onRelationCreate = onRelationCreate,
                 onRelationEdit = onRelationEdit,
                 onRelationDelete = { section, item -> relationToDelete = section to item },
@@ -407,6 +472,7 @@ private fun OperationalDetailContent(
     errorMessage: String?,
     successMessage: String?,
     onAction: (OperationalAction) -> Unit,
+    onOpenDocument: () -> Unit,
     onRelationCreate: (OperationalSection) -> Unit,
     onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
@@ -503,6 +569,20 @@ private fun OperationalDetailContent(
                             shape = RoundedCornerShape(16.dp),
                         ) { Text(action.label, fontWeight = FontWeight.Bold) }
                     }
+                }
+            }
+        }
+        if (capabilities?.canViewDocument == true) {
+            item {
+                OutlinedButton(
+                    onClick = onOpenDocument,
+                    enabled = !isSaving,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Lihat dokumen PDF", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -645,7 +725,7 @@ private fun OperationalFormInput(
     val label = field.label + if (field.required) " *" else ""
     val context = LocalContext.current
     var photoError by remember(field.key) { mutableStateOf<String?>(null) }
-    val photoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val photoLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching { watermarkedPhotoDataUri(context, uri, watermarkProfile).second }
                 .onSuccess {
@@ -653,7 +733,8 @@ private fun OperationalFormInput(
                     onSelectFile(it)
                 }
                 .onFailure { error ->
-                    photoError = error.message ?: "Foto tidak dapat dibaca."
+                    photoError = error.message
+                        ?: "Foto tidak dapat dibaca. Coba simpan foto ke perangkat lalu pilih kembali."
                 }
         }
     }
@@ -701,7 +782,18 @@ private fun OperationalFormInput(
                         Text("Kamera")
                     }
                     OutlinedButton(
-                        onClick = { photoLauncher.launch("image/*") },
+                        onClick = {
+                            photoError = null
+                            photoLauncher.launch(
+                                arrayOf(
+                                    "image/jpeg",
+                                    "image/png",
+                                    "image/webp",
+                                    "image/heic",
+                                    "image/heif",
+                                ),
+                            )
+                        },
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Galeri")

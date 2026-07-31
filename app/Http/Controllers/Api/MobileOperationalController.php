@@ -47,7 +47,7 @@ class MobileOperationalController extends Controller
                     'description' => $definition['description'],
                     'permission' => $definition['permission'],
                     'record_count' => $query->count(),
-                    'can_create' => $slug !== 'persiapan'
+                    'can_create' => ($definition['allow_create'] ?? true)
                         && $request->user()->can($definition['permission'].'.create'),
                     'form_fields' => $this->formFields(
                         $definition,
@@ -156,32 +156,85 @@ class MobileOperationalController extends Controller
         SystemUnit $systemUnit,
     ): JsonResponse {
         $definition = $registry->authorize($request->user(), $module);
+        abort_unless(($definition['allow_create'] ?? true), 422, 'Data modul ini dibuat otomatis oleh alur operasional.');
         abort_unless($request->user()->can($definition['permission'].'.create'), 403);
-        abort_if(
-            $module === 'persiapan',
-            422,
-            'Sesi Persiapan dibuat otomatis setelah pengambilan bahan dari Gudang.',
-        );
-        $model = $definition['model'];
+        $unitId = (int) $systemUnit->id();
 
-        $item = DB::transaction(function () use ($request, $module, $definition, $model, $initializer, $systemUnit): Model {
+        $item = DB::transaction(function () use (
+            $request, $module, $definition, $initializer, $systemUnit, $unitId,
+        ): Model {
             if ($module === 'keamanan') {
                 return app(SecurityMonitoringService::class)
                     ->startShift($systemUnit->get(), $request->user())
                     ->refresh();
             }
 
+            if ($module === 'pengambilan-ompreng') {
+                $fields = $request->validate([
+                    'fields' => ['present', 'array'],
+                    'fields.kernet_name' => ['nullable', 'string', 'max:150'],
+                    'fields.vehicle_name' => ['nullable', 'string', 'max:150'],
+                    'fields.vehicle_plate' => ['nullable', 'string', 'max:30'],
+                    'fields.notes' => ['nullable', 'string', 'max:2000'],
+                ])['fields'];
+
+                return app(\App\Services\ContainerCollectionWorkflow::class)
+                    ->startRun($unitId, $request->user(), $fields);
+            }
+
+            if ($module === 'hasil-persiapan') {
+                $input = $request->validate([
+                    'fields' => ['present', 'array'],
+                    'fields.preparation_session_item_id' => ['required', 'integer'],
+                    'fields.output_name' => ['required', 'string', 'max:180'],
+                    'fields.quantity' => ['required', 'numeric', 'gt:0'],
+                    'fields.unit_snapshot' => ['required', 'string', 'max:30'],
+                    'fields.target_division' => ['required', Rule::in(['processing', 'portioning', 'both'])],
+                    'fields.storage_location' => ['nullable', 'string', 'max:180'],
+                    'fields.stored_at' => ['nullable', 'date'],
+                    'fields.expires_at' => ['nullable', 'date', 'after:fields.stored_at'],
+                    'fields.notes' => ['nullable', 'string', 'max:2000'],
+                    'files.photo_path' => ['nullable', 'string', 'max:7500000'],
+                ]);
+                $sourceItem = \App\Models\PreparationSessionItem::query()
+                    ->whereHas('session', fn (Builder $query) => $query->where('sppg_unit_id', $unitId))
+                    ->findOrFail((int) $input['fields']['preparation_session_item_id']);
+                $session = $sourceItem->session()->firstOrFail();
+                $photoPath = null;
+                if (filled(data_get($input, 'files.photo_path'))) {
+                    $photoPath = $this->storeEncodedImage(
+                        (string) data_get($input, 'files.photo_path'),
+                        'mobile/hasil-persiapan/records',
+                        'files.photo_path',
+                    );
+                }
+                try {
+                    return app(\App\Services\PreparationOutputService::class)->store(
+                        $session,
+                        $sourceItem,
+                        $request->user(),
+                        [...$input['fields'], 'photo_path' => $photoPath],
+                    );
+                } catch (\Throwable $exception) {
+                    if ($photoPath) {
+                        Storage::disk('public')->delete($photoPath);
+                    }
+                    throw $exception;
+                }
+            }
+
+            $model = $definition['model'];
             $item = new $model;
             $values = $this->validatedValues($request, $definition);
             if (str_starts_with($module, 'ba-limbah-')) {
                 $values = app(\App\Services\WasteHandoverWorkflow::class)
-                    ->normalizeAndValidateSource($values, (int) $systemUnit->id());
+                    ->normalizeAndValidateSource($values, $unitId);
             }
             $item->fill($values);
             foreach ($definition['where'] ?? [] as $field => $value) {
                 $item->setAttribute($field, $value);
             }
-            $this->applySystemValues($item, $request, (int) $systemUnit->id(), creating: true);
+            $this->applySystemValues($item, $request, $unitId, creating: true);
             $item->save();
             $this->storeRecordFiles($request, $module, $item, $definition);
             $initializer->initialize($item->refresh(), $request->user());
@@ -198,7 +251,7 @@ class MobileOperationalController extends Controller
                 $module,
                 $definition,
                 $this->loadRelations($item, $definition),
-                (int) $systemUnit->id(),
+                $unitId,
             ),
         ], 201);
     }
@@ -212,14 +265,36 @@ class MobileOperationalController extends Controller
         SystemUnit $systemUnit,
     ): JsonResponse {
         $definition = $registry->authorize($request->user(), $module);
+        abort_unless(($definition['allow_update'] ?? true), 422, 'Data modul ini hanya dapat diubah melalui alur kerja.');
         abort_unless($request->user()->can($definition['permission'].'.update'), 403);
         $item = $this->findRecord($definition, $record, (int) $systemUnit->id());
         abort_unless($this->isEditable($item), 422, 'Data sudah dikunci dan tidak dapat diubah.');
 
         DB::transaction(function () use ($request, $module, $definition, $item, $systemUnit): void {
-            $item->fill($this->validatedValues($request, $definition));
-            $this->applySystemValues($item, $request, (int) $systemUnit->id());
-            $item->save();
+            $values = $this->validatedValues($request, $definition);
+            if ($module === 'lapangan-laporan') {
+                app(\App\Services\FieldDailyReportWorkflow::class)->update(
+                    $item,
+                    $request->user(),
+                    $values,
+                );
+            } else {
+                if (str_starts_with($module, 'ba-limbah-')) {
+                    $this->unlinkWasteHandoverSource($item);
+                    $values = app(\App\Services\WasteHandoverWorkflow::class)
+                        ->normalizeAndValidateSource(
+                            $values + $item->only(['source_type', 'source_id']),
+                            (int) $systemUnit->id(),
+                            (int) $item->getKey(),
+                        );
+                }
+                $item->fill($values);
+                $this->applySystemValues($item, $request, (int) $systemUnit->id());
+                $item->save();
+                if (str_starts_with($module, 'ba-limbah-')) {
+                    $this->linkWasteHandoverSource($item);
+                }
+            }
             $this->storeRecordFiles($request, $module, $item, $definition);
         });
 
@@ -242,9 +317,13 @@ class MobileOperationalController extends Controller
         SystemUnit $systemUnit,
     ): JsonResponse {
         $definition = $registry->authorize($request->user(), $module);
+        abort_unless(($definition['allow_delete'] ?? true), 422, 'Data modul ini tidak boleh dihapus dari aplikasi.');
         abort_unless($request->user()->can($definition['permission'].'.delete'), 403);
         $item = $this->findRecord($definition, $record, (int) $systemUnit->id());
         abort_unless($this->isDeletable($item), 422, 'Data yang sudah mulai dikerjakan tidak dapat dihapus.');
+        if (str_starts_with($module, 'ba-limbah-')) {
+            $this->unlinkWasteHandoverSource($item);
+        }
         $item->delete();
 
         return response()->json(['message' => $definition['label'].' berhasil dihapus.']);
@@ -263,28 +342,61 @@ class MobileOperationalController extends Controller
         $item = $this->findRecord($definition, $record, (int) $systemUnit->id());
         $input = $request->validate([
             'notes' => ['nullable', 'string', 'max:2000'],
+            'fields' => ['nullable', 'array'],
+            'files' => ['nullable', 'array'],
+            'files.*' => ['nullable', 'string', 'max:7500000'],
         ]);
         $notes = $input['notes'] ?? null;
+        $fields = $input['fields'] ?? [];
+        $files = $input['files'] ?? [];
         $available = collect($this->availableActions($request, $module, $item))->pluck('key');
         abort_unless($available->contains($action), 422, 'Tindakan tidak tersedia pada tahap pekerjaan ini.');
 
-        $item = DB::transaction(function () use ($module, $action, $item, $request, $notes): Model {
-            $actor = $request->user();
-            $data = $item->getAttributes();
+        $storedPhoto = null;
+        if (filled($files['photo_path'] ?? null)) {
+            $storedPhoto = $this->storeEncodedImage(
+                (string) $files['photo_path'],
+                "mobile/{$module}/actions",
+                'files.photo_path',
+            );
+        }
 
-            return match ($module) {
-                'persiapan' => $this->runPreparationAction($action, $item, $actor, $notes),
-                'pengolahan' => $this->runStandardAction(app(ProcessingWorkflow::class), $action, $item, $actor, $notes),
-                'pemorsian' => $this->runStandardAction(app(PortioningWorkflow::class), $action, $item, $actor, $notes),
-                'distribusi' => $this->runDistributionAction($action, $item, $actor, $data, $notes),
-                'pencucian' => $this->runWashingAction($action, $item, $actor, $data, $notes),
-                'kebersihan' => $this->runCleaningAction($action, $item, $actor, $data, $notes),
-                'ba-limbah-pencucian', 'ba-limbah-kebersihan' => $this->runWasteHandoverAction(
-                    $action, $item, $actor, $notes,
-                ),
-                default => abort(422, 'Tindakan belum tersedia untuk modul ini.'),
-            };
-        })->refresh();
+        try {
+            $item = DB::transaction(function () use (
+                $module, $action, $item, $request, $notes, $fields, $storedPhoto,
+            ): Model {
+                $actor = $request->user();
+                $data = [...$item->getAttributes(), ...$fields];
+
+                return match ($module) {
+                    'gudang' => $this->runWarehouseReceiptAction($action, $item, $actor),
+                    'gudang-stok' => $this->runWarehouseStockAction($action, $item, $actor, $fields, $notes),
+                    'gudang-pengambilan' => $this->runWarehouseWithdrawalAction($action, $item, $actor, $notes),
+                    'gudang-retur' => $this->runPreparationReturnAction($action, $item, $actor, $fields, $notes),
+                    'persiapan' => $this->runPreparationAction($action, $item, $actor, $notes),
+                    'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' =>
+                        $this->runPreparationOutputAction($module, $action, $item, $actor, $fields, $notes),
+                    'pengolahan' => $this->runStandardAction(app(ProcessingWorkflow::class), $action, $item, $actor, $notes),
+                    'pemorsian' => $this->runStandardAction(app(PortioningWorkflow::class), $action, $item, $actor, $notes),
+                    'distribusi' => $this->runDistributionAction($action, $item, $actor, $data, $notes),
+                    'pengambilan-ompreng' => $this->runContainerCollectionAction(
+                        $action, $item, $actor, $fields, $notes, $storedPhoto,
+                    ),
+                    'pencucian' => $this->runWashingAction($action, $item, $actor, $data, $notes),
+                    'kebersihan' => $this->runCleaningAction($action, $item, $actor, $data, $notes),
+                    'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan' =>
+                        $this->runWasteHandoverAction($action, $item, $actor, $notes),
+                    'lapangan-laporan' => $this->runFieldDailyReportAction($action, $item, $actor, $notes),
+                    'lapangan-insiden' => $this->runFieldIncidentAction($action, $item, $actor, $fields, $notes),
+                    default => abort(422, 'Tindakan belum tersedia untuk modul ini.'),
+                };
+            })->refresh();
+        } catch (\Throwable $exception) {
+            if ($storedPhoto) {
+                Storage::disk('public')->delete($storedPhoto);
+            }
+            throw $exception;
+        }
 
         return response()->json([
             'message' => 'Tahap pekerjaan berhasil diperbarui.',
@@ -469,6 +581,7 @@ class MobileOperationalController extends Controller
     private function validatedValues(Request $request, array $definition): array
     {
         $editableFields = collect($definition['fields'] ?? [])
+            ->reject(fn (array $field): bool => ($field['editable'] ?? true) === false)
             ->reject(fn (array $field): bool => in_array($field['name'], [
                 'uuid', 'state', 'status', 'created_by', 'updated_by', 'submitted_by',
                 'verified_by', 'created_at', 'updated_at',
@@ -566,25 +679,247 @@ class MobileOperationalController extends Controller
         $editable = $this->isEditable($item);
 
         return [
-            'can_update' => $editable && $request->user()->can($definition['permission'].'.update'),
-            'can_delete' => $this->isDeletable($item)
+            'can_update' => ($definition['allow_update'] ?? true)
+                && $editable && $request->user()->can($definition['permission'].'.update'),
+            'can_delete' => ($definition['allow_delete'] ?? true)
+                && $this->isDeletable($item)
                 && $request->user()->can($definition['permission'].'.delete'),
             'actions' => $module ? $this->availableActions($request, $module, $item) : [],
+            'can_view_document' => $module !== null
+                && $this->canViewDocument($request, $module, $definition),
         ];
     }
 
-    /** @return array<int, array{key:string,label:string,notes_required:bool}> */
+    /** @param array<string,mixed> $definition */
+    private function canViewDocument(Request $request, string $module, array $definition): bool
+    {
+        if (! in_array($module, [
+            'lapangan-laporan', 'pengolahan', 'pemorsian', 'distribusi',
+            'pencucian', 'kebersihan', 'ba-limbah-persiapan',
+            'ba-limbah-pencucian', 'ba-limbah-kebersihan',
+        ], true)) {
+            return false;
+        }
+
+        if (str_starts_with($module, 'ba-limbah-')) {
+            return $request->user()->can($definition['permission'].'.view');
+        }
+
+        return $request->user()->can($definition['permission'].'.export');
+    }
+
+    /** @return array<int, array<string,mixed>> */
     private function availableActions(Request $request, string $module, Model $item): array
     {
         $state = $this->scalarValue($item->getAttribute('state'));
         $status = $this->scalarValue($item->getAttribute('status'));
+        $actor = $request->user();
+        $actions = [];
+
+        if ($module === 'gudang' && $status === \App\Models\StockReceipt::STATUS_DRAFT
+            && $actor->can('stock.update')) {
+            return [$this->actionDefinition('receive', 'Selesaikan penerimaan dan bentuk stok')];
+        }
+
+        if ($module === 'gudang-stok' && $actor->can('stock.update')) {
+            return [
+                $this->actionDefinition('adjust_stock', 'Sesuaikan dengan stok fisik', false, [
+                    $this->actionField(
+                        'actual_quantity',
+                        'Jumlah fisik aktual',
+                        'number',
+                        true,
+                        (string) $item->balance_quantity,
+                    ),
+                    $this->actionField('adjustment_type', 'Jenis penyesuaian', 'select', true, 'physical_count', [
+                        'physical_count' => 'Stok opname',
+                        'damage' => 'Rusak',
+                        'expired' => 'Kedaluwarsa',
+                        'correction' => 'Koreksi pencatatan',
+                    ]),
+                    $this->actionField('reason', 'Alasan penyesuaian', 'textarea', true),
+                ]),
+                $this->actionDefinition('update_lot', 'Ubah lokasi atau status lot', false, [
+                    $this->actionField('location_name', 'Lokasi penyimpanan', 'text', true, (string) $item->location_name),
+                    $this->actionField('storage_type', 'Jenis penyimpanan', 'select', true, (string) $item->storage_type, [
+                        'wet' => 'Gudang basah',
+                        'dry' => 'Gudang kering',
+                        'freezer' => 'Freezer',
+                        'chiller' => 'Chiller',
+                    ]),
+                    $this->actionField('lot_status', 'Status lot', 'select', true, (string) $item->status, [
+                        'available' => 'Tersedia',
+                        'quarantine' => 'Karantina',
+                        'rejected' => 'Ditolak',
+                        'depleted' => 'Habis',
+                    ]),
+                ]),
+            ];
+        }
+
+        if ($module === 'gudang-pengambilan'
+            && $status === \App\Models\WarehouseWithdrawal::WAITING
+            && $actor->can('stock.approve')) {
+            return [
+                $this->actionDefinition('verify', 'Verifikasi pengambilan'),
+                $this->actionDefinition('revision', 'Minta koreksi', true),
+                $this->actionDefinition('reject', 'Tolak pengambilan', true),
+            ];
+        }
+
+        if ($module === 'gudang-retur'
+            && $status === \App\Models\PreparationReturn::WAITING
+            && $actor->can('stock.approve')) {
+            return [
+                $this->actionDefinition('verify', 'Terima retur ke Gudang', false, [
+                    $this->actionField(
+                        'actual_quantity',
+                        'Jumlah aktual',
+                        'number',
+                        true,
+                        (string) ($item->actual_quantity ?: $item->requested_quantity),
+                    ),
+                    $this->actionField('warehouse_disposition', 'Keputusan Gudang', 'select', true, null, [
+                        'available' => 'Kembali tersedia',
+                        'quarantine' => 'Karantina',
+                        'rejected' => 'Ditolak/rusak',
+                    ]),
+                ]),
+                $this->actionDefinition('reject', 'Tolak retur', true),
+            ];
+        }
+
+        if (in_array($module, ['hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian'], true)
+            && $actor->can(($module === 'hasil-persiapan-pengolahan' ? 'processing' : 'portioning').'.update')
+            && $item->isAvailableFor($module === 'hasil-persiapan-pengolahan' ? 'processing' : 'portioning')) {
+            $division = $module === 'hasil-persiapan-pengolahan' ? 'processing' : 'portioning';
+            $targetField = $division === 'processing' ? 'processing_batch_id' : 'portioning_session_id';
+            $targetLabel = $division === 'processing' ? 'Batch Pengolahan' : 'Sesi Pemorsian';
+            $targetOptions = $division === 'processing'
+                ? \App\Models\ProcessingBatch::query()
+                    ->where('sppg_unit_id', $item->sppg_unit_id)
+                    ->whereIn('state', ['planned', 'in_progress'])
+                    ->latest('production_date')->limit(100)->pluck('batch_number', 'id')->mapWithKeys(
+                        fn ($label, $id): array => [(string) $id => (string) $label],
+                    )->all()
+                : \App\Models\PortioningSession::query()
+                    ->where('sppg_unit_id', $item->sppg_unit_id)
+                    ->whereIn('state', ['planned', 'in_progress'])
+                    ->latest('portioning_date')->limit(100)->pluck('session_number', 'id')->mapWithKeys(
+                        fn ($label, $id): array => [(string) $id => (string) $label],
+                    )->all();
+
+            return [$this->actionDefinition('request_withdrawal', 'Ambil Hasil Persiapan', false, [
+                $this->actionField('requested_quantity', 'Jumlah yang diambil', 'number', true),
+                $this->actionField($targetField, $targetLabel, 'select', true, null, $targetOptions),
+            ])];
+        }
+
+        if ($module === 'hasil-persiapan' && $actor->can('preparation.update')) {
+            $pendingOptions = $item->withdrawals()
+                ->where('status', \App\Models\PreparationOutputWithdrawal::WAITING)
+                ->get()
+                ->mapWithKeys(fn ($withdrawal): array => [
+                    (string) $withdrawal->getKey() => sprintf(
+                        '%s - %s %s',
+                        ucfirst((string) $withdrawal->destination_division),
+                        rtrim(rtrim(number_format((float) $withdrawal->requested_quantity, 4, '.', ''), '0'), '.'),
+                        $withdrawal->unit_snapshot,
+                    ),
+                ])->all();
+            if ($pendingOptions !== []) {
+                return [
+                    $this->actionDefinition('verify_withdrawal', 'Verifikasi pengambilan', false, [
+                        $this->actionField('withdrawal_id', 'Pengambilan', 'select', true, null, $pendingOptions),
+                        $this->actionField('verified_quantity', 'Jumlah aktual', 'number', true),
+                    ]),
+                    $this->actionDefinition('reject_withdrawal', 'Tolak pengambilan', true, [
+                        $this->actionField('withdrawal_id', 'Pengambilan', 'select', true, null, $pendingOptions),
+                    ]),
+                ];
+            }
+        }
+
+        if ($module === 'pengambilan-ompreng' && $state === \App\Models\ContainerCollectionRun::ACTIVE
+            && $actor->can('distribution.update')) {
+            $taskOptions = \App\Models\ContainerCollectionTask::query()
+                ->where('sppg_unit_id', $item->sppg_unit_id)
+                ->whereIn('status', [
+                    \App\Models\ContainerCollectionTask::PENDING,
+                    \App\Models\ContainerCollectionTask::PARTIAL,
+                ])
+                ->where('remaining_containers', '>', 0)
+                ->orderBy('delivery_date')
+                ->orderBy('destination_name')
+                ->get()
+                ->mapWithKeys(fn ($task): array => [
+                    (string) $task->getKey() => $task->destination_name.' (sisa '.$task->remaining_containers.')',
+                ])->all();
+            if ($taskOptions !== []) {
+                $commonFields = [
+                    $this->actionField('task_id', 'Sekolah/Posyandu', 'select', true, null, $taskOptions),
+                    $this->actionField('photo_path', 'Foto pengambilan', 'file'),
+                ];
+                $actions[] = $this->actionDefinition(
+                    'collect_all',
+                    'Ambil seluruh sisa ompreng',
+                    false,
+                    $commonFields,
+                );
+                $actions[] = $this->actionDefinition(
+                    'collect_partial',
+                    'Ambil sebagian ompreng',
+                    true,
+                    [
+                        $commonFields[0],
+                        $this->actionField('quantity', 'Jumlah yang berhasil diambil', 'number', true),
+                        $commonFields[1],
+                    ],
+                );
+            }
+            if ($item->items()->exists()) {
+                $actions[] = $this->actionDefinition('return', 'Kembali ke SPPG');
+            }
+
+            return $actions;
+        }
+
+        if ($module === 'lapangan-laporan') {
+            if (in_array($status, ['draft', 'revision_required'], true)
+                && $actor->can('field_daily_reports.submit')) {
+                $actions[] = $this->actionDefinition('submit', 'Ajukan laporan harian');
+            }
+            if ($status === 'submitted' && $actor->can('field_daily_reports.approve')) {
+                $actions[] = $this->actionDefinition('approve', 'Setujui laporan');
+                $actions[] = $this->actionDefinition('revision', 'Minta revisi', true);
+            }
+
+            return $actions;
+        }
+
+        if ($module === 'lapangan-insiden' && $actor->can('field_incidents.update')) {
+            if ($status === 'open') {
+                $actions[] = $this->actionDefinition('start_follow_up', 'Mulai tindak lanjut');
+            }
+            if (in_array($status, ['open', 'in_progress'], true)) {
+                $actions[] = $this->actionDefinition('resolve', 'Selesaikan insiden', false, [
+                    $this->actionField('resolution', 'Penyelesaian', 'textarea', true),
+                    $this->actionField('root_cause', 'Akar masalah', 'textarea'),
+                    $this->actionField('immediate_action', 'Tindakan langsung', 'textarea'),
+                ]);
+            }
+
+            return $actions;
+        }
+
         $permission = match ($module) {
             'persiapan' => 'preparation',
             'pengolahan' => 'processing',
             'pemorsian' => 'portioning',
-            'distribusi' => 'distribution',
+            'distribusi', 'pengambilan-ompreng' => 'distribution',
             'pencucian' => 'washing',
             'kebersihan' => 'cleaning',
+            'ba-limbah-persiapan' => 'preparation',
             'ba-limbah-pencucian' => 'washing',
             'ba-limbah-kebersihan' => 'cleaning',
             default => null,
@@ -593,39 +928,38 @@ class MobileOperationalController extends Controller
             return [];
         }
 
-        $actions = [];
-        if ($request->user()->can($permission.'.update')) {
+        if ($actor->can($permission.'.update')) {
             $actions = match ($module) {
                 'persiapan', 'pengolahan', 'pemorsian' => match ($state) {
-                    'planned' => [['key' => 'start', 'label' => 'Mulai pekerjaan', 'notes_required' => false]],
-                    'in_progress' => [['key' => 'complete', 'label' => 'Selesaikan pekerjaan', 'notes_required' => false]],
+                    'planned' => [$this->actionDefinition('start', 'Mulai pekerjaan')],
+                    'in_progress' => [$this->actionDefinition('complete', 'Selesaikan pekerjaan')],
                     default => [],
                 },
                 'distribusi' => match ($state) {
-                    'planned' => [['key' => 'claim', 'label' => 'Pilih rute ini', 'notes_required' => false]],
+                    'planned' => [$this->actionDefinition('claim', 'Pilih rute ini')],
                     'assigned' => [
-                        ['key' => 'load', 'label' => 'Mulai memuat', 'notes_required' => false],
-                        ['key' => 'release', 'label' => 'Lepas rute', 'notes_required' => false],
+                        $this->actionDefinition('load', 'Mulai memuat'),
+                        $this->actionDefinition('release', 'Lepas rute'),
                     ],
                     'loaded' => [
-                        ['key' => 'depart', 'label' => 'Berangkat', 'notes_required' => false],
-                        ['key' => 'release', 'label' => 'Lepas rute', 'notes_required' => false],
+                        $this->actionDefinition('depart', 'Berangkat'),
+                        $this->actionDefinition('release', 'Lepas rute'),
                     ],
-                    'destinations_completed' => [['key' => 'finish', 'label' => 'Sudah kembali ke SPPG', 'notes_required' => false]],
+                    'destinations_completed' => [$this->actionDefinition('finish', 'Sudah kembali ke SPPG')],
                     default => [],
                 },
                 'pencucian' => match ($state) {
-                    'planned' => [['key' => 'receive', 'label' => 'Terima ompreng', 'notes_required' => false]],
+                    'planned' => [$this->actionDefinition('receive', 'Terima ompreng')],
                     'received' => $item->wasteHandlingCompleted()
-                        ? [['key' => 'start', 'label' => 'Mulai pencucian', 'notes_required' => false]]
-                        : [['key' => 'waste', 'label' => 'Simpan pencatatan limbah', 'notes_required' => false]],
-                    'washing' => [['key' => 'complete', 'label' => 'Selesaikan pencucian', 'notes_required' => false]],
-                    'completed' => [['key' => 'ready', 'label' => 'Tandai siap digunakan', 'notes_required' => false]],
+                        ? [$this->actionDefinition('start', 'Mulai pencucian')]
+                        : [$this->actionDefinition('waste', 'Simpan pencatatan limbah')],
+                    'washing' => [$this->actionDefinition('complete', 'Selesaikan pencucian')],
+                    'completed' => [$this->actionDefinition('ready', 'Tandai siap digunakan')],
                     default => [],
                 },
                 'kebersihan' => match ($state) {
-                    'planned' => [['key' => 'start', 'label' => 'Mulai kebersihan', 'notes_required' => false]],
-                    'in_progress' => [['key' => 'complete', 'label' => 'Selesaikan kebersihan', 'notes_required' => false]],
+                    'planned' => [$this->actionDefinition('start', 'Mulai kebersihan')],
+                    'in_progress' => [$this->actionDefinition('complete', 'Selesaikan kebersihan')],
                     default => [],
                 },
                 default => [],
@@ -634,21 +968,269 @@ class MobileOperationalController extends Controller
 
         if (in_array($state, ['completed', 'ready', 'returned'], true)
             && in_array($status, ['draft', 'revision_required'], true)
-            && $request->user()->can($permission.'.submit')) {
-            $actions[] = ['key' => 'submit', 'label' => 'Ajukan laporan', 'notes_required' => false];
+            && $actor->can($permission.'.submit')) {
+            $actions[] = $this->actionDefinition('submit', 'Ajukan laporan');
         }
         if (str_starts_with($module, 'ba-limbah-')
             && in_array($status, ['draft', 'revision_required'], true)
-            && $request->user()->can($permission.'.submit')) {
-            $actions[] = ['key' => 'submit', 'label' => 'Ajukan berita acara', 'notes_required' => false];
+            && $actor->can($permission.'.submit')) {
+            $actions[] = $this->actionDefinition('submit', 'Ajukan berita acara');
         }
         if (in_array($status, ['submitted', 'division_approved'], true)
-            && $request->user()->can($permission.'.approve')) {
-            $actions[] = ['key' => 'verify', 'label' => 'Setujui laporan', 'notes_required' => false];
-            $actions[] = ['key' => 'revision', 'label' => 'Minta revisi', 'notes_required' => true];
+            && $actor->can($permission.'.approve')) {
+            $actions[] = $this->actionDefinition('verify', 'Setujui laporan');
+            $actions[] = $this->actionDefinition('revision', 'Minta revisi', true);
         }
 
         return $actions;
+    }
+
+    /** @param array<int,array<string,mixed>> $fields */
+    private function actionDefinition(
+        string $key,
+        string $label,
+        bool $notesRequired = false,
+        array $fields = [],
+    ): array {
+        return [
+            'key' => $key,
+            'label' => $label,
+            'notes_required' => $notesRequired,
+            'fields' => $fields,
+        ];
+    }
+
+    /** @param array<string,string> $options */
+    private function actionField(
+        string $key,
+        string $label,
+        string $type = 'text',
+        bool $required = false,
+        ?string $value = null,
+        array $options = [],
+    ): array {
+        return compact('key', 'label', 'type', 'required', 'value', 'options') + ['editable' => true];
+    }
+
+    /** @param array<string,mixed> $fields */
+    private function runWarehouseStockAction(
+        string $action,
+        Model $item,
+        $actor,
+        array $fields,
+        ?string $notes,
+    ): Model {
+        abort_unless($actor->can('stock.update'), 403);
+        $service = app(\App\Services\StockControlService::class);
+
+        if ($action === 'update_lot') {
+            $service->updateLot(
+                $item,
+                (string) ($fields['location_name'] ?? ''),
+                (string) ($fields['storage_type'] ?? ''),
+                (string) ($fields['lot_status'] ?? ''),
+            );
+
+            return $item->refresh();
+        }
+
+        abort_unless($action === 'adjust_stock', 422);
+        $type = (string) ($fields['adjustment_type'] ?? '');
+        if (! in_array($type, ['physical_count', 'damage', 'expired', 'correction'], true)) {
+            throw ValidationException::withMessages(['fields.adjustment_type' => 'Jenis penyesuaian tidak valid.']);
+        }
+        $reason = trim((string) ($fields['reason'] ?? $notes ?? ''));
+        if ($reason === '') {
+            throw ValidationException::withMessages(['fields.reason' => 'Alasan penyesuaian wajib diisi.']);
+        }
+        $actual = filter_var($fields['actual_quantity'] ?? null, FILTER_VALIDATE_FLOAT);
+        if ($actual === false || $actual < 0) {
+            throw ValidationException::withMessages(['fields.actual_quantity' => 'Jumlah fisik aktual harus nol atau lebih.']);
+        }
+
+        $adjustment = $service->create($item, (float) $actual, $type, $reason, $actor);
+        $service->verify($adjustment, $actor);
+
+        return $item->refresh();
+    }
+
+    private function runWarehouseReceiptAction(string $action, Model $item, $actor): Model
+    {
+        abort_unless($action === 'receive', 422);
+        abort_unless($actor->can('stock.update'), 403);
+        $item->forceFill([
+            'received_by' => $actor->getKey(),
+            'received_by_name' => $actor->name,
+        ])->save();
+
+        return app(\App\Services\StockReceiptService::class)->receive($item);
+    }
+
+    private function runWarehouseWithdrawalAction(
+        string $action,
+        Model $item,
+        $actor,
+        ?string $notes,
+    ): Model {
+        $service = app(\App\Services\WarehouseWithdrawalService::class);
+
+        return match ($action) {
+            'verify' => $service->verify($item, $actor),
+            'revision' => $service->requestRevision($item, $actor, (string) $notes),
+            'reject' => $service->reject($item, $actor, (string) $notes),
+        };
+    }
+
+    /** @param array<string,mixed> $fields */
+    private function runPreparationReturnAction(
+        string $action,
+        Model $item,
+        $actor,
+        array $fields,
+        ?string $notes,
+    ): Model {
+        $service = app(\App\Services\PreparationReturnService::class);
+
+        return match ($action) {
+            'verify' => $service->verify(
+                $item,
+                (float) ($fields['actual_quantity'] ?? 0),
+                (string) ($fields['warehouse_disposition'] ?? ''),
+                $notes,
+                $actor,
+            ),
+            'reject' => $service->reject($item, (string) $notes, $actor),
+        };
+    }
+
+    /** @param array<string,mixed> $fields */
+    private function runPreparationOutputAction(
+        string $module,
+        string $action,
+        Model $item,
+        $actor,
+        array $fields,
+        ?string $notes,
+    ): Model {
+        $service = app(\App\Services\PreparationOutputService::class);
+        if ($action === 'request_withdrawal') {
+            $division = $module === 'hasil-persiapan-pengolahan' ? 'processing' : 'portioning';
+            $service->requestWithdrawal($item, $actor, [
+                'destination_division' => $division,
+                'requested_quantity' => $fields['requested_quantity'] ?? null,
+                'processing_batch_id' => $fields['processing_batch_id'] ?? null,
+                'portioning_session_id' => $fields['portioning_session_id'] ?? null,
+                'notes' => $notes,
+            ]);
+
+            return $item->refresh();
+        }
+
+        $withdrawal = $item->withdrawals()
+            ->whereKey((int) ($fields['withdrawal_id'] ?? 0))
+            ->firstOrFail();
+
+        return match ($action) {
+            'verify_withdrawal' => tap($item, fn () => $service->verifyWithdrawal(
+                $withdrawal,
+                $actor,
+                (float) ($fields['verified_quantity'] ?? 0),
+                $notes,
+            ))->refresh(),
+            'reject_withdrawal' => tap($item, fn () => $service->rejectWithdrawal(
+                $withdrawal,
+                $actor,
+                (string) $notes,
+            ))->refresh(),
+        };
+    }
+
+    /** @param array<string,mixed> $fields */
+    private function runContainerCollectionAction(
+        string $action,
+        Model $item,
+        $actor,
+        array $fields,
+        ?string $notes,
+        ?string $photoPath,
+    ): Model {
+        $service = app(\App\Services\ContainerCollectionWorkflow::class);
+        if ($action === 'return') {
+            return $service->returnToSppg($item, $actor);
+        }
+
+        $task = \App\Models\ContainerCollectionTask::query()
+            ->where('sppg_unit_id', $item->sppg_unit_id)
+            ->findOrFail((int) ($fields['task_id'] ?? 0));
+        if ($action === 'collect_partial') {
+            $service->collectPartial(
+                $item,
+                $task,
+                $actor,
+                (int) ($fields['quantity'] ?? 0),
+                (string) $notes,
+                $photoPath,
+            );
+        } else {
+            abort_unless($action === 'collect_all', 422, 'Jenis pengambilan ompreng tidak valid.');
+            $service->collectAll($item, $task, $actor, $photoPath);
+        }
+
+        return $item->refresh();
+    }
+
+    private function runFieldDailyReportAction(
+        string $action,
+        Model $item,
+        $actor,
+        ?string $notes,
+    ): Model {
+        $service = app(\App\Services\FieldDailyReportWorkflow::class);
+        match ($action) {
+            'submit' => $service->submit($item, $actor, $notes),
+            'approve' => $service->approve($item, $actor, $notes),
+            'revision' => $service->requestRevision($item, $actor, (string) $notes),
+        };
+
+        return $item->refresh();
+    }
+
+    /** @param array<string,mixed> $fields */
+    private function runFieldIncidentAction(
+        string $action,
+        Model $item,
+        $actor,
+        array $fields,
+        ?string $notes,
+    ): Model {
+        abort_unless($actor->can('field_incidents.update'), 403);
+        if ($action === 'start_follow_up') {
+            $item->forceFill([
+                'status' => \App\Enums\FieldIncidentStatus::InProgress,
+                'responsible_user_id' => $item->responsible_user_id ?: $actor->getKey(),
+                'responsible_name_snapshot' => $item->responsible_name_snapshot ?: $actor->name,
+                'immediate_action' => $notes ?: $item->immediate_action,
+                'updated_by' => $actor->getKey(),
+            ])->save();
+
+            return $item->refresh();
+        }
+
+        $resolution = trim((string) ($fields['resolution'] ?? ''));
+        if ($resolution === '') {
+            throw ValidationException::withMessages(['fields.resolution' => 'Penyelesaian wajib diisi.']);
+        }
+        $item->forceFill([
+            'status' => \App\Enums\FieldIncidentStatus::Resolved,
+            'resolution' => $resolution,
+            'root_cause' => trim((string) ($fields['root_cause'] ?? '')) ?: $item->root_cause,
+            'immediate_action' => trim((string) ($fields['immediate_action'] ?? '')) ?: $item->immediate_action,
+            'resolved_at' => now(),
+            'resolved_by' => $actor->getKey(),
+            'updated_by' => $actor->getKey(),
+        ])->save();
+
+        return $item->refresh();
     }
 
     private function runPreparationAction(string $action, Model $item, $actor, ?string $notes): Model
@@ -763,6 +1345,28 @@ class MobileOperationalController extends Controller
         };
     }
 
+    private function unlinkWasteHandoverSource(Model $report): void
+    {
+        if (! $report->source_type || ! $report->source_id) {
+            return;
+        }
+        match ($report->source_type) {
+            'washing_session' => \App\Models\WashingSession::query()
+                ->whereKey($report->source_id)
+                ->where('waste_handover_report_id', $report->getKey())
+                ->update(['waste_handover_report_id' => null, 'waste_handed_over_at' => null]),
+            'cleaning_session' => \App\Models\CleaningSession::query()
+                ->whereKey($report->source_id)
+                ->where('waste_handover_report_id', $report->getKey())
+                ->update(['waste_handover_report_id' => null]),
+            'preparation_session' => \App\Models\PreparationSession::query()
+                ->whereKey($report->source_id)
+                ->where('waste_handover_report_id', $report->getKey())
+                ->update(['waste_handover_report_id' => null]),
+            default => null,
+        };
+    }
+
     private function ensureWashingWasteReport(Model $session, $actor): Model
     {
         if (! (bool) $session->has_food_waste || $session->waste_handover_report_id) {
@@ -846,7 +1450,11 @@ class MobileOperationalController extends Controller
         abort_unless(isset($definition['relations'][$relation]), 404);
         $parent = $this->findRecord($definition, $record, (int) $systemUnit->id());
         abort_unless(in_array($operation, $this->relationOperations($module, $relation, $parent), true), 403);
-        abort_unless($this->isEditable($parent), 422, 'Data sudah dikunci dan tidak dapat diubah.');
+        $relationEditable = $this->isEditable($parent)
+            || ($module === 'gudang-pengambilan'
+                && $relation === 'items'
+                && $this->scalarValue($parent->getAttribute('status')) === \App\Models\WarehouseWithdrawal::WAITING);
+        abort_unless($relationEditable, 422, 'Data sudah dikunci dan tidak dapat diubah.');
         abort_unless(method_exists($parent, $relation), 404);
 
         return [$definition, $parent, $definition['relations'][$relation]];
@@ -856,6 +1464,8 @@ class MobileOperationalController extends Controller
     private function relationOperations(string $module, string $relation, ?Model $parent = null): array
     {
         return match ($module) {
+            'gudang' => $relation === 'items' ? ['update'] : [],
+            'gudang-pengambilan' => $relation === 'items' ? ['update'] : [],
             'persiapan' => match ($relation) {
                 'items' => ['update'],
                 'resultDocumentation' => ['create', 'update', 'delete'],
@@ -887,7 +1497,7 @@ class MobileOperationalController extends Controller
                 && $parent?->isReportDue()
                 ? ['create']
                 : [],
-            'ba-limbah-pencucian', 'ba-limbah-kebersihan' => $relation === 'items'
+            'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan' => $relation === 'items'
                 ? ['create', 'update', 'delete']
                 : [],
             default => [],

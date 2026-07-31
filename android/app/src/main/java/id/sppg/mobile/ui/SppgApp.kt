@@ -1,5 +1,7 @@
 package id.sppg.mobile.ui
 
+import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -54,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -62,12 +65,15 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.sppg.mobile.core.notification.NotificationNavigationStore
+import id.sppg.mobile.core.notification.NotificationRefreshBus
 import id.sppg.mobile.data.session.UserSession
 import id.sppg.mobile.ui.theme.SppgTheme
 import id.sppg.mobile.ui.theme.ForestDark
 import id.sppg.mobile.ui.theme.Leaf
+import kotlinx.coroutines.flow.collect
 
 private sealed interface AppScreen {
     data object Dashboard : AppScreen
@@ -141,6 +147,7 @@ private fun AuthenticatedContent(
     val operationalState by operationalViewModel.uiState.collectAsStateWithLifecycle()
     val notificationState by notificationViewModel.uiState.collectAsStateWithLifecycle()
     val securityState by securityViewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val watermarkProfile = remember(session.userName, session.roleLabel) {
         PhotoWatermarkProfile(
             name = session.userName,
@@ -158,6 +165,12 @@ private fun AuthenticatedContent(
         notificationViewModel.load(force = true)
     }
 
+    LaunchedEffect(session.token) {
+        NotificationRefreshBus.events.collect {
+            notificationViewModel.load(force = true)
+        }
+    }
+
     val notificationNavigation by NotificationNavigationStore.event.collectAsStateWithLifecycle()
     LaunchedEffect(notificationNavigation, session.token) {
         notificationNavigation?.let { event ->
@@ -166,6 +179,7 @@ private fun AuthenticatedContent(
                 "tasks", "notifications" -> AppScreen.Tasks
                 else -> AppScreen.Dashboard
             }
+            notificationViewModel.load(force = true)
             NotificationNavigationStore.consume()
         }
     }
@@ -231,6 +245,7 @@ private fun AuthenticatedContent(
                 }
             },
             onMarkAllRead = notificationViewModel::markAllRead,
+            onSendTestNotification = notificationViewModel::sendTestNotification,
         )
         AppScreen.Security -> SecurityScreen(
             state = securityState,
@@ -247,6 +262,7 @@ private fun AuthenticatedContent(
             onBack = { screen = AppScreen.Dashboard },
             onRefresh = { fieldPlanViewModel.loadPlans(force = true) },
             onLoad = fieldPlanViewModel::loadPlans,
+            onLoadMore = fieldPlanViewModel::loadMorePlans,
             onPlanClick = { screen = AppScreen.FieldPlanDetail(it) },
         )
         is AppScreen.FieldPlanDetail -> FieldPlanDetailScreen(
@@ -263,6 +279,28 @@ private fun AuthenticatedContent(
             },
             onCheckReadiness = fieldPlanViewModel::checkReadiness,
             onActivate = fieldPlanViewModel::activatePlan,
+            onOpenDocument = {
+                fieldPlanViewModel.downloadDocument(current.id) { file ->
+                    runCatching {
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            file,
+                        )
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/pdf")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Buka dokumen PDF"))
+                    }.onFailure {
+                        Toast.makeText(
+                            context,
+                            "Tidak ada aplikasi pembaca PDF pada perangkat ini.",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            },
             onClearFeedback = fieldPlanViewModel::clearFeedback,
         )
         is AppScreen.FieldPlanEdit -> FieldPlanEditScreen(
@@ -286,6 +324,7 @@ private fun AuthenticatedContent(
             onBack = { screen = AppScreen.Dashboard },
             onLoad = { operationalViewModel.loadRecords(it) },
             onRefresh = { operationalViewModel.loadRecords(current.slug, force = true) },
+            onLoadMore = operationalViewModel::loadMoreRecords,
             onRecordClick = {
                 screen = AppScreen.OperationalDetail(current.slug, current.label, it)
             },
@@ -319,8 +358,38 @@ private fun AuthenticatedContent(
                     screen = AppScreen.OperationalRecords(current.slug, current.label)
                 }
             },
-            onAction = { action, notes ->
-                operationalViewModel.runAction(current.slug, current.id, action, notes)
+            watermarkProfile = watermarkProfile,
+            onAction = { action, notes, fields, files ->
+                operationalViewModel.runAction(
+                    current.slug,
+                    current.id,
+                    action,
+                    notes,
+                    fields,
+                    files,
+                )
+            },
+            onOpenDocument = {
+                operationalViewModel.downloadDocument(current.slug, current.id) { file ->
+                    runCatching {
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            file,
+                        )
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/pdf")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Buka dokumen PDF"))
+                    }.onFailure {
+                        Toast.makeText(
+                            context,
+                            "Tidak ada aplikasi pembaca PDF pada perangkat ini.",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
             },
             onRelationCreate = { section ->
                 operationalViewModel.prepareRelationCreate(section.key)

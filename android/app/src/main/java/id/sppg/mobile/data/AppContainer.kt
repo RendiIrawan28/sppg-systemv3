@@ -37,8 +37,8 @@ class AppContainer(context: Context) {
         .create(MobileApi::class.java)
 
     val authRepository = AuthRepository(api, sessionStore, errorHandler)
-    val fieldPlanRepository = FieldPlanRepository(api, sessionStore, errorHandler)
-    val operationalRepository = OperationalRepository(api, sessionStore, errorHandler)
+    val fieldPlanRepository = FieldPlanRepository(api, sessionStore, errorHandler, context.applicationContext)
+    val operationalRepository = OperationalRepository(api, sessionStore, errorHandler, context.applicationContext)
     val notificationRepository = NotificationRepository(api, sessionStore, errorHandler)
     val securityRepository = SecurityRepository(api, sessionStore, errorHandler)
     val firebaseTokenRegistrar = FirebaseTokenRegistrar(context.applicationContext, notificationRepository)

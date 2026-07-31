@@ -24,7 +24,10 @@ class SppgFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         val repository = (application as SppgApplication).container.notificationRepository
-        serviceScope.launch { repository.registerDeviceToken(token) }
+        serviceScope.launch {
+            repository.registerDeviceToken(token)
+            NotificationRefreshBus.publish()
+        }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
@@ -43,7 +46,9 @@ class SppgFirebaseMessagingService : FirebaseMessagingService() {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             data.forEach { (key, value) -> putExtra(key, value) }
         }
-        val requestCode = (data["notification_id"]?.toIntOrNull() ?: message.messageId?.hashCode() ?: 0)
+        val requestCode = data["notification_id"]?.hashCode()
+            ?: message.messageId?.hashCode()
+            ?: System.currentTimeMillis().hashCode()
         val pendingIntent = PendingIntent.getActivity(
             this,
             requestCode,
@@ -57,6 +62,7 @@ class SppgFirebaseMessagingService : FirebaseMessagingService() {
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
@@ -67,5 +73,11 @@ class SppgFirebaseMessagingService : FirebaseMessagingService() {
         if (notificationAllowed) {
             NotificationManagerCompat.from(this).notify(requestCode, notification)
         }
+        NotificationRefreshBus.publish()
+    }
+
+    override fun onDeletedMessages() {
+        super.onDeletedMessages()
+        NotificationRefreshBus.publish()
     }
 }

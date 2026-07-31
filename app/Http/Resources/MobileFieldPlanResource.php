@@ -37,6 +37,7 @@ class MobileFieldPlanResource extends JsonResource
             'can_update' => $request->user()?->can('update', $this->resource) ?? false,
             'can_activate' => $this->isEditable()
                 && ($request->user()?->can('field_planning.submit') ?? false),
+            'can_export' => $request->user()?->can('field_planning.export') ?? false,
             'destinations' => MobileFieldPlanDestinationResource::collection($this->whenLoaded('destinations')),
         ];
     }

@@ -10,6 +10,8 @@ use App\Models\ContainerCollectionTask;
 use App\Models\InventoryLot;
 use App\Models\PreparationReturn;
 use App\Models\PreparationOutput;
+use App\Models\PreparationOutputWithdrawal;
+use App\Models\PreparationSessionItem;
 use App\Models\PreparationSession;
 use App\Models\SecurityShift;
 use App\Enums\SecuritySituation;
@@ -58,6 +60,14 @@ class MobileWorkspaceRegistry
         ];
 
         foreach ($this->operationalRegistry->definitions() as $slug => $definition) {
+            // Dokumen inti operasional dibuat oleh initializer/workflow web. Mobile hanya
+            // melengkapi rincian dan menjalankan transisi status agar tidak tercipta sesi
+            // tanpa sumber, snapshot, atau checklist resmi.
+            if (in_array($slug, ['pengolahan', 'pemorsian', 'distribusi', 'pencucian', 'kebersihan'], true)) {
+                $definition['allow_create'] = false;
+                $definition['allow_delete'] = false;
+            }
+
             $definitions[$slug] = $definition;
         }
 
@@ -114,6 +124,24 @@ class MobileWorkspaceRegistry
 
     public function options(mixed $source, int $unitId): array
     {
+        if ($source === 'preparation_session_items') {
+            return PreparationSessionItem::query()
+                ->whereHas('session', fn ($query) => $query
+                    ->where('sppg_unit_id', $unitId)
+                    ->whereIn('state', ['in_progress', 'completed']))
+                ->with('session:id,session_number')
+                ->latest('id')
+                ->limit(200)
+                ->get()
+                ->mapWithKeys(fn (PreparationSessionItem $item): array => [
+                    (string) $item->getKey() => trim(implode(' - ', array_filter([
+                        $item->session?->session_number,
+                        $item->ingredient_name_snapshot,
+                    ]))),
+                ])
+                ->all();
+        }
+
         return $this->operationalRegistry->options($source, $unitId);
     }
 
@@ -128,24 +156,31 @@ class MobileWorkspaceRegistry
             'number' => 'receipt_number',
             'date' => 'receipt_date',
             'fields' => [
-                $this->field('receipt_date', 'Tanggal penerimaan', 'date'),
-                $this->field('status', 'Status'),
-                $this->field('received_by_name', 'Penerima'),
-                $this->field('received_at', 'Waktu diterima', 'datetime'),
+                [...$this->field('receipt_date', 'Tanggal penerimaan', 'date'), 'editable' => false],
+                [...$this->field('status', 'Status'), 'editable' => false],
+                [...$this->field('received_by_name', 'Penerima'), 'editable' => false],
+                [...$this->field('received_at', 'Waktu diterima', 'datetime'), 'editable' => false],
                 $this->field('notes', 'Catatan'),
+                $this->field('documentation_path', 'Foto kiriman supplier', 'file', true),
             ],
+            'allow_create' => false,
+            'allow_delete' => false,
             'relations' => [
                 'items' => $this->relation('Barang dan pemeriksaan QC', [
-                    $this->field('ingredient_name_snapshot', 'Bahan'),
-                    $this->field('unit_snapshot', 'Satuan'),
-                    $this->field('ordered_quantity', 'Dipesan', 'number'),
-                    $this->field('received_quantity', 'Diterima', 'number'),
-                    $this->field('accepted_quantity', 'Lolos QC', 'number'),
-                    $this->field('rejected_quantity', 'Ditolak', 'number'),
+                    [...$this->field('ingredient_name_snapshot', 'Bahan'), 'editable' => false],
+                    [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
+                    [...$this->field('ordered_quantity', 'Dipesan', 'number'), 'editable' => false],
+                    $this->field('received_quantity', 'Diterima', 'number', true),
+                    $this->field('accepted_quantity', 'Lolos QC', 'number', true),
+                    $this->field('rejected_quantity', 'Ditolak', 'number', true),
                     $this->field('supplier_batch_number', 'Batch supplier'),
                     $this->field('expired_date', 'Kedaluwarsa', 'date'),
                     $this->field('received_temperature_celsius', 'Suhu diterima °C', 'number'),
-                    $this->field('quality_status', 'Status mutu'),
+                    $this->field('quality_status', 'Status mutu', 'select', true, [
+                        'accepted' => 'Diterima',
+                        'partial' => 'Diterima sebagian',
+                        'rejected' => 'Ditolak',
+                    ]),
                     $this->field('quality_notes', 'Catatan mutu'),
                 ]),
             ],
@@ -162,6 +197,8 @@ class MobileWorkspaceRegistry
             'permission' => 'preparation',
             'number' => 'session_number',
             'date' => 'preparation_date',
+            'allow_create' => false,
+            'allow_delete' => false,
             'fields' => [
                 $this->field('preparation_date', 'Tanggal persiapan', 'date'),
                 $this->field('purpose_reference', 'Referensi kebutuhan'),
@@ -245,6 +282,9 @@ class MobileWorkspaceRegistry
             'permission' => 'stock',
             'number' => 'lot_number',
             'date' => 'expired_date',
+            'allow_create' => false,
+            'allow_update' => false,
+            'allow_delete' => false,
             'fields' => [
                 $this->field('lot_number', 'Nomor lot'),
                 $this->field('ingredient_id', 'Bahan', 'select', false, 'ingredients'),
@@ -287,6 +327,9 @@ class MobileWorkspaceRegistry
             'permission' => 'stock',
             'number' => 'withdrawal_number',
             'date' => 'withdrawal_date',
+            'allow_create' => false,
+            'allow_update' => false,
+            'allow_delete' => false,
             'fields' => [
                 $this->field('withdrawal_date', 'Tanggal', 'date'),
                 $this->field('division_code', 'Divisi pemohon'),
@@ -301,11 +344,11 @@ class MobileWorkspaceRegistry
             ],
             'relations' => [
                 'items' => $this->relation('Barang yang diambil', [
-                    $this->field('ingredient_name_snapshot', 'Bahan'),
-                    $this->field('lot_number_snapshot', 'Nomor lot'),
-                    $this->field('unit_snapshot', 'Satuan'),
-                    $this->field('requested_quantity', 'Diajukan', 'number'),
-                    $this->field('actual_quantity', 'Aktual', 'number'),
+                    [...$this->field('ingredient_name_snapshot', 'Bahan'), 'editable' => false],
+                    [...$this->field('lot_number_snapshot', 'Nomor lot'), 'editable' => false],
+                    [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
+                    [...$this->field('requested_quantity', 'Diajukan', 'number'), 'editable' => false],
+                    $this->field('actual_quantity', 'Aktual', 'number', true),
                     $this->field('pickup_temperature_celsius', 'Suhu pengambilan °C', 'number'),
                     $this->field('notes', 'Catatan'),
                 ]),
@@ -323,6 +366,9 @@ class MobileWorkspaceRegistry
             'permission' => 'stock',
             'number' => 'return_number',
             'date' => 'return_date',
+            'allow_create' => false,
+            'allow_update' => false,
+            'allow_delete' => false,
             'fields' => [
                 $this->field('return_date', 'Tanggal retur', 'date'),
                 $this->field('ingredient_name_snapshot', 'Bahan'),
@@ -355,6 +401,32 @@ class MobileWorkspaceRegistry
             default => [],
         };
 
+        $fields = [
+            $this->field('output_name', 'Nama hasil', 'text', $viewer === 'preparation'),
+            [...$this->field('source_ingredient_name_snapshot', 'Bahan asal'), 'editable' => false],
+            $this->field('quantity', 'Jumlah awal', 'number', $viewer === 'preparation'),
+            [...$this->field('available_quantity', 'Jumlah tersedia', 'number'), 'editable' => false],
+            $this->field('unit_snapshot', 'Satuan', 'text', $viewer === 'preparation'),
+            $this->field('target_division', 'Tujuan penggunaan', 'select', $viewer === 'preparation', [
+                'processing' => 'Pengolahan',
+                'portioning' => 'Pemorsian',
+                'both' => 'Pengolahan dan Pemorsian',
+            ]),
+            $this->field('storage_location', 'Lokasi penyimpanan'),
+            $this->field('stored_at', 'Waktu disimpan', 'datetime'),
+            $this->field('expires_at', 'Batas penggunaan', 'datetime'),
+            [...$this->field('state', 'Status'), 'editable' => false],
+            $this->field('photo_path', 'Dokumentasi', 'file'),
+            $this->field('notes', 'Catatan'),
+        ];
+
+        if ($viewer === 'preparation') {
+            array_unshift(
+                $fields,
+                $this->field('preparation_session_item_id', 'Bahan sesi Persiapan', 'select', true, 'preparation_session_items'),
+            );
+        }
+
         $definition = [
             'label' => 'Hasil Persiapan',
             'description' => 'Bahan siap pakai yang disimpan sementara untuk Pengolahan atau Pemorsian.',
@@ -362,29 +434,21 @@ class MobileWorkspaceRegistry
             'permission' => $permission,
             'number' => 'output_name',
             'date' => 'stored_at',
-            'fields' => [
-                $this->field('output_name', 'Nama hasil'),
-                $this->field('source_ingredient_name_snapshot', 'Bahan asal'),
-                $this->field('quantity', 'Jumlah awal', 'number'),
-                $this->field('available_quantity', 'Jumlah tersedia', 'number'),
-                $this->field('unit_snapshot', 'Satuan'),
-                $this->field('target_division', 'Tujuan penggunaan'),
-                $this->field('storage_location', 'Lokasi penyimpanan'),
-                $this->field('stored_at', 'Waktu disimpan', 'datetime'),
-                $this->field('expires_at', 'Batas penggunaan', 'datetime'),
-                $this->field('state', 'Status'),
-                $this->field('photo_path', 'Dokumentasi', 'file'),
-                $this->field('notes', 'Catatan'),
-            ],
+            'allow_create' => $viewer === 'preparation',
+            'allow_update' => $viewer === 'preparation',
+            'allow_delete' => false,
+            'viewer' => $viewer,
+            'fields' => $fields,
             'relations' => [
                 'withdrawals' => $this->relation('Riwayat pengambilan', [
                     $this->field('destination_division', 'Divisi pengambil'),
                     $this->field('requested_quantity', 'Jumlah diminta', 'number'),
-                    $this->field('verified_quantity', 'Jumlah diambil', 'number'),
+                    $this->field('verified_quantity', 'Jumlah aktual', 'number'),
                     $this->field('unit_snapshot', 'Satuan'),
                     $this->field('status', 'Status'),
                     $this->field('taken_at', 'Waktu diambil', 'datetime'),
-                    $this->field('notes', 'Catatan'),
+                    $this->field('notes', 'Catatan pengambil'),
+                    $this->field('review_notes', 'Catatan verifikasi'),
                 ]),
             ],
         ];
@@ -407,6 +471,9 @@ class MobileWorkspaceRegistry
             'permission' => 'distribution',
             'number' => 'destination_name',
             'date' => 'delivery_date',
+            'allow_create' => false,
+            'allow_update' => false,
+            'allow_delete' => false,
             'fields' => [
                 $this->field('delivery_date', 'Tanggal pengantaran', 'date'),
                 $this->field('destination_name', 'Tujuan'),
@@ -436,16 +503,19 @@ class MobileWorkspaceRegistry
             'permission' => 'distribution',
             'number' => 'run_number',
             'date' => 'collection_date',
+            'allow_create' => true,
+            'allow_update' => false,
+            'allow_delete' => false,
             'fields' => [
-                $this->field('collection_date', 'Tanggal pengambilan', 'date'),
-                $this->field('state', 'Status'),
-                $this->field('driver_name_snapshot', 'Driver'),
+                [...$this->field('collection_date', 'Tanggal pengambilan', 'date'), 'editable' => false],
+                [...$this->field('state', 'Status'), 'editable' => false],
+                [...$this->field('driver_name_snapshot', 'Driver'), 'editable' => false],
                 $this->field('kernet_name', 'Kernet'),
                 $this->field('vehicle_name', 'Kendaraan'),
                 $this->field('vehicle_plate', 'Nomor polisi'),
-                $this->field('started_at', 'Mulai', 'datetime'),
-                $this->field('returned_at', 'Kembali ke SPPG', 'datetime'),
-                $this->field('total_collected', 'Total ompreng diambil', 'number'),
+                [...$this->field('started_at', 'Mulai', 'datetime'), 'editable' => false],
+                [...$this->field('returned_at', 'Kembali ke SPPG', 'datetime'), 'editable' => false],
+                [...$this->field('total_collected', 'Total ompreng diambil', 'number'), 'editable' => false],
                 $this->field('notes', 'Catatan'),
             ],
             'relations' => [
@@ -476,6 +546,8 @@ class MobileWorkspaceRegistry
             'permission' => $permission,
             'number' => 'report_number',
             'date' => 'report_date',
+            'allow_create' => true,
+            'allow_delete' => true,
             'where' => ['division_type' => $division],
             'fields' => [
                 $this->field('report_date', 'Tanggal laporan', 'date', true),
@@ -551,22 +623,24 @@ class MobileWorkspaceRegistry
             'permission' => 'field_daily_reports',
             'number' => 'report_number',
             'date' => 'report_date',
+            'allow_create' => false,
+            'allow_delete' => false,
             'fields' => [
-                $this->field('report_date', 'Tanggal laporan', 'date'),
-                $this->field('status', 'Status'),
-                $this->field('planned_beneficiaries', 'Penerima direncanakan', 'number'),
-                $this->field('actual_beneficiaries', 'Penerima aktual', 'number'),
-                $this->field('planned_portions', 'Porsi direncanakan', 'number'),
-                $this->field('delivered_portions', 'Porsi terkirim', 'number'),
-                $this->field('returned_portions', 'Porsi kembali', 'number'),
-                $this->field('planned_destinations', 'Tujuan direncanakan', 'number'),
-                $this->field('completed_destinations', 'Tujuan selesai', 'number'),
-                $this->field('failed_destinations', 'Tujuan gagal', 'number'),
-                $this->field('containers_returned', 'Ompreng kembali', 'number'),
-                $this->field('containers_damaged', 'Ompreng rusak', 'number'),
-                $this->field('containers_lost', 'Ompreng hilang', 'number'),
-                $this->field('open_incidents', 'Insiden terbuka', 'number'),
-                $this->field('resolved_incidents', 'Insiden selesai', 'number'),
+                [...$this->field('report_date', 'Tanggal laporan', 'date'), 'editable' => false],
+                [...$this->field('status', 'Status'), 'editable' => false],
+                [...$this->field('planned_beneficiaries', 'Penerima direncanakan', 'number'), 'editable' => false],
+                [...$this->field('actual_beneficiaries', 'Penerima aktual', 'number'), 'editable' => false],
+                [...$this->field('planned_portions', 'Porsi direncanakan', 'number'), 'editable' => false],
+                [...$this->field('delivered_portions', 'Porsi terkirim', 'number'), 'editable' => false],
+                [...$this->field('returned_portions', 'Porsi kembali', 'number'), 'editable' => false],
+                [...$this->field('planned_destinations', 'Tujuan direncanakan', 'number'), 'editable' => false],
+                [...$this->field('completed_destinations', 'Tujuan selesai', 'number'), 'editable' => false],
+                [...$this->field('failed_destinations', 'Tujuan gagal', 'number'), 'editable' => false],
+                [...$this->field('containers_returned', 'Ompreng kembali', 'number'), 'editable' => false],
+                [...$this->field('containers_damaged', 'Ompreng rusak', 'number'), 'editable' => false],
+                [...$this->field('containers_lost', 'Ompreng hilang', 'number'), 'editable' => false],
+                [...$this->field('open_incidents', 'Insiden terbuka', 'number'), 'editable' => false],
+                [...$this->field('resolved_incidents', 'Insiden selesai', 'number'), 'editable' => false],
                 $this->field('operational_summary', 'Ringkasan operasional'),
                 $this->field('obstacles', 'Hambatan'),
                 $this->field('evaluation', 'Evaluasi'),

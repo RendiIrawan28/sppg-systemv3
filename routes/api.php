@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\FieldPlanController;
 use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\MobileDeviceTokenController;
+use App\Http\Controllers\Api\MobileDocumentController;
 use App\Http\Controllers\Api\MobileNotificationController;
 use App\Http\Controllers\Api\MobileSecurityController;
 use App\Http\Controllers\Api\MobileTaskController;
@@ -20,6 +21,8 @@ Route::prefix('mobile')->group(function (): void {
         Route::delete('/device-tokens/{installationId}', [MobileDeviceTokenController::class, 'destroy']);
         Route::get('/tasks', [MobileTaskController::class, 'index']);
         Route::get('/notifications', [MobileNotificationController::class, 'index']);
+        Route::get('/notifications/status', [MobileNotificationController::class, 'status']);
+        Route::post('/notifications/test', [MobileNotificationController::class, 'test']);
         Route::post('/notifications/read-all', [MobileNotificationController::class, 'readAll']);
         Route::post('/notifications/{notification}/read', [MobileNotificationController::class, 'read']);
         Route::get('/security/overview', [MobileSecurityController::class, 'overview']);
@@ -30,10 +33,13 @@ Route::prefix('mobile')->group(function (): void {
         Route::put('/field-plans/{plan}', [FieldPlanController::class, 'update']);
         Route::get('/field-plans/{plan}/readiness', [FieldPlanController::class, 'readiness']);
         Route::post('/field-plans/{plan}/activate', [FieldPlanController::class, 'activate']);
+        Route::get('/field-plans/{fieldDistributionPlan}/document', [MobileDocumentController::class, 'fieldPlan']);
         Route::get('/operational-modules', [MobileOperationalController::class, 'modules']);
         Route::get('/operational-modules/{module}/records', [MobileOperationalController::class, 'index']);
         Route::post('/operational-modules/{module}/records', [MobileOperationalController::class, 'store']);
         Route::get('/operational-modules/{module}/records/{record}', [MobileOperationalController::class, 'show'])
+            ->whereNumber('record');
+        Route::get('/operational-modules/{module}/records/{record}/document', [MobileDocumentController::class, 'operational'])
             ->whereNumber('record');
         Route::put('/operational-modules/{module}/records/{record}', [MobileOperationalController::class, 'update'])
             ->whereNumber('record');

@@ -1,7 +1,6 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.gms.google-services")
 }
 
 val firebaseConfigPresent = file("google-services.json").exists()
@@ -13,7 +12,7 @@ fun String.asBuildConfigString(): String =
     "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val debugApiBaseUrl = providers.gradleProperty("SPPG_DEBUG_API_BASE_URL")
-    .orElse("http://10.94.231.176:8000/api/mobile/")
+    .orElse("http://192.168.1.32:8000/api/mobile/")
     .get()
 val releaseApiBaseUrl = providers.gradleProperty("SPPG_RELEASE_API_BASE_URL")
     .orElse("https://localhost/api/mobile/")
@@ -27,9 +26,10 @@ android {
         applicationId = "id.sppg.mobile"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
+        versionCode = 5
         versionName = "2.0"
 
+        buildConfigField("boolean", "FIREBASE_CONFIG_PRESENT", firebaseConfigPresent.toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

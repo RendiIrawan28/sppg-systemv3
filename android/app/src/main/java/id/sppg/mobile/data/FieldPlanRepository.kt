@@ -1,5 +1,6 @@
 package id.sppg.mobile.data
 
+import android.content.Context
 import id.sppg.mobile.data.remote.ActivateFieldPlanRequest
 import id.sppg.mobile.data.remote.ApiErrorHandler
 import id.sppg.mobile.data.remote.FieldPlan
@@ -9,17 +10,30 @@ import id.sppg.mobile.data.remote.SessionExpiredException
 import id.sppg.mobile.data.remote.UpdateFieldPlanRequest
 import id.sppg.mobile.data.remote.safeApiCall
 import id.sppg.mobile.data.session.SessionStore
+import java.io.File
 import java.io.IOException
+
+data class FieldPlanPage(
+    val plans: List<FieldPlan>,
+    val currentPage: Int,
+    val lastPage: Int,
+)
 
 class FieldPlanRepository(
     private val api: MobileApi,
     private val sessionStore: SessionStore,
     private val errorHandler: ApiErrorHandler,
+    private val context: Context,
 ) {
-    suspend fun getPlans(): Result<List<FieldPlan>> = safeApiCall(errorHandler) {
-        val response = api.fieldPlans(authorization())
+    suspend fun getPlans(page: Int = 1): Result<FieldPlanPage> = safeApiCall(errorHandler) {
+        val response = api.fieldPlans(authorization(), page = page)
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
-        response.body()?.data ?: throw IOException("Daftar rencana tidak tersedia.")
+        val body = response.body() ?: throw IOException("Daftar rencana tidak tersedia.")
+        FieldPlanPage(
+            plans = body.data,
+            currentPage = body.meta?.currentPage ?: page,
+            lastPage = body.meta?.lastPage ?: page,
+        )
     }
 
     suspend fun getPlan(id: Long): Result<FieldPlan> = safeApiCall(errorHandler) {
@@ -48,6 +62,21 @@ class FieldPlanRepository(
         )
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
         response.body()?.data ?: throw IOException("Rencana gagal diperbarui setelah aktivasi.")
+    }
+
+    suspend fun downloadDocument(id: Long): Result<File> = safeApiCall(errorHandler) {
+        val response = api.fieldPlanDocument(authorization(), id)
+        if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
+        val body = response.body() ?: throw IOException("Dokumen rencana tidak tersedia.")
+        val directory = File(context.cacheDir, "documents").apply { mkdirs() }
+        val filename = response.headers()["Content-Disposition"]
+            ?.substringAfter("filename=", "")
+            ?.trim('"', '\'', ' ')
+            ?.takeIf { it.isNotBlank() }
+            ?: "rencana-distribusi-$id.pdf"
+        val file = File(directory, filename.replace(Regex("[^A-Za-z0-9._-]"), "-"))
+        body.byteStream().use { input -> file.outputStream().use { output -> input.copyTo(output) } }
+        file
     }
 
     private suspend fun authorization(): String {

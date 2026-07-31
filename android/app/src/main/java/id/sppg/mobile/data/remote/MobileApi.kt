@@ -10,6 +10,8 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.PUT
 import retrofit2.http.Query
+import retrofit2.http.Streaming
+import okhttp3.ResponseBody
 
 interface MobileApi {
     @POST("login")
@@ -25,6 +27,7 @@ interface MobileApi {
     suspend fun fieldPlans(
         @Header("Authorization") authorization: String,
         @Query("per_page") perPage: Int = 50,
+        @Query("page") page: Int = 1,
     ): Response<PaginatedFieldPlans>
 
     @GET("field-plans/{id}")
@@ -53,6 +56,13 @@ interface MobileApi {
         @Body request: ActivateFieldPlanRequest,
     ): Response<ActivateFieldPlanResponse>
 
+    @Streaming
+    @GET("field-plans/{id}/document")
+    suspend fun fieldPlanDocument(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+    ): Response<ResponseBody>
+
     @GET("operational-modules")
     suspend fun operationalModules(
         @Header("Authorization") authorization: String,
@@ -63,6 +73,7 @@ interface MobileApi {
         @Header("Authorization") authorization: String,
         @Path("module") module: String,
         @Query("per_page") perPage: Int = 50,
+        @Query("page") page: Int = 1,
     ): Response<OperationalRecordsResponse>
 
     @GET("operational-modules/{module}/records/{id}")
@@ -131,6 +142,14 @@ interface MobileApi {
         @Path("item") item: Long,
     ): Response<MessageResponse>
 
+    @Streaming
+    @GET("operational-modules/{module}/records/{id}/document")
+    suspend fun operationalDocument(
+        @Header("Authorization") authorization: String,
+        @Path("module") module: String,
+        @Path("id") id: Long,
+    ): Response<ResponseBody>
+
     @POST("operational-modules/{module}/records/{id}/relations/{relation}/{item}/actions/{action}")
     suspend fun runOperationalRelationAction(
         @Header("Authorization") authorization: String,
@@ -166,6 +185,18 @@ interface MobileApi {
     suspend fun notifications(
         @Header("Authorization") authorization: String,
     ): Response<MobileNotificationsResponse>
+
+    @GET("notifications/status")
+    suspend fun notificationStatus(
+        @Header("Authorization") authorization: String,
+        @Query("installation_id") installationId: String,
+    ): Response<PushNotificationStatusResponse>
+
+    @POST("notifications/test")
+    suspend fun sendTestNotification(
+        @Header("Authorization") authorization: String,
+        @Body request: TestNotificationRequest,
+    ): Response<TestNotificationResponse>
 
     @POST("notifications/{id}/read")
     suspend fun readNotification(
@@ -274,6 +305,7 @@ data class FieldPlan(
     @SerializedName("is_editable") val isEditable: Boolean,
     @SerializedName("can_update") val canUpdate: Boolean,
     @SerializedName("can_activate") val canActivate: Boolean,
+    @SerializedName("can_export") val canExport: Boolean = false,
     val destinations: List<FieldPlanDestination>?,
 )
 
@@ -400,6 +432,7 @@ data class OperationalFormField(
 data class OperationalCapabilities(
     @SerializedName("can_update") val canUpdate: Boolean,
     @SerializedName("can_delete") val canDelete: Boolean,
+    @SerializedName("can_view_document") val canViewDocument: Boolean = false,
     val actions: List<OperationalAction>?,
 )
 
@@ -407,7 +440,11 @@ data class OperationalSaveRequest(
     val fields: Map<String, String?>,
     val files: Map<String, String> = emptyMap(),
 )
-data class OperationalActionRequest(val notes: String?)
+data class OperationalActionRequest(
+    val notes: String?,
+    val fields: Map<String, String?> = emptyMap(),
+    val files: Map<String, String> = emptyMap(),
+)
 data class OperationalRelationSaveRequest(
     val fields: Map<String, String?>,
     val files: Map<String, String>,
@@ -422,6 +459,7 @@ data class OperationalAction(
     val key: String,
     val label: String,
     @SerializedName("notes_required") val notesRequired: Boolean,
+    val fields: List<OperationalFormField>? = emptyList(),
 )
 
 data class OperationalMetric(
@@ -522,8 +560,39 @@ data class MobileNotificationItem(
     val screen: String?,
     val payload: Map<String, String>?,
     @SerializedName("delivery_status") val deliveryStatus: String,
+    @SerializedName("error_message") val errorMessage: String?,
     @SerializedName("created_at") val createdAt: String?,
     @SerializedName("read_at") val readAt: String?,
+)
+
+data class TestNotificationRequest(
+    @SerializedName("installation_id") val installationId: String,
+)
+
+data class PushNotificationStatusResponse(val data: PushNotificationStatus)
+
+data class PushNotificationStatus(
+    @SerializedName("firebase_configured") val firebaseConfigured: Boolean,
+    @SerializedName("firebase_message") val firebaseMessage: String,
+    @SerializedName("device_registered") val deviceRegistered: Boolean,
+    @SerializedName("device_active") val deviceActive: Boolean,
+    @SerializedName("device_name") val deviceName: String?,
+    @SerializedName("app_version") val appVersion: String?,
+    @SerializedName("registered_at") val registeredAt: String?,
+    @SerializedName("last_seen_at") val lastSeenAt: String?,
+    @SerializedName("server_time") val serverTime: String?,
+)
+
+data class TestNotificationResponse(
+    val message: String,
+    val data: TestNotificationResult,
+)
+
+data class TestNotificationResult(
+    @SerializedName("notification_id") val notificationId: Long,
+    @SerializedName("delivery_status") val deliveryStatus: String,
+    @SerializedName("error_message") val errorMessage: String?,
+    @SerializedName("sent_at") val sentAt: String?,
 )
 
 data class SecurityOverviewResponse(val data: SecurityOverview)

@@ -17,6 +17,9 @@ data class FieldPlanUiState(
     val isLoading: Boolean = false,
     val isSubmitting: Boolean = false,
     val plans: List<FieldPlan> = emptyList(),
+    val currentPage: Int = 1,
+    val lastPage: Int = 1,
+    val isLoadingMore: Boolean = false,
     val selectedPlan: FieldPlan? = null,
     val readiness: ReadinessResponse? = null,
     val successMessage: String? = null,
@@ -34,11 +37,51 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
     fun loadPlans(force: Boolean = false) {
         if (!force && (_uiState.value.isLoading || _uiState.value.plans.isNotEmpty())) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null, successMessage = null, selectedPlan = null) }
-            repository.getPlans()
-                .onSuccess { plans -> _uiState.update { it.copy(plans = plans) } }
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    plans = if (force) emptyList() else it.plans,
+                    currentPage = 1,
+                    lastPage = 1,
+                    isLoadingMore = false,
+                    errorMessage = null,
+                    successMessage = null,
+                    selectedPlan = null,
+                )
+            }
+            repository.getPlans(page = 1)
+                .onSuccess { page ->
+                    _uiState.update {
+                        it.copy(
+                            plans = page.plans,
+                            currentPage = page.currentPage,
+                            lastPage = page.lastPage,
+                        )
+                    }
+                }
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    fun loadMorePlans() {
+        val current = _uiState.value
+        if (current.isLoading || current.isLoadingMore || current.currentPage >= current.lastPage) return
+        viewModelScope.launch {
+            val nextPage = _uiState.value.currentPage + 1
+            _uiState.update { it.copy(isLoadingMore = true, errorMessage = null) }
+            repository.getPlans(page = nextPage)
+                .onSuccess { page ->
+                    _uiState.update { state ->
+                        state.copy(
+                            plans = (state.plans + page.plans).distinctBy { it.id },
+                            currentPage = page.currentPage,
+                            lastPage = page.lastPage,
+                        )
+                    }
+                }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            _uiState.update { it.copy(isLoadingMore = false) }
         }
     }
 
@@ -102,6 +145,17 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
                         )
                     }
                 }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            _uiState.update { it.copy(isSubmitting = false) }
+        }
+    }
+
+    fun downloadDocument(id: Long, onReady: (java.io.File) -> Unit) {
+        if (_uiState.value.isSubmitting) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null) }
+            repository.downloadDocument(id)
+                .onSuccess(onReady)
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isSubmitting = false) }
         }

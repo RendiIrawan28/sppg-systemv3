@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material3.Card
@@ -72,6 +73,7 @@ fun FieldPlanListScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onLoad: () -> Unit,
+    onLoadMore: () -> Unit,
     onPlanClick: (Long) -> Unit,
 ) {
     LaunchedEffect(Unit) { onLoad() }
@@ -153,6 +155,25 @@ fun FieldPlanListScreen(
                 items(state.plans, key = { it.id }) { plan ->
                     FieldPlanCard(plan = plan, onClick = { onPlanClick(plan.id) })
                 }
+                if (state.currentPage < state.lastPage) {
+                    item(key = "field-plan-load-more-${state.currentPage}") {
+                        OutlinedButton(
+                            onClick = onLoadMore,
+                            enabled = !state.isLoadingMore,
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            if (state.isLoadingMore) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text("Muat rencana berikutnya")
+                        }
+                    }
+                }
             }
         }
     }
@@ -213,6 +234,7 @@ fun FieldPlanDetailScreen(
     onEdit: () -> Unit,
     onCheckReadiness: () -> Unit,
     onActivate: (String?) -> Unit,
+    onOpenDocument: () -> Unit,
     onClearFeedback: () -> Unit,
 ) {
     LaunchedEffect(planId) { onLoad(planId) }
@@ -247,6 +269,7 @@ fun FieldPlanDetailScreen(
                 onEdit = onEdit,
                 onCheckReadiness = onCheckReadiness,
                 onActivate = onActivate,
+                onOpenDocument = onOpenDocument,
                 onClearFeedback = onClearFeedback,
             )
         }
@@ -261,6 +284,7 @@ private fun FieldPlanDetailContent(
     onEdit: () -> Unit,
     onCheckReadiness: () -> Unit,
     onActivate: (String?) -> Unit,
+    onOpenDocument: () -> Unit,
     onClearFeedback: () -> Unit,
 ) {
     var showActivationDialog by remember { mutableStateOf(false) }
@@ -412,6 +436,20 @@ private fun FieldPlanDetailContent(
                 SummaryCard("Tujuan", plan.destinationCount.toString(), Modifier.weight(1f))
                 SummaryCard("Penerima", plan.confirmedBeneficiaries.toString(), Modifier.weight(1f))
                 SummaryCard("Porsi", plan.totalPortions.toString(), Modifier.weight(1f))
+            }
+        }
+        if (plan.canExport) {
+            item {
+                OutlinedButton(
+                    onClick = onOpenDocument,
+                    enabled = !state.isSubmitting,
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Lihat dokumen PDF", fontWeight = FontWeight.Bold)
+                }
             }
         }
         if (!plan.generalNotes.isNullOrBlank()) {

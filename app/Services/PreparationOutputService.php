@@ -134,6 +134,12 @@ class PreparationOutputService
 
             abort_unless($permission && $actor->can($permission), 403);
 
+            if ($output->expires_at && $output->expires_at->isPast()) {
+                throw ValidationException::withMessages([
+                    'output' => 'Hasil Persiapan sudah melewati batas penggunaan dan tidak dapat diambil.',
+                ]);
+            }
+
             if (! $output->isAvailableFor($division)) {
                 throw ValidationException::withMessages([
                     'output' => 'Hasil Persiapan tidak tersedia untuk divisi ini.',
@@ -176,26 +182,134 @@ class PreparationOutputService
                 'processing_batch_id' => $division === 'processing' ? $data['processing_batch_id'] : null,
                 'portioning_session_id' => $division === 'portioning' ? $data['portioning_session_id'] : null,
                 'requested_quantity' => $quantity,
-                'verified_quantity' => $quantity,
+                'verified_quantity' => null,
                 'unit_snapshot' => $output->unit_snapshot,
-                'status' => PreparationOutputWithdrawal::VERIFIED,
+                'status' => PreparationOutputWithdrawal::WAITING,
                 'taken_by' => $actor->getKey(),
                 'taken_at' => now(),
                 'verified_by' => null,
                 'verified_at' => null,
                 'notes' => trim((string) ($data['notes'] ?? '')) ?: null,
+                'review_notes' => null,
             ]);
 
-            $available = max(0, (float) $output->available_quantity - $quantity);
-            $output->update([
-                'available_quantity' => $available,
-                'state' => $available <= 0
-                    ? PreparationOutput::DEPLETED
-                    : PreparationOutput::PARTIALLY_TAKEN,
-                'updated_by' => $actor->getKey(),
+            $this->reserveQuantity($output, $quantity, $actor);
+
+            return $withdrawal->refresh();
+        });
+    }
+
+    public function verifyWithdrawal(
+        PreparationOutputWithdrawal $withdrawal,
+        User $actor,
+        float $verifiedQuantity,
+        ?string $notes = null,
+    ): PreparationOutputWithdrawal {
+        abort_unless($actor->can('preparation.update'), 403);
+
+        return DB::transaction(function () use ($withdrawal, $actor, $verifiedQuantity, $notes): PreparationOutputWithdrawal {
+            $withdrawal = PreparationOutputWithdrawal::query()
+                ->whereKey($withdrawal->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+            $output = PreparationOutput::query()
+                ->whereKey($withdrawal->preparation_output_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($withdrawal->status !== PreparationOutputWithdrawal::WAITING) {
+                throw ValidationException::withMessages([
+                    'withdrawal' => 'Pengambilan Hasil Persiapan sudah diproses.',
+                ]);
+            }
+
+            $requested = (float) $withdrawal->requested_quantity;
+            if ($verifiedQuantity <= 0 || $verifiedQuantity > $requested) {
+                throw ValidationException::withMessages([
+                    'verified_quantity' => 'Jumlah aktual harus lebih dari nol dan tidak boleh melebihi jumlah yang diminta.',
+                ]);
+            }
+
+            $difference = max(0, $requested - $verifiedQuantity);
+            if ($difference > 0) {
+                $this->restoreQuantity($output, $difference, $actor);
+            }
+
+            $withdrawal->update([
+                'verified_quantity' => $verifiedQuantity,
+                'status' => PreparationOutputWithdrawal::VERIFIED,
+                'verified_by' => $actor->getKey(),
+                'verified_at' => now(),
+                'review_notes' => filled($notes) ? trim($notes) : null,
             ]);
 
             return $withdrawal->refresh();
         });
+    }
+
+    public function rejectWithdrawal(
+        PreparationOutputWithdrawal $withdrawal,
+        User $actor,
+        string $notes,
+    ): PreparationOutputWithdrawal {
+        abort_unless($actor->can('preparation.update'), 403);
+
+        if (blank($notes)) {
+            throw ValidationException::withMessages([
+                'notes' => 'Alasan penolakan wajib diisi.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($withdrawal, $actor, $notes): PreparationOutputWithdrawal {
+            $withdrawal = PreparationOutputWithdrawal::query()
+                ->whereKey($withdrawal->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
+            $output = PreparationOutput::query()
+                ->whereKey($withdrawal->preparation_output_id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($withdrawal->status !== PreparationOutputWithdrawal::WAITING) {
+                throw ValidationException::withMessages([
+                    'withdrawal' => 'Pengambilan Hasil Persiapan sudah diproses.',
+                ]);
+            }
+
+            $this->restoreQuantity($output, (float) $withdrawal->requested_quantity, $actor);
+            $withdrawal->update([
+                'verified_quantity' => 0,
+                'status' => PreparationOutputWithdrawal::REJECTED,
+                'verified_by' => $actor->getKey(),
+                'verified_at' => now(),
+                'review_notes' => trim($notes),
+            ]);
+
+            return $withdrawal->refresh();
+        });
+    }
+
+    private function reserveQuantity(PreparationOutput $output, float $quantity, User $actor): void
+    {
+        $available = max(0, (float) $output->available_quantity - $quantity);
+        $output->update([
+            'available_quantity' => $available,
+            'state' => $available <= 0
+                ? PreparationOutput::DEPLETED
+                : PreparationOutput::PARTIALLY_TAKEN,
+            'updated_by' => $actor->getKey(),
+        ]);
+    }
+
+    private function restoreQuantity(PreparationOutput $output, float $quantity, User $actor): void
+    {
+        $available = min((float) $output->quantity, (float) $output->available_quantity + $quantity);
+        $output->update([
+            'available_quantity' => $available,
+            'state' => $available >= (float) $output->quantity
+                ? PreparationOutput::AVAILABLE
+                : PreparationOutput::PARTIALLY_TAKEN,
+            'updated_by' => $actor->getKey(),
+        ]);
     }
 }

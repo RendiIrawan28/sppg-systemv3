@@ -3,6 +3,7 @@ package id.sppg.mobile.core.notification
 import android.content.Context
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
+import id.sppg.mobile.BuildConfig
 import id.sppg.mobile.data.NotificationRepository
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -13,10 +14,21 @@ class FirebaseTokenRegistrar(
     private val repository: NotificationRepository,
 ) {
     suspend fun registerCurrentToken(): Result<Unit> = runCatching {
-        val firebaseApp = FirebaseApp.initializeApp(context)
-            ?: throw IllegalStateException(
-                "Firebase belum dikonfigurasi. Tambahkan google-services.json pada folder android/app.",
+        if (!BuildConfig.FIREBASE_CONFIG_PRESENT) {
+            throw IllegalStateException(
+                "google-services.json belum ditemukan pada folder android/app.",
             )
+        }
+
+        val firebaseApp = FirebaseApp.getApps(context).firstOrNull()
+            ?: FirebaseApp.initializeApp(context)
+            ?: throw IllegalStateException(
+                "Firebase tidak dapat diinisialisasi. Periksa package id.sppg.mobile pada Firebase Console.",
+            )
+        check(firebaseApp.options.projectId?.isNotBlank() == true) {
+            "Project ID Firebase tidak ditemukan pada google-services.json."
+        }
+
         val token = suspendCancellableCoroutine<String> { continuation ->
             FirebaseMessaging.getInstance().token
                 .addOnSuccessListener { value ->
@@ -26,8 +38,10 @@ class FirebaseTokenRegistrar(
                     if (continuation.isActive) continuation.resumeWithException(error)
                 }
         }
+        check(token.isNotBlank()) { "Firebase tidak mengembalikan token perangkat." }
         repository.registerDeviceToken(token).getOrThrow()
     }
+
     suspend fun unregisterCurrentDevice(): Result<Unit> {
         val serverResult = repository.unregisterDevice()
         runCatching {
@@ -45,5 +59,4 @@ class FirebaseTokenRegistrar(
         }
         return serverResult
     }
-
 }

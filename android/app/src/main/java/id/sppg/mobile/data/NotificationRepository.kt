@@ -6,8 +6,11 @@ import id.sppg.mobile.data.remote.ApiErrorHandler
 import id.sppg.mobile.data.remote.MobileApi
 import id.sppg.mobile.data.remote.MobileNotificationItem
 import id.sppg.mobile.data.remote.MobileTaskItem
+import id.sppg.mobile.data.remote.PushNotificationStatus
 import id.sppg.mobile.data.remote.RegisterDeviceTokenRequest
 import id.sppg.mobile.data.remote.SessionExpiredException
+import id.sppg.mobile.data.remote.TestNotificationRequest
+import id.sppg.mobile.data.remote.TestNotificationResult
 import id.sppg.mobile.data.remote.safeApiCall
 import id.sppg.mobile.data.session.SessionStore
 import java.io.IOException
@@ -38,6 +41,28 @@ class NotificationRepository(
         if (!response.isSuccessful) {
             throw apiException(response.code(), response.errorBody()?.string(), "Notifikasi perangkat belum dapat dinonaktifkan.")
         }
+    }
+
+    suspend fun pushStatus(): Result<PushNotificationStatus> = safeApiCall(errorHandler) {
+        val response = api.notificationStatus(
+            authorization = authorization(),
+            installationId = sessionStore.installationId(),
+        )
+        if (!response.isSuccessful) {
+            throw apiException(response.code(), response.errorBody()?.string(), "Status notifikasi belum dapat diperiksa.")
+        }
+        response.body()?.data ?: throw IOException("Respons status notifikasi tidak lengkap.")
+    }
+
+    suspend fun sendTestNotification(): Result<TestNotificationResult> = safeApiCall(errorHandler) {
+        val response = api.sendTestNotification(
+            authorization = authorization(),
+            request = TestNotificationRequest(sessionStore.installationId()),
+        )
+        if (!response.isSuccessful) {
+            throw apiException(response.code(), response.errorBody()?.string(), "Notifikasi uji belum dapat dikirim.")
+        }
+        response.body()?.data ?: throw IOException("Respons notifikasi uji tidak lengkap.")
     }
 
     suspend fun tasks(status: String = "pending"): Result<Pair<List<MobileTaskItem>, Int>> = safeApiCall(errorHandler) {
