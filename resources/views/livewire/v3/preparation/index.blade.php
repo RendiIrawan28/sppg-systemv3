@@ -19,7 +19,7 @@
                         <p class="mt-2 text-[10px] font-bold text-sky-700">{{ $statusLabels[$record->status->value] ?? $record->status->value }}</p>
                     </button>
                 @empty
-                    <div class="rounded-2xl bg-white p-8 text-center text-sm text-slate-500">Belum ada pengambilan Persiapan yang diverifikasi Gudang.</div>
+                    <div class="rounded-2xl bg-white p-8 text-center text-sm text-slate-500">Belum ada pengambilan barang yang dicatat oleh Divisi Persiapan.</div>
                 @endforelse
             </section>
 

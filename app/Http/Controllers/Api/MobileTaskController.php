@@ -30,7 +30,8 @@ class MobileTaskController extends Controller
         $status = $filters['status'] ?? 'pending';
         $query = MobileTask::query()
             ->where('user_id', $request->user()->getKey())
-            ->where('sppg_unit_id', $systemUnit->id());
+            ->where('sppg_unit_id', $systemUnit->id())
+            ->where('task_type', '!=', 'security_test_reminder');
         if ($status !== 'all') {
             $query->where('status', $status);
         }
@@ -50,9 +51,11 @@ class MobileTaskController extends Controller
                 'pending_count' => MobileTask::query()
                     ->where('user_id', $request->user()->getKey())
                     ->where('sppg_unit_id', $systemUnit->id())
+                    ->where('task_type', '!=', 'security_test_reminder')
                     ->pending()->count(),
                 'unread_notification_count' => MobileNotification::query()
                     ->where('user_id', $request->user()->getKey())
+                    ->where('notification_type', '!=', 'fcm_test')
                     ->whereNull('read_at')->count(),
             ],
         ]);

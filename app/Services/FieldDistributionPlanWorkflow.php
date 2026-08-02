@@ -158,15 +158,25 @@ class FieldDistributionPlanWorkflow
             );
 
             $plan->refresh();
-            $documents = (int) $plan->planned_total_portions > 0
-                ? app(FieldOperationalPlanGenerator::class)->generate($plan, $actor)
-                : [
-                    'processing_batch' => null,
-                    'portioning_session' => null,
-                    'distribution_run' => null,
-                    'distribution_runs' => [],
-                    'skipped' => ['Seluruh tujuan tidak menerima pelayanan sehingga pekerjaan produksi dan distribusi tidak dibentuk.'],
-                ];
+            $distributionRuns = (int) $plan->planned_total_portions > 0
+                ? app(FieldOperationalPlanGenerator::class)->generateDistributionRuns($plan, $actor)
+                : collect();
+
+            $documents = [
+                // Pengolahan baru dibuat ketika divisi mencatat pengambilan bahan.
+                // Pemorsian dibuat secara manual dari rencana aktif pada ruang kerjanya.
+                'processing_batch' => null,
+                'portioning_session' => null,
+                'distribution_run' => $distributionRuns->pluck('run_number')->implode(', '),
+                'distribution_runs' => $distributionRuns->pluck('run_number')->all(),
+                'skipped' => array_values(array_filter([
+                    'Batch Pengolahan menunggu pengambilan bahan oleh Divisi Pengolahan.',
+                    'Sesi Pemorsian dibuat manual oleh Divisi Pemorsian dari rencana aktif.',
+                    $distributionRuns->isNotEmpty()
+                        ? null
+                        : 'Seluruh tujuan tidak menerima pelayanan sehingga rute Distribusi tidak dibentuk.',
+                ])),
+            ];
 
             return [
                 'operational_documents' => $documents,
@@ -176,7 +186,7 @@ class FieldDistributionPlanWorkflow
 
     public function synchronize(FieldDistributionPlan $plan, User $actor): array
     {
-        throw new DomainException('Pembuatan dan sinkronisasi pekerjaan divisi otomatis sedang dinonaktifkan. Dokumen dibuat manual pada masing-masing modul.');
+        throw new DomainException('Sinkronisasi otomatis Pengolahan dan Pemorsian dinonaktifkan. Rute Distribusi dibentuk saat rencana diaktifkan.');
     }
 
     public function complete(FieldDistributionPlan $plan, User $actor, ?string $notes = null): void

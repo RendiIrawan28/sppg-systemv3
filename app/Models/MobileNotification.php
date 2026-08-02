@@ -33,4 +33,9 @@ class MobileNotification extends Model
     {
         return $this->belongsTo(MobileTask::class, 'mobile_task_id');
     }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
 }

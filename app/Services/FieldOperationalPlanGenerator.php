@@ -2,14 +2,15 @@
 
 namespace App\Services;
 
+use App\Enums\DistributionRunState;
 use App\Models\DistributionRun;
 use App\Models\FieldDistributionPlan;
 use App\Models\PortioningSession;
 use App\Models\ProcessingBatch;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
@@ -92,40 +93,6 @@ class FieldOperationalPlanGenerator
             ])->save();
 
             return $runs->map->refresh()->values();
-        });
-    }
-
-    public function generate(FieldDistributionPlan $plan, User $actor): array
-    {
-        $plan->load(['destinations', 'menuCycleDay']);
-
-        if ($plan->destinations->isEmpty()) {
-            throw new RuntimeException('Rencana tidak memiliki tujuan distribusi.');
-        }
-
-        return DB::transaction(function () use ($plan, $actor): array {
-            $batch = $this->syncProcessingBatch($plan, $actor);
-            $portioning = $this->syncPortioningSession($plan, $batch, $actor);
-            $distributionRuns = $this->syncDistributionRuns($plan, $portioning, $actor);
-
-            $plan->forceFill([
-                'processing_batch_id' => $batch?->getKey(),
-                'portioning_session_id' => $portioning?->getKey(),
-                'distribution_run_id' => $distributionRuns->first()?->getKey(),
-                'updated_by' => $actor->getKey(),
-            ])->save();
-
-            return [
-                'processing_batch' => $batch?->batch_number,
-                'portioning_session' => $portioning?->session_number,
-                'distribution_run' => $distributionRuns->pluck('run_number')->implode(', '),
-                'distribution_runs' => $distributionRuns->pluck('run_number')->all(),
-                'skipped' => array_values(array_filter([
-                    $batch ? null : 'Modul Pengolahan belum terpasang.',
-                    $portioning ? null : 'Modul Pemorsian belum terpasang.',
-                    $distributionRuns->isNotEmpty() ? null : 'Modul Distribusi belum terpasang.',
-                ])),
-            ];
         });
     }
 
@@ -330,6 +297,7 @@ class FieldOperationalPlanGenerator
             if (! $isNew && ! $this->canSynchronize($run)) {
                 $keptIds[] = $run->getKey();
                 $runs->push($run);
+
                 continue;
             }
 
@@ -364,7 +332,7 @@ class FieldOperationalPlanGenerator
                 'containers_returned' => 0,
                 'containers_damaged' => 0,
                 'containers_lost' => 0,
-                'state' => \App\Enums\DistributionRunState::Planned,
+                'state' => DistributionRunState::Planned,
                 'notes' => "Rute {$routeName} dibuat dari rencana distribusi {$plan->plan_number}.",
                 'updated_by' => $actor->getKey(),
             ];

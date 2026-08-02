@@ -123,14 +123,12 @@ class FieldPlanController extends Controller
         }
 
         $generated = $result['operational_documents'] ?? [];
-        $hasOperationalWork = filled($generated['processing_batch'] ?? null)
-            || filled($generated['portioning_session'] ?? null)
-            || ! empty($generated['distribution_runs'] ?? []);
+        $hasDistributionRoutes = ! empty($generated['distribution_runs'] ?? []);
 
         return response()->json([
-            'message' => $hasOperationalWork
-                ? 'Rencana berhasil diaktifkan. Batch Pengolahan, sesi Pemorsian, dan rute Distribusi telah disiapkan.'
-                : 'Rencana berhasil diaktifkan tanpa pekerjaan produksi karena seluruh tujuan tidak menerima pelayanan.',
+            'message' => $hasDistributionRoutes
+                ? 'Rencana berhasil diaktifkan dan rute Distribusi telah disiapkan. Pengolahan dan Pemorsian dimulai manual oleh divisi masing-masing.'
+                : 'Rencana berhasil diaktifkan tanpa rute Distribusi karena seluruh tujuan tidak menerima pelayanan.',
             'generated' => $generated,
             'data' => new MobileFieldPlanResource(
                 $plan->refresh()->load('destinations.recipientGroups'),

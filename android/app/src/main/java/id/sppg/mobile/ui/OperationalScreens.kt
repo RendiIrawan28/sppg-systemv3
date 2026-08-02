@@ -209,13 +209,15 @@ private fun OperationalRecordCard(module: String, record: OperationalRecord, onC
             ) {
                 ModuleIcon(module, Modifier.size(42.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        record.number,
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.height(3.dp))
+                    if (!isTechnicalRecordNumber(record.number)) {
+                        Text(
+                            record.number,
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                    }
                     Text(record.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
             }
@@ -505,10 +507,18 @@ private fun OperationalDetailContent(
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(record.number, fontWeight = FontWeight.Bold, color = Color.White)
+                        if (!isTechnicalRecordNumber(record.number)) {
+                            Text(
+                                record.number,
+                                modifier = Modifier.weight(1f),
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                            )
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
                         SppgStatusPill(record.stateLabel ?: record.statusLabel ?: "-")
                     }
                     Spacer(Modifier.height(14.dp))
@@ -1164,13 +1174,22 @@ private fun OperationalFieldRow(field: OperationalField) {
         )
         Spacer(Modifier.width(16.dp))
         if (!field.fileUrl.isNullOrBlank()) {
-            TextButton(
-                onClick = { uriHandler.openUri(field.fileUrl) },
-                modifier = Modifier.weight(1f),
-            ) {
-                Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Buka dokumen", fontWeight = FontWeight.SemiBold)
+            if (isImageUrl(field.fileUrl)) {
+                InAppImageButton(
+                    url = field.fileUrl,
+                    title = field.label,
+                    label = "Lihat foto",
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                TextButton(
+                    onClick = { uriHandler.openUri(resolveAppMediaUrl(field.fileUrl)) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Buka dokumen", fontWeight = FontWeight.SemiBold)
+                }
             }
         } else {
             Text(
@@ -1196,6 +1215,9 @@ private fun OperationalInfoLine(icon: androidx.compose.ui.graphics.vector.ImageV
         Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+internal fun isTechnicalRecordNumber(value: String): Boolean =
+    value.matches(Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"))
 
 @Composable
 private fun OperationalLoading(padding: PaddingValues) {
@@ -1274,4 +1296,3 @@ private fun createOperationalCameraCaptureTarget(context: Context): OperationalC
     )
     return OperationalCameraCaptureTarget(file = file, uri = uri)
 }
-

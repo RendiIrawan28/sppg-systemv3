@@ -149,6 +149,14 @@ final class Navigation
                         active: request()->routeIs('v3.security.*'), visible: $this->allowed($user, 'security.view'),
                     ),
                     $this->item(
+                        label: 'Kirim notifikasi', icon: 'alert', url: route('v3.notifications.broadcast'),
+                        active: request()->routeIs('v3.notifications.broadcast'), visible: $this->allowed($user, 'notifications.manage'),
+                    ),
+                    $this->item(
+                        label: 'Presensi relawan', icon: 'users', url: route('v3.attendance.index'),
+                        active: request()->routeIs('v3.attendance.*'), visible: $this->allowed($user, 'attendance.view'),
+                    ),
+                    $this->item(
                         label: 'Master data',
                         icon: 'settings',
                         url: route('v3.master-data.index'),

@@ -16,6 +16,7 @@ use App\Models\SppgUnit;
 use App\Models\StockReceipt;
 use App\Models\User;
 use App\Models\WashingSession;
+use App\Services\SecurityMonitoringService;
 
 final class DashboardSummary
 {
@@ -91,6 +92,7 @@ final class DashboardSummary
 
         if ($this->allowed($user, 'security.view')) {
             if ($this->allowed($user, 'security.create')) {
+                app(SecurityMonitoringService::class)->expireOverdueShifts($unitId, $user->getKey());
                 $shift = SecurityShift::query()
                     ->where('sppg_unit_id', $unitId)
                     ->where('officer_id', $user->getKey())

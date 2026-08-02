@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\User;
 use App\Services\UserUnitAccessService;
+use App\Services\VolunteerAttendanceService;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -92,7 +93,7 @@ class Users extends Component
         $data = $this->validate($rules);
         $user = DB::transaction(function () use ($data, $unit, $access): User {
             $user = $this->userId ? User::query()->findOrFail($this->userId) : new User;
-            $payload = ['employee_number' => trim($data['employeeNumber']) ?: null, 'name' => trim($data['name']), 'email' => str($data['email'])->trim()->lower(), 'phone' => trim($data['phone']) ?: null];
+            $payload = ['employee_number' => VolunteerAttendanceService::normalizeUid($data['employeeNumber']) ?: null, 'name' => trim($data['name']), 'email' => str($data['email'])->trim()->lower(), 'phone' => trim($data['phone']) ?: null];
             if (filled($data['password'])) {
                 $payload['password'] = $data['password'];
             }

@@ -108,8 +108,85 @@ class MobilePushService
     }
 
     /**
-     * @param Collection<int, MobileDeviceToken> $tokens
-     * @param array<string, string> $data
+     * @return array{batch_id: string, recipients: int, sent: int, no_device: int, failed: int}
+     */
+    public function broadcastToAllActiveUsers(
+        User $sender,
+        ?int $unitId,
+        string $title,
+        string $body,
+    ): array {
+        $batchId = (string) Str::uuid();
+        $summary = [
+            'batch_id' => $batchId,
+            'recipients' => 0,
+            'sent' => 0,
+            'no_device' => 0,
+            'failed' => 0,
+        ];
+
+        User::query()
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->chunkById(100, function ($users) use ($sender, $unitId, $title, $body, $batchId, &$summary): void {
+                foreach ($users as $user) {
+                    $notification = MobileNotification::query()->create([
+                        'sppg_unit_id' => $unitId,
+                        'user_id' => $user->getKey(),
+                        'mobile_task_id' => null,
+                        'notification_type' => 'admin_broadcast',
+                        'title' => $title,
+                        'body' => $body,
+                        'channel' => 'sppg_tasks',
+                        'screen' => 'notifications',
+                        'payload' => [
+                            'broadcast_id' => $batchId,
+                            'sent_by_id' => $sender->getKey(),
+                            'sent_by_name' => $sender->name,
+                        ],
+                        'delivery_status' => 'pending',
+                        'dedupe_key' => hash('sha256', "admin-broadcast:{$batchId}:{$user->getKey()}"),
+                    ]);
+
+                    $tokens = MobileDeviceToken::query()
+                        ->where('user_id', $user->getKey())
+                        ->active()
+                        ->get();
+
+                    $notification = $this->deliver(
+                        notification: $notification,
+                        tokens: $tokens,
+                        title: $title,
+                        body: $body,
+                        data: [
+                            'notification_id' => (string) $notification->getKey(),
+                            'type' => 'admin_broadcast',
+                            'title' => $title,
+                            'body' => $body,
+                            'channel' => 'sppg_tasks',
+                            'screen' => 'notifications',
+                            'broadcast_id' => $batchId,
+                        ],
+                        channel: 'sppg_tasks',
+                    );
+
+                    $summary['recipients']++;
+                    if ($notification->delivery_status === 'sent') {
+                        $summary['sent']++;
+                    } elseif ($notification->delivery_status === 'no_device') {
+                        $summary['no_device']++;
+                    } else {
+                        $summary['failed']++;
+                    }
+                }
+            });
+
+        return $summary;
+    }
+
+    /**
+     * @param  Collection<int, MobileDeviceToken>  $tokens
+     * @param  array<string, string>  $data
      */
     private function deliver(
         MobileNotification $notification,
@@ -161,7 +238,8 @@ class MobilePushService
                 $firstMessageId ??= $response['name'] ?? null;
                 $token->update(['last_seen_at' => now()]);
             } catch (Throwable $exception) {
-                $errors[] = $exception->getMessage();
+                report($exception);
+                $errors[] = $this->userFacingDeliveryError($exception);
                 if ($this->isInvalidToken($exception)) {
                     $token->update(['is_active' => false]);
                 }
@@ -184,7 +262,7 @@ class MobilePushService
     }
 
     /** @param array<string, mixed> $data
-     *  @return array<string, string>
+     * @return array<string, string>
      */
     private function normalizeData(array $data): array
     {
@@ -215,5 +293,21 @@ class MobilePushService
         return str_contains($message, 'UNREGISTERED')
             || str_contains($message, 'registration-token-not-registered')
             || str_contains($message, 'SENDER_ID_MISMATCH');
+    }
+
+    private function userFacingDeliveryError(Throwable $exception): string
+    {
+        $message = $exception->getMessage();
+        if ($exception instanceof RequestException) {
+            $message .= ' '.(string) $exception->response->body();
+        }
+
+        return match (true) {
+            str_contains($message, 'cloudmessaging.messages.create') => 'Layanan notifikasi belum memiliki izin mengirim pesan. Hubungi administrator sistem.',
+            str_contains($message, 'UNREGISTERED'),
+            str_contains($message, 'registration-token-not-registered') => 'Token perangkat sudah tidak berlaku. Masuk ulang ke aplikasi untuk mendaftarkan perangkat.',
+            str_contains($message, 'SENDER_ID_MISMATCH') => 'Konfigurasi project notifikasi pada aplikasi dan server tidak sesuai.',
+            default => 'Pengiriman notifikasi belum berhasil. Silakan coba kembali atau hubungi administrator sistem.',
+        };
     }
 }

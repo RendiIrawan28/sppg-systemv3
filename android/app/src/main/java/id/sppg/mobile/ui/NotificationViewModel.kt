@@ -7,7 +7,6 @@ import id.sppg.mobile.core.notification.FirebaseTokenRegistrar
 import id.sppg.mobile.data.NotificationRepository
 import id.sppg.mobile.data.remote.MobileNotificationItem
 import id.sppg.mobile.data.remote.MobileTaskItem
-import id.sppg.mobile.data.remote.PushNotificationStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,15 +15,10 @@ import kotlinx.coroutines.launch
 
 data class NotificationUiState(
     val isLoading: Boolean = false,
-    val isRegistering: Boolean = false,
-    val isSendingTest: Boolean = false,
     val tasks: List<MobileTaskItem> = emptyList(),
     val notifications: List<MobileNotificationItem> = emptyList(),
     val unreadCount: Int = 0,
-    val pushStatus: PushNotificationStatus? = null,
     val errorMessage: String? = null,
-    val successMessage: String? = null,
-    val firebaseNotice: String? = null,
 )
 
 class NotificationViewModel(
@@ -33,27 +27,14 @@ class NotificationViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(NotificationUiState())
     val uiState: StateFlow<NotificationUiState> = _uiState.asStateFlow()
+    private var registering = false
 
     fun registerDevice() {
-        if (_uiState.value.isRegistering) return
+        if (registering) return
         viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isRegistering = true,
-                    firebaseNotice = null,
-                    successMessage = null,
-                )
-            }
+            registering = true
             registrar.registerCurrentToken()
-                .onSuccess {
-                    loadPushStatus()
-                }
-                .onFailure { error ->
-                    _uiState.update {
-                        it.copy(firebaseNotice = error.message ?: "Firebase belum dapat diaktifkan.")
-                    }
-                }
-            _uiState.update { it.copy(isRegistering = false) }
+            registering = false
         }
     }
 
@@ -63,7 +44,6 @@ class NotificationViewModel(
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             val taskResult = repository.tasks()
             val notificationResult = repository.notifications()
-            val statusResult = repository.pushStatus()
 
             taskResult.onSuccess { (tasks, unread) ->
                 _uiState.update { it.copy(tasks = tasks, unreadCount = unread) }
@@ -84,58 +64,8 @@ class NotificationViewModel(
                     }
                 }
             }
-            statusResult.onSuccess { status ->
-                _uiState.update { it.copy(pushStatus = status) }
-            }
             _uiState.update { it.copy(isLoading = false) }
         }
-    }
-
-    fun sendTestNotification() {
-        if (_uiState.value.isSendingTest) return
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isSendingTest = true,
-                    errorMessage = null,
-                    successMessage = null,
-                )
-            }
-            repository.sendTestNotification()
-                .onSuccess { result ->
-                    if (result.deliveryStatus == "sent") {
-                        _uiState.update {
-                            it.copy(successMessage = "Notifikasi uji diterima Firebase. Tunggu beberapa detik pada perangkat ini.")
-                        }
-                    } else {
-                        _uiState.update {
-                            it.copy(
-                                errorMessage = result.errorMessage
-                                    ?: "Notifikasi uji berstatus ${result.deliveryStatus}.",
-                            )
-                        }
-                    }
-                }
-                .onFailure { error ->
-                    _uiState.update {
-                        it.copy(errorMessage = error.message ?: "Notifikasi uji belum dapat dikirim.")
-                    }
-                }
-            _uiState.update { it.copy(isSendingTest = false) }
-            load(force = true)
-        }
-    }
-
-    private suspend fun loadPushStatus() {
-        repository.pushStatus()
-            .onSuccess { status ->
-                _uiState.update { it.copy(pushStatus = status, firebaseNotice = null) }
-            }
-            .onFailure { error ->
-                _uiState.update {
-                    it.copy(firebaseNotice = error.message ?: "Status Firebase belum dapat diperiksa.")
-                }
-            }
     }
 
     fun markRead(notification: MobileNotificationItem, onNavigate: (String?) -> Unit) {
@@ -160,16 +90,6 @@ class NotificationViewModel(
             registrar.unregisterCurrentDevice()
             _uiState.value = NotificationUiState()
             onComplete()
-        }
-    }
-
-    fun clearFeedback() {
-        _uiState.update {
-            it.copy(
-                errorMessage = null,
-                successMessage = null,
-                firebaseNotice = null,
-            )
         }
     }
 

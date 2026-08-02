@@ -17,6 +17,7 @@ class MobileNotificationController extends Controller
     {
         $notifications = MobileNotification::query()
             ->where('user_id', $request->user()->getKey())
+            ->where('notification_type', '!=', 'fcm_test')
             ->latest('created_at')
             ->limit(50)
             ->get();

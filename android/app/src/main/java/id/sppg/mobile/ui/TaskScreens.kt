@@ -18,9 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.DoneAll
-import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,7 +38,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import id.sppg.mobile.data.remote.MobileNotificationItem
 import id.sppg.mobile.data.remote.MobileTaskItem
-import id.sppg.mobile.data.remote.PushNotificationStatus
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 
@@ -54,7 +51,6 @@ fun TaskListScreen(
     onTaskClick: (MobileTaskItem) -> Unit,
     onNotificationClick: (MobileNotificationItem) -> Unit,
     onMarkAllRead: () -> Unit,
-    onSendTestNotification: () -> Unit,
 ) {
     LaunchedEffect(Unit) { onLoad() }
 
@@ -108,31 +104,6 @@ fun TaskListScreen(
                 }
             }
 
-            state.successMessage?.let { message ->
-                item(key = "success-message") {
-                    FeedbackCard("Berhasil", message, isError = false)
-                }
-            }
-
-            state.firebaseNotice?.let { message ->
-                item(key = "firebase-notice") {
-                    FeedbackCard(
-                        "Push notification belum aktif",
-                        message,
-                        isError = false,
-                    )
-                }
-            }
-
-            item(key = "push-status") {
-                PushStatusCard(
-                    status = state.pushStatus,
-                    isRegistering = state.isRegistering,
-                    isSendingTest = state.isSendingTest,
-                    onSendTestNotification = onSendTestNotification,
-                )
-            }
-
             item(key = "active-title") {
                 Text("Pekerjaan aktif", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
@@ -173,88 +144,6 @@ fun TaskListScreen(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun PushStatusCard(
-    status: PushNotificationStatus?,
-    isRegistering: Boolean,
-    isSendingTest: Boolean,
-    onSendTestNotification: () -> Unit,
-) {
-    val ready = status?.firebaseConfigured == true &&
-        status.deviceRegistered &&
-        status.deviceActive
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (ready) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.secondaryContainer
-            },
-        ),
-    ) {
-        Column(Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.NotificationsActive, contentDescription = null)
-                Spacer(Modifier.width(10.dp))
-                Text("Status push notification", fontWeight = FontWeight.Bold)
-                Spacer(Modifier.weight(1f))
-                SppgStatusPill(if (ready) "Siap" else "Perlu diperiksa")
-            }
-            Spacer(Modifier.height(10.dp))
-
-            when {
-                isRegistering -> Text("Mendaftarkan token perangkat ke server…")
-                status == null -> Text("Status perangkat belum tersedia. Tekan muat ulang.")
-                else -> {
-                    StatusLine("Firebase server", if (status.firebaseConfigured) "Siap" else "Belum siap")
-                    StatusLine("Perangkat terdaftar", if (status.deviceRegistered) "Ya" else "Belum")
-                    StatusLine("Token perangkat aktif", if (status.deviceActive) "Ya" else "Tidak")
-                    if (!status.deviceName.isNullOrBlank()) {
-                        StatusLine("Perangkat", status.deviceName)
-                    }
-                    if (!status.lastSeenAt.isNullOrBlank()) {
-                        StatusLine("Terakhir terhubung", formatMobileDate(status.lastSeenAt))
-                    }
-                    if (!status.firebaseConfigured) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            status.firebaseMessage,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-            Button(
-                onClick = onSendTestNotification,
-                enabled = ready && !isSendingTest,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (isSendingTest) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(Modifier.width(12.dp))
-                }
-                Text(if (isSendingTest) "Mengirim…" else "Kirim notifikasi uji")
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatusLine(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        Text(label, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, fontWeight = FontWeight.SemiBold)
     }
 }
 

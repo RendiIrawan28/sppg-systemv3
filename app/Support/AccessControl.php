@@ -63,6 +63,7 @@ final class AccessControl
             'incidents' => ['view', 'create', 'update', 'close'],
             'sanitation' => ['view', 'manage', 'verify'],
             'security' => ['view', 'create', 'update', 'close'],
+            'attendance' => ['view', 'manage', 'correct', 'export', 'devices'],
 
             'finance' => ['view', 'create', 'update', 'verify', 'approve', 'close_period', 'export'],
             'head_dashboard' => ['view'],
@@ -126,6 +127,7 @@ final class AccessControl
             'organization.view',
             'audit_logs.view',
             'notifications.view',
+            'notifications.manage',
             'reports.view',
             'reports.export',
 
@@ -167,6 +169,7 @@ final class AccessControl
             ...self::module('incidents', ['view', 'close']),
             ...self::module('sanitation', ['view']),
             ...self::module('security', ['view']),
+            ...self::module('attendance', ['view', 'manage', 'correct', 'export', 'devices']),
 
             // Modul khusus Kepala SPPG.
             'head_dashboard.view',
@@ -202,6 +205,7 @@ final class AccessControl
             ...self::module('field_incidents', ['view']),
             ...self::module('incidents', ['view']),
             ...self::module('security', ['view']),
+            ...self::module('attendance', ['view', 'manage', 'correct', 'export', 'devices']),
         ];
     }
 
@@ -257,6 +261,7 @@ final class AccessControl
         return [
             'dashboard.view', 'reports.view', 'reports.export',
             ...self::module('finance', ['view', 'verify', 'approve', 'export']),
+            ...self::module('attendance', ['view', 'correct', 'export']),
             // Akuntan/Pengawas Keuangan dapat mengoreksi daftar bahan, jumlah,
             // satuan, dan catatan sampai proses Verifikasi Keuangan dilakukan.
             // Permission submit/create tidak diberikan agar pemisahan pengajuan

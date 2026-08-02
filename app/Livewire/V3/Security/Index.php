@@ -5,7 +5,9 @@ namespace App\Livewire\V3\Security;
 use App\Enums\SecuritySituation;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\FieldIncident;
+use App\Models\MobileDeviceToken;
 use App\Models\SecurityShift;
+use App\Services\Mobile\FcmHttpV1Client;
 use App\Services\SecurityMonitoringService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -100,6 +102,9 @@ class Index extends Component
     {
         $unit = $this->currentUnit();
         $canWrite = $this->allowed('security.create');
+        if ($canWrite) {
+            app(SecurityMonitoringService::class)->expireOverdueShifts($unit->getKey(), auth()->id());
+        }
         $activeShift = $canWrite ? $this->activeShift()?->load('reports') : null;
         $nextDueAt = $activeShift?->next_report_due_at;
         $reportDue = $activeShift?->isReportDue() ?? false;
@@ -119,6 +124,12 @@ class Index extends Component
             ->limit(10)
             ->get();
 
+        $firebaseStatus = app(FcmHttpV1Client::class)->configurationStatus();
+        $hasActiveDevice = $canWrite && MobileDeviceToken::query()
+            ->where('user_id', auth()->id())
+            ->active()
+            ->exists();
+
         return view('livewire.v3.security.index', [
             ...$this->shellData($unit),
             'activeShift' => $activeShift,
@@ -128,6 +139,12 @@ class Index extends Component
             'reportDue' => $reportDue,
             'canWrite' => $canWrite,
             'situationOptions' => SecuritySituation::options(),
+            'notificationReady' => $firebaseStatus['configured'] && $hasActiveDevice,
+            'notificationMessage' => ! $firebaseStatus['configured']
+                ? 'Pengingat aplikasi belum aktif karena layanan notifikasi server belum siap.'
+                : ($hasActiveDevice
+                    ? 'Perangkat aktif dan siap menerima pengingat laporan.'
+                    : 'Belum ada perangkat aktif. Masuk ke aplikasi Android pada perangkat Satpam untuk mengaktifkan pengingat.'),
         ])->layout('layouts.v3', ['title' => 'Keamanan']);
     }
 

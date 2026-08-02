@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -53,6 +54,11 @@ class User extends Authenticatable
             ->withTimestamps();
     }
 
+    public function attendanceSessions(): HasMany
+    {
+        return $this->hasMany(AttendanceSession::class);
+    }
+
     public function divisionNamesForUnit(
         int $unitId
     ): string {
@@ -63,5 +69,4 @@ class User extends Authenticatable
             ->pluck('name')
             ->implode(', ');
     }
-
 }

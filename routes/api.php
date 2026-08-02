@@ -1,15 +1,21 @@
 <?php
 
+use App\Http\Controllers\Api\AttendanceDeviceController;
 use App\Http\Controllers\Api\FieldPlanController;
 use App\Http\Controllers\Api\MobileAuthController;
 use App\Http\Controllers\Api\MobileDeviceTokenController;
 use App\Http\Controllers\Api\MobileDocumentController;
 use App\Http\Controllers\Api\MobileNotificationController;
+use App\Http\Controllers\Api\MobileOperationalController;
 use App\Http\Controllers\Api\MobileSecurityController;
 use App\Http\Controllers\Api\MobileTaskController;
-use App\Http\Controllers\Api\MobileOperationalController;
 use App\Http\Middleware\EnsureMobileAccessToken;
 use Illuminate\Support\Facades\Route;
+
+Route::prefix('iot/attendance')->middleware('throttle:120,1')->group(function (): void {
+    Route::get('/configuration', [AttendanceDeviceController::class, 'configuration']);
+    Route::post('/tap', [AttendanceDeviceController::class, 'tap']);
+});
 
 Route::prefix('mobile')->group(function (): void {
     Route::post('/login', [MobileAuthController::class, 'login']);

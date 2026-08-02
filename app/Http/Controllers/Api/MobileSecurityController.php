@@ -21,6 +21,10 @@ class MobileSecurityController extends Controller
     public function overview(Request $request, SystemUnit $systemUnit, MobileTaskService $tasks): JsonResponse
     {
         abort_unless($request->user()->can('security.view'), 403);
+        app(SecurityMonitoringService::class)->expireOverdueShifts(
+            $systemUnit->id(),
+            $request->user()->getKey(),
+        );
         $active = SecurityShift::query()
             ->where('sppg_unit_id', $systemUnit->id())
             ->where('officer_id', $request->user()->getKey())

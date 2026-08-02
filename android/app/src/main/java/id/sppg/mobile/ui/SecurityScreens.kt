@@ -25,7 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -53,7 +52,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -447,7 +445,6 @@ private fun SecurityFeedback(message: String, isError: Boolean) {
 
 @Composable
 private fun SecurityReportCard(report: SecurityReportItem) {
-    val uriHandler = LocalUriHandler.current
     Card(shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -470,14 +467,12 @@ private fun SecurityReportCard(report: SecurityReportItem) {
             }
             if (!report.photoUrl.isNullOrBlank()) {
                 Spacer(Modifier.height(10.dp))
-                OutlinedButton(
-                    onClick = { uriHandler.openUri(report.photoUrl) },
+                InAppImageButton(
+                    url = report.photoUrl,
+                    title = "Foto laporan keamanan ke-${report.sequenceNumber}",
+                    label = "Lihat foto laporan",
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.Outlined.OpenInNew, contentDescription = null)
-                    Spacer(Modifier.size(6.dp))
-                    Text("Lihat foto laporan")
-                }
+                )
             }
         }
     }

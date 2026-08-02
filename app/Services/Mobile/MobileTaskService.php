@@ -12,10 +12,12 @@ class MobileTaskService
     {
         $shift->loadMissing('reports');
         $completedSequences = $shift->reports->pluck('sequence_number')->map(fn ($value) => (int) $value);
+        $missedSequences = collect($shift->missedReportSequences());
 
         for ($sequence = 1; $sequence <= (int) $shift->reports_expected; $sequence++) {
             $dueAt = $shift->started_at->copy()->addHours(SecurityShift::REPORT_INTERVAL_HOURS * $sequence);
             $completed = $completedSequences->contains($sequence);
+            $missed = ! $completed && $missedSequences->contains($sequence);
             $dedupeKey = hash('sha256', "security-report:{$shift->getKey()}:{$sequence}");
 
             MobileTask::query()->updateOrCreate(
@@ -37,7 +39,7 @@ class MobileTaskService
                         'sequence_number' => (string) $sequence,
                     ],
                     'due_at' => $dueAt,
-                    'status' => $completed ? 'completed' : 'pending',
+                    'status' => $completed ? 'completed' : ($missed ? 'missed' : 'pending'),
                     'completed_at' => $completed
                         ? $shift->reports->firstWhere('sequence_number', $sequence)?->reported_at
                         : null,

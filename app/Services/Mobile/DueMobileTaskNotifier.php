@@ -4,16 +4,20 @@ namespace App\Services\Mobile;
 
 use App\Models\MobileTask;
 use App\Models\SecurityShift;
+use App\Services\SecurityMonitoringService;
 
 class DueMobileTaskNotifier
 {
     public function __construct(
         private readonly MobileTaskService $tasks,
         private readonly MobilePushService $push,
+        private readonly SecurityMonitoringService $security,
     ) {}
 
     public function run(): array
     {
+        $this->security->expireOverdueShifts();
+
         SecurityShift::query()->active()->with('reports')->chunkById(100, function ($shifts): void {
             foreach ($shifts as $shift) {
                 $this->tasks->syncSecurityShiftTasks($shift);

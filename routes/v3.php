@@ -1,11 +1,13 @@
 <?php
 
+use App\Http\Controllers\AttendanceReportController;
 use App\Http\Controllers\CleaningChecklistPeriodPdfController;
 use App\Http\Controllers\CleaningWarehouseChecklistPdfController;
-use App\Http\Controllers\WasteHandoverPdfController;
 use App\Http\Controllers\V3\EntryController;
 use App\Http\Controllers\V3\LogoutController;
+use App\Http\Controllers\WasteHandoverPdfController;
 use App\Http\Middleware\SetV3UnitContext;
+use App\Livewire\V3\Attendance\Index as AttendanceIndex;
 use App\Livewire\V3\Auth\Login;
 use App\Livewire\V3\Beneficiaries\Form as BeneficiaryForm;
 use App\Livewire\V3\Beneficiaries\Import as BeneficiaryImport;
@@ -13,8 +15,8 @@ use App\Livewire\V3\Beneficiaries\Index as BeneficiaryIndex;
 use App\Livewire\V3\Beneficiaries\Periods\Form as BeneficiaryPeriodForm;
 use App\Livewire\V3\Beneficiaries\Periods\Index as BeneficiaryPeriodIndex;
 use App\Livewire\V3\Beneficiaries\Periods\Show as BeneficiaryPeriodShow;
-use App\Livewire\V3\Dashboard;
 use App\Livewire\V3\ContainerCollections\Index as ContainerCollectionIndex;
+use App\Livewire\V3\Dashboard;
 use App\Livewire\V3\Field\DailyReports as FieldDailyReports;
 use App\Livewire\V3\Field\Incidents\Form as FieldIncidentForm;
 use App\Livewire\V3\Field\Incidents\Index as FieldIncidentIndex;
@@ -24,6 +26,7 @@ use App\Livewire\V3\MasterData\Catalog as MasterDataCatalog;
 use App\Livewire\V3\MasterData\Hub as MasterDataHub;
 use App\Livewire\V3\MasterData\Organization as MasterDataOrganization;
 use App\Livewire\V3\MasterData\Users as MasterDataUsers;
+use App\Livewire\V3\Notifications\Broadcast as NotificationBroadcast;
 use App\Livewire\V3\Nutrition\DailyEvaluation;
 use App\Livewire\V3\Nutrition\MenuMatrix;
 use App\Livewire\V3\Nutrition\Menus\Form as MenuRecipeForm;
@@ -107,6 +110,10 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/keamanan', SecurityIndex::class)->name('security.index');
             Route::get('/keamanan/insiden/tambah', SecurityIncidentForm::class)->name('security.incidents.create');
             Route::get('/keamanan/insiden/{incident}', SecurityIncidentForm::class)->name('security.incidents.show');
+            Route::get('/notifikasi/kirim', NotificationBroadcast::class)->name('notifications.broadcast');
+            Route::get('/presensi-relawan', AttendanceIndex::class)->name('attendance.index');
+            Route::get('/presensi-relawan/pdf', [AttendanceReportController::class, 'pdf'])->name('attendance.pdf');
+            Route::get('/presensi-relawan/excel', [AttendanceReportController::class, 'xlsx'])->name('attendance.xlsx');
             Route::get('/operasional/{module}', OperationalIndex::class)
                 ->whereIn('module', app(OperationalModuleRegistry::class)->genericWebSlugs())
                 ->name('operations.index');

@@ -19,6 +19,8 @@ class SecurityMonitoringService
     {
         abort_unless($actor->can('security.create'), 403);
 
+        $this->expireOverdueShifts($unit->getKey(), $actor->getKey(), $startedAt ?? now());
+
         $shift = DB::transaction(function () use ($unit, $actor, $startedAt): SecurityShift {
             $activeShift = SecurityShift::query()
                 ->where('sppg_unit_id', $unit->getKey())
@@ -61,18 +63,21 @@ class SecurityMonitoringService
     ): SecurityReport {
         abort_unless($actor->can('security.create'), 403);
 
+        $reportedAt ??= now();
+        $this->expireOverdueShifts($shift->sppg_unit_id, $shift->officer_id, $reportedAt);
+
         $report = DB::transaction(function () use ($shift, $actor, $data, $reportedAt): SecurityReport {
             $shift = SecurityShift::query()->whereKey($shift->getKey())->lockForUpdate()->firstOrFail();
             abort_unless($actor->is_super_admin || (int) $shift->officer_id === (int) $actor->getKey(), 403);
 
-            if ($shift->status !== SecurityShiftStatus::Active || ! $shift->next_report_sequence) {
-                throw ValidationException::withMessages(['shift' => 'Shift keamanan ini sudah selesai.']);
+            if ($shift->status !== SecurityShiftStatus::Active) {
+                throw ValidationException::withMessages(['shift' => 'Shift keamanan 12 jam ini sudah berakhir.']);
             }
 
-            $reportedAt ??= now();
-            if (! $shift->isReportDue($reportedAt)) {
+            $sequence = $shift->reportSequenceDueAt($reportedAt);
+            if (! $sequence) {
                 throw ValidationException::withMessages([
-                    'shift' => 'Laporan berikutnya baru dapat dibuat setelah tiga jam bertugas.',
+                    'shift' => 'Laporan untuk periode ini belum waktunya atau sudah pernah dibuat.',
                 ]);
             }
 
@@ -86,7 +91,6 @@ class SecurityMonitoringService
                 'photo_path' => ['required', 'string', 'max:255'],
             ])->validate();
 
-            $sequence = $shift->next_report_sequence;
             $report = $shift->reports()->create([
                 ...$validated,
                 'sppg_unit_id' => $shift->sppg_unit_id,
@@ -110,5 +114,39 @@ class SecurityMonitoringService
         app(MobileTaskService::class)->completeSecurityReportTask($report);
 
         return $report;
+    }
+
+    public function expireOverdueShifts(?int $unitId = null, ?int $officerId = null, ?Carbon $at = null): int
+    {
+        $at ??= now();
+        $query = SecurityShift::query()
+            ->active()
+            ->where('scheduled_end_at', '<=', $at->copy()->subMinutes(SecurityShift::REPORT_GRACE_MINUTES));
+
+        if ($unitId !== null) {
+            $query->where('sppg_unit_id', $unitId);
+        }
+        if ($officerId !== null) {
+            $query->where('officer_id', $officerId);
+        }
+
+        $expired = 0;
+        $query->with('reports')->each(function (SecurityShift $shift) use (&$expired): void {
+            DB::transaction(fn () => $this->expireShift($shift));
+            $expired++;
+        });
+
+        return $expired;
+    }
+
+    private function expireShift(SecurityShift $shift): void
+    {
+        $shift->update([
+            'status' => SecurityShiftStatus::Expired,
+            'completed_at' => $shift->scheduled_end_at,
+            'updated_by' => $shift->officer_id,
+        ]);
+
+        app(MobileTaskService::class)->syncSecurityShiftTasks($shift->refresh()->load('reports'));
     }
 }

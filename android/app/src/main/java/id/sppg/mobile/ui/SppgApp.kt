@@ -245,7 +245,6 @@ private fun AuthenticatedContent(
                 }
             },
             onMarkAllRead = notificationViewModel::markAllRead,
-            onSendTestNotification = notificationViewModel::sendTestNotification,
         )
         AppScreen.Security -> SecurityScreen(
             state = securityState,
