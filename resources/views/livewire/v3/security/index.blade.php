@@ -66,7 +66,38 @@
         @endif
 
         <div class="grid gap-5 xl:grid-cols-2">
-            <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h3 class="font-bold text-slate-900">Riwayat shift</h3><div class="mt-4 space-y-3">@forelse($recentShifts as $shift)<article class="rounded-xl border border-slate-200 p-4"><div class="flex items-start justify-between gap-3"><div><p class="text-sm font-bold text-slate-800">{{ $shift->officer_name_snapshot }}</p><p class="mt-1 text-xs text-slate-400">{{ $shift->started_at->translatedFormat('d M Y, H:i') }} · {{ $shift->reports_count }}/4 laporan @if($shift->reports_count < 4 && $shift->status !== App\Enums\SecurityShiftStatus::Active) · {{ 4 - $shift->reports_count }} tidak dilaporkan @endif</p></div><span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">{{ $shift->status->label() }}</span></div></article>@empty<p class="rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400">Belum ada shift keamanan.</p>@endforelse</div></section>
+            <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                    <h3 class="font-bold text-slate-900">Riwayat shift</h3>
+                    <div class="grid gap-2 sm:grid-cols-2">
+                        <input wire:model.live="historyDate" type="date" aria-label="Filter tanggal shift" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs text-slate-700">
+                        <select wire:model.live="historyOfficer" aria-label="Filter petugas keamanan" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs text-slate-700">
+                            <option value="">Semua petugas</option>
+                            @foreach($officerOptions as $officer)
+                                <option value="{{ $officer->officer_id }}">{{ $officer->officer_name_snapshot }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                </div>
+                <div class="mt-4 space-y-3">
+                    @forelse($recentShifts as $shift)
+                        <article class="rounded-xl border border-slate-200 p-4">
+                            <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                                <div>
+                                    <p class="text-sm font-bold text-slate-800">{{ $shift->officer_name_snapshot }}</p>
+                                    <p class="mt-1 text-xs text-slate-400">{{ $shift->started_at->translatedFormat('d M Y, H:i') }} · {{ $shift->reports_count }}/{{ $shift->reports_expected }} laporan @if($shift->reports_count < $shift->reports_expected && $shift->status !== App\Enums\SecurityShiftStatus::Active) · {{ $shift->reports_expected - $shift->reports_count }} tidak dilaporkan @endif</p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">{{ $shift->status->label() }}</span>
+                                    <a wire:navigate href="{{ route('v3.security.shifts.show', $shift) }}" class="rounded-lg bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700">Lihat rincian</a>
+                                </div>
+                            </div>
+                        </article>
+                    @empty
+                        <p class="rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400">Tidak ada riwayat shift sesuai filter.</p>
+                    @endforelse
+                </div>
+            </section>
             <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div class="flex items-center justify-between"><h3 class="font-bold text-slate-900">Insiden keamanan</h3>@if($canWrite)<a wire:navigate href="{{ route('v3.security.incidents.create') }}" class="text-xs font-bold text-rose-600">+ Laporkan</a>@endif</div><div class="mt-4 space-y-3">@forelse($incidents as $incident)<a wire:navigate href="{{ route('v3.security.incidents.show', $incident) }}" class="block rounded-xl border border-slate-200 p-4"><div class="flex items-start justify-between gap-3"><div><p class="text-sm font-bold text-slate-800">{{ $incident->title }}</p><p class="mt-1 text-xs text-slate-400">{{ $incident->occurred_at?->translatedFormat('d M Y, H:i') }}</p></div><span class="rounded-full bg-rose-50 px-2.5 py-1 text-[10px] font-bold text-rose-700">{{ $incident->status->label() }}</span></div></a>@empty<p class="rounded-xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-400">Tidak ada insiden keamanan.</p>@endforelse</div></section>
         </div>
     </div>

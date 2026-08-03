@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AttendanceReportController;
+use App\Http\Controllers\SecurityShiftReportController;
 use App\Http\Controllers\CleaningChecklistPeriodPdfController;
 use App\Http\Controllers\CleaningWarehouseChecklistPdfController;
 use App\Http\Controllers\V3\EntryController;
@@ -44,6 +45,7 @@ use App\Livewire\V3\Procurement\Index as ProcurementIndex;
 use App\Livewire\V3\Procurement\Show as ProcurementShow;
 use App\Livewire\V3\Security\IncidentForm as SecurityIncidentForm;
 use App\Livewire\V3\Security\Index as SecurityIndex;
+use App\Livewire\V3\Security\ShiftShow as SecurityShiftShow;
 use App\Livewire\V3\Warehouse\Controls\Index as WarehouseControlIndex;
 use App\Livewire\V3\Warehouse\Receipts\Index as StockReceiptIndex;
 use App\Livewire\V3\Warehouse\Receipts\Show as StockReceiptShow;
@@ -108,6 +110,9 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/lapangan/insiden/tambah', FieldIncidentForm::class)->name('field.incidents.create');
             Route::get('/lapangan/insiden/{incident}', FieldIncidentForm::class)->name('field.incidents.show');
             Route::get('/keamanan', SecurityIndex::class)->name('security.index');
+            Route::get('/keamanan/shift/{shift}/pdf', [SecurityShiftReportController::class, 'pdf'])->name('security.shifts.pdf');
+            Route::get('/keamanan/shift/{shift}/excel', [SecurityShiftReportController::class, 'xlsx'])->name('security.shifts.xlsx');
+            Route::get('/keamanan/shift/{shift}', SecurityShiftShow::class)->name('security.shifts.show');
             Route::get('/keamanan/insiden/tambah', SecurityIncidentForm::class)->name('security.incidents.create');
             Route::get('/keamanan/insiden/{incident}', SecurityIncidentForm::class)->name('security.incidents.show');
             Route::get('/notifikasi/kirim', NotificationBroadcast::class)->name('notifications.broadcast');

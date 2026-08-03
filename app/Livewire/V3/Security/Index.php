@@ -3,6 +3,7 @@
 namespace App\Livewire\V3\Security;
 
 use App\Enums\SecuritySituation;
+use App\Enums\UserRole;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\FieldIncident;
 use App\Models\MobileDeviceToken;
@@ -11,6 +12,7 @@ use App\Services\Mobile\FcmHttpV1Client;
 use App\Services\SecurityMonitoringService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
@@ -36,6 +38,12 @@ class Index extends Component
     public ?TemporaryUploadedFile $reportPhoto = null;
 
     public ?string $actionMessage = null;
+
+    #[Url(as: 'tanggal')]
+    public string $historyDate = '';
+
+    #[Url(as: 'petugas')]
+    public string $historyOfficer = '';
 
     public function mount(): void
     {
@@ -109,8 +117,22 @@ class Index extends Component
         $nextDueAt = $activeShift?->next_report_due_at;
         $reportDue = $activeShift?->isReportDue() ?? false;
 
-        $recentShifts = SecurityShift::query()
-            ->where('sppg_unit_id', $unit->getKey())
+        $shiftQuery = SecurityShift::query()
+            ->where('sppg_unit_id', $unit->getKey());
+        if (auth()->user()->hasRole(UserRole::Satpam->value) && ! auth()->user()->is_super_admin) {
+            $shiftQuery->where('officer_id', auth()->id());
+        }
+
+        $officerOptions = (clone $shiftQuery)
+            ->select(['officer_id', 'officer_name_snapshot'])
+            ->orderBy('officer_name_snapshot')
+            ->get()
+            ->unique('officer_id')
+            ->values();
+
+        $recentShifts = $shiftQuery
+            ->when($this->historyDate, fn ($query) => $query->whereDate('started_at', $this->historyDate))
+            ->when($this->historyOfficer, fn ($query) => $query->where('officer_id', $this->historyOfficer))
             ->withCount('reports')
             ->with(['reports' => fn ($query) => $query->latest('reported_at')])
             ->latest('started_at')
@@ -134,6 +156,7 @@ class Index extends Component
             ...$this->shellData($unit),
             'activeShift' => $activeShift,
             'recentShifts' => $recentShifts,
+            'officerOptions' => $officerOptions,
             'incidents' => $incidents,
             'nextDueAt' => $nextDueAt,
             'reportDue' => $reportDue,
