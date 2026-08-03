@@ -39,7 +39,7 @@
             <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div class="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 md:flex-row md:items-end">
                     <div><h3 class="font-bold text-slate-900">Kehadiran per tanggal masuk</h3><p class="mt-1 text-xs text-slate-500">Sesi yang melewati tengah malam tetap berada pada tanggal masuk.</p></div>
-                    <div class="flex flex-col gap-2 sm:flex-row"><input wire:model.live="filterDate" type="date" class="h-10 rounded-xl border border-slate-200 px-3 text-sm"><input wire:model.live.debounce.350ms="search" type="search" class="h-10 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Cari nama atau UID">@if($canExport)<a href="{{ route('v3.attendance.pdf', ['date_from'=>$filterDate,'date_to'=>$filterDate]) }}" target="_blank" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-bold text-slate-700">PDF</a><a href="{{ route('v3.attendance.xlsx', ['date_from'=>$filterDate,'date_to'=>$filterDate]) }}" class="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white">Excel</a>@endif</div>
+                    <div class="flex flex-col gap-2 sm:flex-row"><input wire:model.live="filterDate" type="date" class="h-10 rounded-xl border border-slate-200 px-3 text-sm"><input wire:model.live.debounce.350ms="search" type="search" class="h-10 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Cari nama atau UID">@if($canExport)<a href="{{ route('v3.attendance.pdf', ['date_from'=>$filterDate,'date_to'=>$filterDate]) }}" target="_blank" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-bold text-slate-700">PDF</a><a href="{{ route('v3.attendance.xlsx', ['date_from'=>$filterDate,'date_to'=>$filterDate]) }}" class="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white">Excel</a>@endif @if($canReset && $sessions->isNotEmpty())<button wire:click="openResetPanel" type="button" class="inline-flex h-10 items-center justify-center rounded-xl bg-rose-50 px-4 text-xs font-bold text-rose-700">Reset tanggal ini</button>@endif</div>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full min-w-[920px] text-left"><thead><tr class="border-b border-slate-100 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-400"><th class="px-5 py-3">Relawan</th><th class="px-5 py-3">Status</th><th class="px-5 py-3">Masuk</th><th class="px-5 py-3">Pulang</th><th class="px-5 py-3">Durasi</th><th class="px-5 py-3">Sumber</th><th class="px-5 py-3">Catatan</th>@if($canCorrect)<th class="px-5 py-3 text-right">Aksi</th>@endif</tr></thead>
@@ -47,6 +47,23 @@
                     </table>
                 </div>
             </section>
+
+            @if($showResetPanel && $canReset)
+                <section class="rounded-2xl border border-rose-200 bg-rose-50 p-5 shadow-sm sm:p-6">
+                    <div class="flex items-start gap-3">
+                        <span class="mt-1 size-2 shrink-0 rounded-full bg-rose-500"></span>
+                        <div>
+                            <h3 class="font-bold text-rose-950">Reset presensi tanggal {{ \Carbon\Carbon::parse($filterDate)->format('d/m/Y') }}</h3>
+                            <p class="mt-1 text-sm text-rose-800">Seluruh data presensi pada tanggal ini akan disembunyikan dari laporan. Riwayat tap RFID tetap disimpan dan data reset tetap dapat diaudit.</p>
+                        </div>
+                    </div>
+                    <div class="mt-5 grid gap-4 sm:grid-cols-2">
+                        <label><span class="mb-1 block text-xs font-semibold text-rose-900">Alasan reset *</span><textarea wire:model="resetReason" rows="3" class="w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm" placeholder="Jelaskan alasan data perlu direset"></textarea>@error('resetReason')<span class="mt-1 block text-xs text-rose-700">{{ $message }}</span>@enderror</label>
+                        <label><span class="mb-1 block text-xs font-semibold text-rose-900">Ketik RESET untuk konfirmasi *</span><input wire:model="resetConfirmation" type="text" autocomplete="off" class="h-11 w-full rounded-xl border border-rose-200 bg-white px-3 text-sm" placeholder="RESET">@error('resetConfirmation')<span class="mt-1 block text-xs text-rose-700">{{ $message }}</span>@enderror</label>
+                    </div>
+                    <div class="mt-5 flex flex-wrap justify-end gap-2"><button wire:click="$set('showResetPanel', false)" type="button" class="h-11 rounded-xl border border-rose-200 bg-white px-5 text-sm font-bold text-slate-700">Batal</button><button wire:click="resetAttendance" wire:loading.attr="disabled" type="button" class="h-11 rounded-xl bg-rose-600 px-5 text-sm font-bold text-white disabled:opacity-50">Reset data presensi</button></div>
+                </section>
+            @endif
         @endif
 
         @if($activeTab === 'correction' && $canCorrect)

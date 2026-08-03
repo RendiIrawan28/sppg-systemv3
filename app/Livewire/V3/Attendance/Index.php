@@ -10,6 +10,7 @@ use App\Models\AttendanceTap;
 use App\Models\User;
 use App\Services\VolunteerAttendanceService;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Url;
@@ -58,6 +59,12 @@ class Index extends Component
     public ?int $registrationDeviceId = null;
 
     public ?string $actionMessage = null;
+
+    public bool $showResetPanel = false;
+
+    public string $resetReason = '';
+
+    public string $resetConfirmation = '';
 
     public function mount(): void
     {
@@ -209,6 +216,53 @@ class Index extends Component
         $this->actionMessage = 'Pendaftaran kartu dibatalkan.';
     }
 
+    public function openResetPanel(): void
+    {
+        abort_unless(auth()->user()->is_super_admin, 403);
+        $this->reset('resetReason', 'resetConfirmation');
+        $this->resetErrorBag();
+        $this->showResetPanel = true;
+    }
+
+    public function resetAttendance(): void
+    {
+        abort_unless(auth()->user()->is_super_admin, 403);
+
+        $data = $this->validate([
+            'filterDate' => ['required', 'date'],
+            'resetReason' => ['required', 'string', 'max:1000'],
+            'resetConfirmation' => ['required', 'in:RESET'],
+        ], [
+            'resetConfirmation.in' => 'Ketik RESET untuk mengonfirmasi.',
+        ], [
+            'filterDate' => 'tanggal presensi',
+            'resetReason' => 'alasan reset',
+            'resetConfirmation' => 'konfirmasi reset',
+        ]);
+
+        $count = DB::transaction(function () use ($data): int {
+            $sessions = AttendanceSession::query()
+                ->where('sppg_unit_id', $this->currentUnit()->getKey())
+                ->whereDate('work_date', $data['filterDate'])
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($sessions as $session) {
+                $session->forceFill([
+                    'deleted_by' => auth()->id(),
+                    'deletion_reason' => trim($data['resetReason']),
+                ])->save();
+                $session->delete();
+            }
+
+            return $sessions->count();
+        });
+
+        $this->showResetPanel = false;
+        $this->reset('resetReason', 'resetConfirmation');
+        $this->actionMessage = "{$count} data presensi tanggal ".Carbon::parse($data['filterDate'])->format('d/m/Y').' berhasil direset. Riwayat tap RFID tetap tersimpan.';
+    }
+
     public function render()
     {
         $unit = $this->currentUnit();
@@ -243,6 +297,7 @@ class Index extends Component
             'canManage' => $this->allowed('attendance.manage'),
             'canDevices' => $this->allowed('attendance.devices'),
             'canExport' => $this->allowed('attendance.export'),
+            'canReset' => auth()->user()->is_super_admin,
         ])->layout('layouts.v3', ['title' => 'Presensi Relawan']);
     }
 
