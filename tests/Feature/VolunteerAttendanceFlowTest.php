@@ -3,6 +3,7 @@
 use App\Models\AttendanceDevice;
 use App\Models\AttendanceRegistrationSession;
 use App\Models\AttendanceSession;
+use App\Models\AttendanceTap;
 use App\Models\SppgUnit;
 use App\Models\User;
 use App\Services\VolunteerAttendanceService;
@@ -81,6 +82,32 @@ it('returns the volunteer name through the secured device api', function (): voi
     ])->assertOk()
         ->assertJsonPath('action', 'check_in')
         ->assertJsonPath('pegawai', 'Relawan Test');
+});
+
+it('stores an offline UTC tap using the local application time', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-08-03T20:05:00+07:00'));
+
+    $this->withHeaders([
+        'X-Device-Code' => $this->device->code,
+        'X-Device-Key' => $this->deviceKey,
+        'X-Firmware-Version' => '1.0.0',
+    ])->postJson('/api/iot/attendance/tap', [
+        'uid_kartu' => 'A1B2C3D4',
+        'request_id' => 'tap-offline-utc',
+        'offline' => true,
+        'tapped_at' => '2026-08-03T13:02:11Z',
+    ])->assertOk()
+        ->assertJsonPath('action', 'check_in')
+        ->assertJsonPath('recorded_at', '2026-08-03T20:02:11+07:00');
+
+    $session = AttendanceSession::query()->sole();
+    $tap = AttendanceTap::query()->sole();
+
+    expect($session->work_date->toDateString())->toBe('2026-08-03')
+        ->and($session->check_in_at->format('Y-m-d H:i:s'))->toBe('2026-08-03 20:02:11')
+        ->and($session->source)->toBe('rfid_offline')
+        ->and($tap->tapped_at->format('Y-m-d H:i:s'))->toBe('2026-08-03 20:02:11')
+        ->and($tap->is_offline)->toBeTrue();
 });
 
 it('registers a scanned card to the selected user during the two minute window', function (): void {

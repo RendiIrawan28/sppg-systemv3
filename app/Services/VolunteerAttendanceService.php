@@ -58,7 +58,11 @@ class VolunteerAttendanceService
             return $existing->response_payload ?? [];
         }
 
-        $eventAt = $tappedAt?->copy() ?? now();
+        // The RFID device sends offline timestamps as UTC (ISO-8601 with a Z
+        // suffix). Convert the instant to the application's local timezone
+        // before persisting it to MySQL DATETIME columns, which do not retain
+        // timezone information.
+        $eventAt = ($tappedAt?->copy() ?? now())->setTimezone(config('app.timezone'));
         if ($eventAt->isAfter(now()->addMinutes(5)) || $eventAt->isBefore(now()->subDays(7))) {
             $eventAt = now();
             $offline = false;
