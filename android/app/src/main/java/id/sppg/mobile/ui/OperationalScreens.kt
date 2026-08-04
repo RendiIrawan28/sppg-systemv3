@@ -79,6 +79,7 @@ import id.sppg.mobile.data.remote.OperationalAction
 import id.sppg.mobile.data.remote.OperationalRecord
 import id.sppg.mobile.data.remote.OperationalSection
 import id.sppg.mobile.data.remote.OperationalSectionItem
+import com.google.gson.Gson
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -779,6 +780,11 @@ private fun OperationalFormInput(
     }
 
     when {
+        field.type == "opening_stock_rows" -> OpeningStockRowsInput(
+            field = field,
+            value = value,
+            onValueChange = onValueChange,
+        )
         field.type == "file" -> Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -939,6 +945,275 @@ private fun OperationalFormInput(
             minLines = if (field.type == "textarea") 3 else 1,
             shape = RoundedCornerShape(16.dp),
         )
+    }
+}
+
+private data class OpeningStockMobileRow(
+    val mode: String = "existing",
+    val ingredient_id: String? = null,
+    val new_name: String? = null,
+    val new_category: String = "other",
+    val measurement_unit_id: String? = null,
+    val quantity: String? = null,
+    val lot_number: String? = null,
+    val expired_date: String? = null,
+    val storage_type: String = "dry",
+    val location_name: String = "Gudang Utama",
+    val condition_notes: String? = null,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OpeningStockRowsInput(
+    field: id.sppg.mobile.data.remote.OperationalFormField,
+    value: String?,
+    onValueChange: (String?) -> Unit,
+) {
+    val gson = remember { Gson() }
+    var rows by remember(field.key) { mutableStateOf(listOf(OpeningStockMobileRow())) }
+    val catalog = field.options.orEmpty()
+    val ingredients = catalog.filterKeys { it.startsWith("ingredient:") }
+        .mapKeys { it.key.removePrefix("ingredient:") }
+    val units = catalog.filterKeys { it.startsWith("unit:") }
+        .mapKeys { it.key.removePrefix("unit:") }
+    val categories = catalog.filterKeys { it.startsWith("category:") }
+        .mapKeys { it.key.removePrefix("category:") }
+    val storages = catalog.filterKeys { it.startsWith("storage:") }
+        .mapKeys { it.key.removePrefix("storage:") }
+
+    fun publish(next: List<OpeningStockMobileRow>) {
+        rows = next
+        onValueChange(gson.toJson(next))
+    }
+
+    LaunchedEffect(field.key, value) {
+        if (value.isNullOrBlank()) onValueChange(gson.toJson(rows))
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Daftar barang *", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            "Tambahkan seluruh stok yang sudah ada di gudang. Semua barang memakai satu foto dokumentasi.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        rows.forEachIndexed { index, row ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Barang ${index + 1}", fontWeight = FontWeight.Bold)
+                        if (rows.size > 1) {
+                            TextButton(onClick = { publish(rows.filterIndexed { rowIndex, _ -> rowIndex != index }) }) {
+                                Text("Hapus", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (row.mode == "existing") {
+                            Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("Barang tersedia") }
+                        } else {
+                            OutlinedButton(
+                                onClick = { publish(rows.toMutableList().also { it[index] = row.copy(mode = "existing") }) },
+                                modifier = Modifier.weight(1f),
+                            ) { Text("Barang tersedia") }
+                        }
+                        if (row.mode == "new") {
+                            Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("Barang baru") }
+                        } else {
+                            OutlinedButton(
+                                onClick = { publish(rows.toMutableList().also { it[index] = row.copy(mode = "new") }) },
+                                modifier = Modifier.weight(1f),
+                            ) { Text("Barang baru") }
+                        }
+                    }
+                    if (row.mode == "existing") {
+                        OpeningStockSearchableDropdown("Cari barang *", row.ingredient_id, ingredients) { selected ->
+                            publish(rows.toMutableList().also { it[index] = row.copy(ingredient_id = selected) })
+                        }
+                    } else {
+                        OutlinedTextField(
+                            value = row.new_name.orEmpty(),
+                            onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(new_name = text) }) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Nama barang baru *") },
+                            shape = RoundedCornerShape(16.dp),
+                        )
+                        OpeningStockDropdown("Kategori *", row.new_category, categories) { selected ->
+                            publish(rows.toMutableList().also { it[index] = row.copy(new_category = selected ?: "other") })
+                        }
+                        OpeningStockDropdown("Satuan *", row.measurement_unit_id, units) { selected ->
+                            publish(rows.toMutableList().also { it[index] = row.copy(measurement_unit_id = selected) })
+                        }
+                    }
+                    OutlinedTextField(
+                        value = row.quantity.orEmpty(),
+                        onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(quantity = text) }) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Jumlah *") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    OpeningStockDropdown("Penyimpanan *", row.storage_type, storages) { selected ->
+                        publish(rows.toMutableList().also { it[index] = row.copy(storage_type = selected ?: "dry") })
+                    }
+                    OutlinedTextField(
+                        value = row.location_name,
+                        onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(location_name = text) }) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Lokasi") },
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    OutlinedTextField(
+                        value = row.lot_number.orEmpty(),
+                        onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(lot_number = text) }) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Nomor lot (opsional)") },
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    OperationalDatePickerInput(
+                        field = id.sppg.mobile.data.remote.OperationalFormField(
+                            key = "opening-expiry-$index", label = "Kedaluwarsa (opsional)", type = "date",
+                            value = row.expired_date, required = false, editable = true, options = null,
+                        ),
+                        value = row.expired_date,
+                        onValueChange = { date -> publish(rows.toMutableList().also { it[index] = row.copy(expired_date = date) }) },
+                    )
+                    OutlinedTextField(
+                        value = row.condition_notes.orEmpty(),
+                        onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(condition_notes = text) }) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Catatan kondisi") },
+                        minLines = 2,
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                }
+            }
+        }
+        OutlinedButton(
+            onClick = { publish(rows + OpeningStockMobileRow()) },
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Icon(Icons.Outlined.Add, contentDescription = null)
+            Spacer(Modifier.width(6.dp))
+            Text("Tambah barang")
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OpeningStockDropdown(
+    label: String,
+    value: String?,
+    options: Map<String, String>,
+    onValueChange: (String?) -> Unit,
+) {
+    var expanded by remember(label) { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+        OutlinedTextField(
+            value = options[value].orEmpty(),
+            onValueChange = {},
+            readOnly = true,
+            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            shape = RoundedCornerShape(16.dp),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { (key, optionLabel) ->
+                DropdownMenuItem(
+                    text = { Text(optionLabel) },
+                    onClick = { onValueChange(key); expanded = false },
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OpeningStockSearchableDropdown(
+    label: String,
+    value: String?,
+    options: Map<String, String>,
+    onValueChange: (String?) -> Unit,
+) {
+    var expanded by remember(label) { mutableStateOf(false) }
+    var query by remember(label) { mutableStateOf(options[value].orEmpty()) }
+    LaunchedEffect(value) {
+        if (value != null && query != options[value]) query = options[value].orEmpty()
+    }
+    val filtered = remember(query, options) {
+        val keyword = query.trim()
+        options.entries
+            .asSequence()
+            .filter { keyword.isBlank() || it.value.contains(keyword, ignoreCase = true) }
+            .take(50)
+            .toList()
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = true },
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { text ->
+                query = text
+                if (value != null && text != options[value]) onValueChange(null)
+                expanded = true
+            },
+            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
+            label = { Text(label) },
+            placeholder = { Text("Ketik nama barang atau satuan") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (filtered.isEmpty()) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            "Barang tidak ditemukan",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    onClick = { expanded = false },
+                )
+            } else {
+                filtered.forEach { (key, optionLabel) ->
+                    DropdownMenuItem(
+                        text = { Text(optionLabel) },
+                        onClick = {
+                            query = optionLabel
+                            onValueChange(key)
+                            expanded = false
+                        },
+                    )
+                }
+                if (options.size > filtered.size) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                "Ketik lebih spesifik untuk mempersempit hasil",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        },
+                        onClick = {},
+                    )
+                }
+            }
+        }
     }
 }
 

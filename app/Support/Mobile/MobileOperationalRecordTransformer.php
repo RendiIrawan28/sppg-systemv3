@@ -16,7 +16,7 @@ class MobileOperationalRecordTransformer
     ) {}
 
     /** @param array<string, mixed> $definition
-     *  @return array<string, mixed>
+     * @return array<string, mixed>
      */
     public function summary(string $slug, array $definition, Model $record): array
     {
@@ -36,7 +36,7 @@ class MobileOperationalRecordTransformer
     }
 
     /** @param array<string, mixed> $definition
-     *  @return array<string, mixed>
+     * @return array<string, mixed>
      */
     public function detail(string $slug, array $definition, Model $record, int $unitId): array
     {
@@ -67,7 +67,7 @@ class MobileOperationalRecordTransformer
     {
         return collect($fields)->map(function (array $field) use ($record, $unitId): array {
             $value = $record->getAttribute($field['name']);
-            $display = $this->formatField($value, $field, $unitId);
+            $display = $this->formatField($record, $value, $field, $unitId);
 
             return [
                 'key' => $field['name'],
@@ -81,10 +81,18 @@ class MobileOperationalRecordTransformer
         })->filter(fn (array $field): bool => filled($field['value']))->values()->all();
     }
 
-    private function formatField(mixed $value, array $field, int $unitId): ?string
+    private function formatField(Model $record, mixed $value, array $field, int $unitId): ?string
     {
         if ($value === null || $value === '') {
             return null;
+        }
+
+        if (($field['name'] ?? null) === 'ingredient_id' && method_exists($record, 'ingredient')) {
+            $ingredient = $record->relationLoaded('ingredient')
+                ? $record->getRelation('ingredient')
+                : $record->ingredient()->first();
+
+            return filled($ingredient?->name) ? (string) $ingredient->name : $this->displayValue($value);
         }
 
         if (($field['type'] ?? null) === 'select' && isset($field['options'])) {
@@ -107,9 +115,20 @@ class MobileOperationalRecordTransformer
 
     private function title(string $slug, Model $record): string
     {
+        if ($slug === 'gudang-stok' && method_exists($record, 'ingredient')) {
+            $ingredient = $record->relationLoaded('ingredient')
+                ? $record->getRelation('ingredient')
+                : $record->ingredient()->first();
+            if (filled($ingredient?->name)) {
+                return (string) $ingredient->name;
+            }
+        }
+
         $candidates = match ($slug) {
             'gudang' => ['received_by_name'],
+            'gudang-stok-awal' => ['opening_number'],
             'gudang-stok' => ['location_name', 'lot_number'],
+            'gudang-penyesuaian' => ['adjustment_number'],
             'gudang-pengambilan' => ['purpose_reference', 'reference_number_snapshot'],
             'gudang-retur', 'gudang-retur-pengolahan' => ['ingredient_name_snapshot'],
             'persiapan' => ['purpose_reference'],
@@ -139,7 +158,9 @@ class MobileOperationalRecordTransformer
     {
         return match ($slug) {
             'gudang' => filled($record->getAttribute('notes')) ? Str::limit((string) $record->getAttribute('notes'), 90) : null,
+            'gudang-stok-awal' => filled($record->getAttribute('notes')) ? Str::limit((string) $record->getAttribute('notes'), 90) : 'Stok langsung aktif',
             'gudang-stok' => filled($record->getAttribute('storage_type')) ? Str::headline((string) $record->getAttribute('storage_type')) : null,
+            'gudang-penyesuaian' => filled($record->getAttribute('reason')) ? Str::limit((string) $record->getAttribute('reason'), 90) : null,
             'gudang-pengambilan' => filled($record->getAttribute('division_code')) ? 'Divisi '.Str::headline((string) $record->getAttribute('division_code')) : null,
             'gudang-retur', 'gudang-retur-pengolahan' => filled($record->getAttribute('reason')) ? Str::limit((string) $record->getAttribute('reason'), 90) : null,
             'persiapan' => filled($record->getAttribute('notes')) ? Str::limit((string) $record->getAttribute('notes'), 90) : null,
@@ -173,7 +194,9 @@ class MobileOperationalRecordTransformer
     {
         $fields = match ($slug) {
             'gudang' => [['items_count', 'Barang']],
+            'gudang-stok-awal' => [['items_count', 'Barang']],
             'gudang-stok' => [['balance_quantity', 'Saldo'], ['movements_count', 'Mutasi']],
+            'gudang-penyesuaian' => [['system_quantity', 'Saldo sistem'], ['actual_quantity', 'Saldo aktual']],
             'gudang-pengambilan' => [['items_count', 'Barang']],
             'gudang-retur', 'gudang-retur-pengolahan' => [['requested_quantity', 'Diajukan'], ['actual_quantity', 'Aktual']],
             'persiapan' => [['items_count', 'Bahan']],
@@ -192,10 +215,15 @@ class MobileOperationalRecordTransformer
             default => [],
         };
 
-        return collect($fields)->map(fn (array $field): array => [
-            'label' => $field[1],
-            'value' => (string) ($record->getAttribute($field[0]) ?? 0),
-        ])->all();
+        return collect($fields)->map(function (array $field) use ($record, $slug): array {
+            $value = (string) ($record->getAttribute($field[0]) ?? 0);
+            if (in_array($slug, ['gudang-stok', 'gudang-penyesuaian', 'gudang-retur', 'gudang-retur-pengolahan'], true)
+                && filled($record->getAttribute('unit_snapshot'))) {
+                $value .= ' '.$record->getAttribute('unit_snapshot');
+            }
+
+            return ['label' => $field[1], 'value' => $value];
+        })->all();
     }
 
     private function relationTitle(Model $record, array $fields): string

@@ -79,6 +79,14 @@ class Show extends Component
             'receipt' => $receipt,
             'statuses' => OperationsPresentation::receiptStatuses(),
             'canEdit' => $receipt->isEditable() && ($this->allowed('stock.update') || $this->allowed('stock.create')),
+            'receiptTotalsByUnit' => $receipt->items
+                ->groupBy(fn ($item): string => trim((string) $item->unit_snapshot) ?: 'unit')
+                ->map(fn ($items, string $unit): array => [
+                    'unit' => $unit,
+                    'ordered' => (float) $items->sum('ordered_quantity'),
+                    'accepted' => (float) $items->sum('accepted_quantity'),
+                    'rejected' => (float) $items->sum('rejected_quantity'),
+                ])->values(),
         ])->layout('layouts.v3', ['title' => 'Rincian Penerimaan']);
     }
 
@@ -102,33 +110,7 @@ class Show extends Component
             if (! is_array($row)) {
                 continue;
             }
-            if ((float) $row['accepted_quantity'] + (float) $row['rejected_quantity'] > (float) $row['received_quantity'] + 0.0001) {
-                throw ValidationException::withMessages(['rows' => "Jumlah baik + ditolak untuk {$item->ingredient_name_snapshot} melebihi jumlah diterima."]);
-            }
-
-            $received = (float) $row['received_quantity'];
-            $accepted = (float) $row['accepted_quantity'];
-            $rejected = (float) $row['rejected_quantity'];
-            $ordered = (float) $item->ordered_quantity;
-            $orderedKg = (float) $item->ordered_quantity_kg;
-            $kgRatio = $ordered > 0 ? $orderedKg / $ordered : 0;
-            $qualityStatus = match (true) {
-                $accepted > 0 && $rejected > 0 => 'partial',
-                $accepted > 0 => 'accepted',
-                $rejected > 0 => 'rejected',
-                default => 'pending',
-            };
-
-            $item->update([
-                'received_quantity' => $received,
-                'accepted_quantity' => $accepted,
-                'rejected_quantity' => $rejected,
-                'received_quantity_kg' => round($received * $kgRatio, 4),
-                'accepted_quantity_kg' => round($accepted * $kgRatio, 4),
-                'rejected_quantity_kg' => round($rejected * $kgRatio, 4),
-                'quality_status' => $qualityStatus,
-                'quality_notes' => trim((string) ($row['quality_notes'] ?? '')) ?: null,
-            ]);
+            app(StockReceiptService::class)->updateInspection($item, $row);
         }
 
         $oldDocumentationPath = $receipt->documentation_path;

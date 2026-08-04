@@ -70,6 +70,7 @@ it('publishes incident reporting in every field role workspace', function (): vo
         ->getReflectionConstant('ROLE_MODULES');
     expect($constant)->not->toBeFalse();
     $roleModules = $constant->getValue();
+    $definitions = app(MobileWorkspaceRegistry::class)->definitions();
 
     foreach ([
         UserRole::StafGudang,
@@ -91,7 +92,13 @@ it('publishes incident reporting in every field role workspace', function (): vo
     }
 
     expect($roleModules[UserRole::StafGudang->value])
+        ->toContain('gudang-stok-awal')
+        ->toContain('gudang-penyesuaian')
         ->toContain('gudang-retur-pengolahan');
+
+    expect($definitions['gudang-stok-awal']['allow_create'])->toBeTrue()
+        ->and(collect($definitions['gudang-stok-awal']['fields'])->pluck('name'))
+        ->toContain('rows_payload', 'photo_path');
 });
 
 it('uses calendar and time pickers instead of manual date input on android', function (): void {
@@ -151,4 +158,3 @@ it('lets kepala sppg complete final operational approvals from mobile', function
         ->toContain('cleaning.approve')
         ->toContain('field_daily_reports.approve');
 });
-

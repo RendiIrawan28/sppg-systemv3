@@ -28,7 +28,9 @@ it('exposes workflow modules needed by field operations', function (): void {
 
     expect(array_keys($definitions))
         ->toContain('gudang')
+        ->toContain('gudang-stok-awal')
         ->toContain('gudang-stok')
+        ->toContain('gudang-penyesuaian')
         ->toContain('gudang-pengambilan')
         ->toContain('gudang-retur')
         ->toContain('hasil-persiapan')

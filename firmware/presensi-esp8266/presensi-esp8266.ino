@@ -20,9 +20,9 @@
 #include <LiquidCrystal_I2C.h>
 #include <time.h>
 
-const String SERVER_URL = "http://192.168.1.9:8000";
-const String DEVICE_CODE = "ASJHAJHS";
-const String DEVICE_KEY = "ZupsuDStnJMLBz2n2mE9y2F9dEoZxo72GsSQPzys";
+const String SERVER_URL = "http://202.155.19.32";
+const String DEVICE_CODE = "PRESENSI_01";
+const String DEVICE_KEY = "E07nn4prNreGQOVJHnJqnEWndfY4eEgtAtmlYys7";
 const String FIRMWARE_VERSION = "1.0.0";
 
 const char* WIFI_AP_NAME = "SPPG-PRESENSI-SETUP";

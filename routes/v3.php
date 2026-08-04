@@ -1,9 +1,9 @@
 <?php
 
 use App\Http\Controllers\AttendanceReportController;
-use App\Http\Controllers\SecurityShiftReportController;
 use App\Http\Controllers\CleaningChecklistPeriodPdfController;
 use App\Http\Controllers\CleaningWarehouseChecklistPdfController;
+use App\Http\Controllers\SecurityShiftReportController;
 use App\Http\Controllers\V3\EntryController;
 use App\Http\Controllers\V3\LogoutController;
 use App\Http\Controllers\WasteHandoverPdfController;
@@ -47,6 +47,7 @@ use App\Livewire\V3\Security\IncidentForm as SecurityIncidentForm;
 use App\Livewire\V3\Security\Index as SecurityIndex;
 use App\Livewire\V3\Security\ShiftShow as SecurityShiftShow;
 use App\Livewire\V3\Warehouse\Controls\Index as WarehouseControlIndex;
+use App\Livewire\V3\Warehouse\OpeningStocks\Index as OpeningStockIndex;
 use App\Livewire\V3\Warehouse\Receipts\Index as StockReceiptIndex;
 use App\Livewire\V3\Warehouse\Receipts\Show as StockReceiptShow;
 use App\Livewire\V3\Warehouse\Stock\Index as StockIndex;
@@ -89,6 +90,7 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/gudang/penerimaan', StockReceiptIndex::class)->name('warehouse.receipts.index');
             Route::get('/gudang/penerimaan/{receipt}', StockReceiptShow::class)->name('warehouse.receipts.show');
             Route::get('/gudang/stok', StockIndex::class)->name('warehouse.stock.index');
+            Route::get('/gudang/stok-awal', OpeningStockIndex::class)->name('warehouse.opening-stocks.index');
             Route::get('/gudang/pengambilan', WarehouseWithdrawalIndex::class)->name('warehouse.withdrawals.index');
             Route::get('/gudang/kontrol-stok', WarehouseControlIndex::class)->name('warehouse.controls.index');
             Route::get('/operasional/persiapan', PreparationIndex::class)->name('preparation.index');

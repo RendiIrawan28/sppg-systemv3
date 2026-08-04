@@ -37,6 +37,7 @@ final class OperationsPresentation
             StockMovement::TYPE_RECEIPT => 'Penerimaan',
             StockMovement::TYPE_HANDOVER => 'Pengambilan Divisi',
             StockMovement::TYPE_ADJUSTMENT => 'Penyesuaian',
+            StockMovement::TYPE_OPENING_BALANCE => 'Stok Awal',
         ];
     }
 

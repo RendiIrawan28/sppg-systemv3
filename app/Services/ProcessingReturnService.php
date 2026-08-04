@@ -14,6 +14,8 @@ use Illuminate\Validation\ValidationException;
 
 class ProcessingReturnService
 {
+    public function __construct(private readonly InventoryUnitService $units) {}
+
     public function submit(
         ProcessingBatch $batch,
         ProcessingMaterialUsage $usage,
@@ -100,6 +102,8 @@ class ProcessingReturnService
             $destinationLot = $disposition === InventoryLot::AVAILABLE
                 ? $this->restoreToSourceLot($return, $actualQuantity)
                 : $this->createSeparatedReturnLot($return, $actualQuantity, $disposition);
+            $destinationLot->loadMissing('ingredient.measurementUnit');
+            $legacyKg = $this->units->legacyKilograms($destinationLot->ingredient, $actualQuantity);
 
             StockMovement::query()->create([
                 'sppg_unit_id' => $return->sppg_unit_id,
@@ -109,7 +113,7 @@ class ProcessingReturnService
                 'unit_snapshot' => $return->unit_snapshot,
                 'movement_type' => StockMovement::TYPE_RETURN_FROM_PROCESSING,
                 'movement_date' => today(),
-                'quantity_in_kg' => $return->unit_snapshot === 'kg' ? $actualQuantity : 0,
+                'quantity_in_kg' => $legacyKg,
                 'quantity_out_kg' => 0,
                 'quantity_in' => $actualQuantity,
                 'quantity_out' => 0,
@@ -162,7 +166,7 @@ class ProcessingReturnService
 
     private function restoreToSourceLot(ProcessingReturn $return, float $quantity): InventoryLot
     {
-        $lot = InventoryLot::query()->lockForUpdate()->find($return->source_inventory_lot_id);
+        $lot = InventoryLot::query()->with('ingredient.measurementUnit')->lockForUpdate()->find($return->source_inventory_lot_id);
         if (! $lot
             || $lot->sppg_unit_id !== $return->sppg_unit_id
             || $lot->ingredient_id !== $return->ingredient_id) {
@@ -176,11 +180,10 @@ class ProcessingReturnService
             ]);
         }
 
+        $newBalance = (float) $lot->balance_quantity + $quantity;
         $lot->update([
-            'balance_quantity' => (float) $lot->balance_quantity + $quantity,
-            'balance_quantity_kg' => $return->unit_snapshot === 'kg'
-                ? (float) $lot->balance_quantity_kg + $quantity
-                : $lot->balance_quantity_kg,
+            'balance_quantity' => $newBalance,
+            'balance_quantity_kg' => $this->units->legacyKilograms($lot->ingredient, $newBalance),
             'status' => InventoryLot::AVAILABLE,
         ]);
 
@@ -192,7 +195,8 @@ class ProcessingReturnService
         float $quantity,
         string $disposition,
     ): InventoryLot {
-        $source = InventoryLot::query()->find($return->source_inventory_lot_id);
+        $source = InventoryLot::query()->with('ingredient.measurementUnit')->find($return->source_inventory_lot_id);
+        $legacyKg = $this->units->legacyKilograms($source?->ingredient, $quantity);
 
         return InventoryLot::query()->create([
             'sppg_unit_id' => $return->sppg_unit_id,
@@ -205,8 +209,8 @@ class ProcessingReturnService
             'location_name' => 'Area Retur Gudang',
             'storage_type' => $source?->storage_type ?: 'dry',
             'status' => $disposition,
-            'initial_quantity_kg' => $return->unit_snapshot === 'kg' ? $quantity : 0,
-            'balance_quantity_kg' => $return->unit_snapshot === 'kg' ? $quantity : 0,
+            'initial_quantity_kg' => $legacyKg,
+            'balance_quantity_kg' => $legacyKg,
         ]);
     }
 

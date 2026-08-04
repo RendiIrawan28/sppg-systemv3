@@ -86,6 +86,13 @@ final class Navigation
                         visible: $this->allowed($user, 'stock.view'),
                     ),
                     $this->item(
+                        label: 'Input Stok Awal',
+                        icon: 'plus',
+                        url: route('v3.warehouse.opening-stocks.index'),
+                        active: request()->routeIs('v3.warehouse.opening-stocks.*'),
+                        visible: $this->allowed($user, 'stock.create'),
+                    ),
+                    $this->item(
                         label: 'Pengambilan Gudang', icon: 'arrow-up-right', url: route('v3.warehouse.withdrawals.index'),
                         active: request()->routeIs('v3.warehouse.withdrawals.*'),
                         visible: $this->allowed($user, 'stock.view') || $this->allowed($user, 'preparation.view') || $this->allowed($user, 'processing.view') || $this->allowed($user, 'portioning.view'),

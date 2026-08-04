@@ -12,12 +12,15 @@ use App\Models\ProcessingBatch;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
+use App\Support\DivisionRole;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class WarehouseWithdrawalService
 {
+    public function __construct(private readonly InventoryUnitService $units) {}
+
     public function createMobileDraft(
         int $unitId,
         string $divisionCode,
@@ -36,7 +39,7 @@ class WarehouseWithdrawalService
         abort_unless($permission && $actor->can($permission), 403);
 
         $actorDivisions = collect($actor->getRoleNames())
-            ->map(fn (string $role): ?string => \App\Support\DivisionRole::divisionCodeForRole($role))
+            ->map(fn (string $role): ?string => DivisionRole::divisionCodeForRole($role))
             ->filter()
             ->unique();
         $privileged = $actor->is_super_admin || $actor->hasAnyRole(['super_admin', 'admin_sppg', 'kepala_sppg']);
@@ -122,7 +125,7 @@ class WarehouseWithdrawalService
             );
 
             $lots = InventoryLot::query()
-                ->with('ingredient')
+                ->with('ingredient.measurementUnit')
                 ->where('sppg_unit_id', $withdrawal->sppg_unit_id)
                 ->whereIn('id', $withdrawal->items->pluck('inventory_lot_id'))
                 ->lockForUpdate()
@@ -151,7 +154,7 @@ class WarehouseWithdrawalService
                     'lot_number_snapshot' => $lot->lot_number,
                     'expiry_date_snapshot' => $lot->expired_date,
                     'unit_snapshot' => $lot->unit_snapshot,
-                    'taken_quantity_kg' => $lot->unit_snapshot === 'kg' ? $quantity : 0,
+                    'taken_quantity_kg' => $this->units->legacyKilograms($lot->ingredient, $quantity),
                 ])->save();
                 $requestedByLot->put($lot->getKey(), $quantity);
             }
@@ -170,6 +173,7 @@ class WarehouseWithdrawalService
             return $this->submit($withdrawal->refresh(), $actor);
         });
     }
+
     /**
      * @param  array<int, array{inventory_lot_id: int|string, quantity: float|int|string, photo_path: string, pickup_temperature_celsius?: float|int|string|null}>  $rows
      */
@@ -203,7 +207,7 @@ class WarehouseWithdrawalService
             }
 
             $lots = InventoryLot::query()
-                ->with('ingredient')
+                ->with('ingredient.measurementUnit')
                 ->where('sppg_unit_id', $unitId)
                 ->whereIn('id', $requestedByLot->keys())
                 ->lockForUpdate()
@@ -255,7 +259,7 @@ class WarehouseWithdrawalService
                     'requested_quantity' => $quantity,
                     'pickup_temperature_celsius' => filled($pickupTemperature) ? (float) $pickupTemperature : null,
                     'photo_path' => $row['photo_path'],
-                    'taken_quantity_kg' => $lot->unit_snapshot === 'kg' ? $quantity : 0,
+                    'taken_quantity_kg' => $this->units->legacyKilograms($lot->ingredient, $quantity),
                 ]);
             }
 
@@ -290,6 +294,7 @@ class WarehouseWithdrawalService
             }
 
             $lots = InventoryLot::query()
+                ->with('ingredient.measurementUnit')
                 ->whereIn('id', $withdrawal->items->pluck('inventory_lot_id')->filter())
                 ->lockForUpdate()
                 ->get()
@@ -326,23 +331,21 @@ class WarehouseWithdrawalService
                 }
 
                 $lot->balance_quantity = (float) $lot->balance_quantity - $quantity;
-                if ($lot->unit_snapshot === 'kg') {
-                    $lot->balance_quantity_kg = $lot->balance_quantity;
-                }
+                $lot->balance_quantity_kg = $this->units->legacyKilograms($lot->ingredient, (float) $lot->balance_quantity);
                 if ((float) $lot->balance_quantity <= 0.0001) {
                     $lot->status = InventoryLot::DEPLETED;
                 }
                 $lot->save();
                 $item->update([
                     'actual_quantity' => $quantity,
-                    'verified_quantity_kg' => $lot->unit_snapshot === 'kg' ? $quantity : 0,
+                    'verified_quantity_kg' => $this->units->legacyKilograms($lot->ingredient, $quantity),
                 ]);
                 StockMovement::create([
                     'sppg_unit_id' => $withdrawal->sppg_unit_id, 'ingredient_id' => $item->ingredient_id,
                     'inventory_lot_id' => $lot->id, 'ingredient_name_snapshot' => $item->ingredient_name_snapshot,
                     'unit_snapshot' => $lot->unit_snapshot, 'movement_type' => StockMovement::TYPE_HANDOVER,
                     'movement_date' => $withdrawal->withdrawal_date, 'quantity_in_kg' => 0,
-                    'quantity_out_kg' => $lot->unit_snapshot === 'kg' ? $quantity : 0,
+                    'quantity_out_kg' => $this->units->legacyKilograms($lot->ingredient, $quantity),
                     'quantity_in' => 0, 'quantity_out' => $quantity, 'source_type' => WarehouseWithdrawal::class,
                     'source_id' => $withdrawal->id, 'reference_number' => $withdrawal->withdrawal_number,
                     'supplier_batch_number' => $lot->lot_number, 'expired_date' => $lot->expired_date,

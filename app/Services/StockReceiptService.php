@@ -6,12 +6,58 @@ use App\Models\InventoryLot;
 use App\Models\ProcurementRequest;
 use App\Models\StockMovement;
 use App\Models\StockReceipt;
+use App\Models\StockReceiptItem;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 class StockReceiptService
 {
+    /** @param array<string,mixed> $data */
+    public function updateInspection(StockReceiptItem $item, array $data): StockReceiptItem
+    {
+        $received = (float) $data['received_quantity'];
+        $accepted = (float) $data['accepted_quantity'];
+        $rejected = (float) $data['rejected_quantity'];
+        if ($received < 0 || $accepted < 0 || $rejected < 0) {
+            throw ValidationException::withMessages(['quantities' => 'Jumlah penerimaan tidak boleh kurang dari nol.']);
+        }
+        if ($accepted + $rejected > $received + 0.0001) {
+            throw ValidationException::withMessages([
+                'accepted_quantity' => "Jumlah baik + ditolak untuk {$item->ingredient_name_snapshot} melebihi jumlah diterima.",
+            ]);
+        }
+
+        $ordered = (float) $item->ordered_quantity;
+        $orderedKg = (float) $item->ordered_quantity_kg;
+        $kgRatio = $ordered > 0 ? $orderedKg / $ordered : 0;
+        $qualityStatus = match (true) {
+            $accepted > 0 && $rejected > 0 => 'partial',
+            $accepted > 0 => 'accepted',
+            $rejected > 0 => 'rejected',
+            default => 'pending',
+        };
+        $updates = [
+            'received_quantity' => $received,
+            'accepted_quantity' => $accepted,
+            'rejected_quantity' => $rejected,
+            'received_quantity_kg' => round($received * $kgRatio, 4),
+            'accepted_quantity_kg' => round($accepted * $kgRatio, 4),
+            'rejected_quantity_kg' => round($rejected * $kgRatio, 4),
+            'quality_status' => $qualityStatus,
+            'quality_notes' => trim((string) ($data['quality_notes'] ?? '')) ?: null,
+        ];
+        foreach (['supplier_batch_number', 'expired_date', 'received_temperature_celsius'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $updates[$field] = filled($data[$field]) ? $data[$field] : null;
+            }
+        }
+        $item->update($updates);
+
+        return $item->refresh();
+    }
+
     public function createFromProcurementRequest(ProcurementRequest $request): StockReceipt
     {
         return $this->createGroupedFromProcurementRequest($request)->firstOrFail();

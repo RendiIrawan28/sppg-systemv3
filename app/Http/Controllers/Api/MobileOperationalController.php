@@ -2,30 +2,60 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\DistributionIncidentStatus;
+use App\Enums\FieldIncidentStatus;
 use App\Http\Controllers\Controller;
+use App\Models\CleaningSession;
+use App\Models\ContainerCollectionRun;
+use App\Models\ContainerCollectionTask;
+use App\Models\PortioningSession;
+use App\Models\PreparationOutputWithdrawal;
+use App\Models\PreparationReturn;
+use App\Models\PreparationSession;
+use App\Models\PreparationSessionItem;
+use App\Models\ProcessingBatch;
+use App\Models\ProcessingReturn;
+use App\Models\StockAdjustment;
+use App\Models\StockReceipt;
+use App\Models\WarehouseWithdrawal;
+use App\Models\WashingSession;
+use App\Models\WasteHandoverReport;
+use App\Services\CleaningWorkflow;
+use App\Services\ContainerCollectionWorkflow;
+use App\Services\DistributionWorkflow;
+use App\Services\FieldDailyReportGenerator;
+use App\Services\FieldDailyReportWorkflow;
+use App\Services\MobileDailyBeneficiaryConfirmationService;
+use App\Services\OpeningStockService;
+use App\Services\PortioningWorkflow;
+use App\Services\PreparationOutputService;
+use App\Services\PreparationReturnService;
+use App\Services\PreparationSessionService;
+use App\Services\ProcessingReturnService;
+use App\Services\ProcessingWorkflow;
+use App\Services\SecurityMonitoringService;
+use App\Services\StockControlService;
+use App\Services\StockReceiptService;
+use App\Services\V3\OperationalRecordInitializer;
+use App\Services\WarehouseWithdrawalService;
+use App\Services\WashingWorkflow;
+use App\Services\WasteHandoverWorkflow;
 use App\Support\Mobile\MobileOperationalRecordTransformer;
 use App\Support\Mobile\MobileWorkspaceRegistry;
 use App\Support\V3\SystemUnit;
-use App\Services\V3\OperationalRecordInitializer;
-use App\Services\SecurityMonitoringService;
-use App\Services\PreparationSessionService;
-use App\Services\ProcessingWorkflow;
-use App\Services\PortioningWorkflow;
-use App\Services\DistributionWorkflow;
-use App\Services\WashingWorkflow;
-use App\Services\CleaningWorkflow;
+use DateTimeInterface;
+use DomainException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Illuminate\Database\Eloquent\Relations\HasOne;
-use DateTimeInterface;
-use DomainException;
 use RuntimeException;
 
 class MobileOperationalController extends Controller
@@ -126,11 +156,11 @@ class MobileOperationalController extends Controller
         $item = $query->with($relations)->findOrFail($record);
 
         $detail = $transformer->detail(
-                $module,
-                $definition,
-                $item,
-                (int) $systemUnit->id(),
-            );
+            $module,
+            $definition,
+            $item,
+            (int) $systemUnit->id(),
+        );
         $detail['sections'] = $this->enrichSections(
             $detail['sections'],
             $module,
@@ -172,7 +202,7 @@ class MobileOperationalController extends Controller
                         'fields.service_date' => ['required', 'date'],
                         'fields.notes' => ['nullable', 'string', 'max:2000'],
                     ])['fields'];
-                    $records = app(\App\Services\MobileDailyBeneficiaryConfirmationService::class)
+                    $records = app(MobileDailyBeneficiaryConfirmationService::class)
                         ->generateForDate($unitId, (string) $fields['service_date'], $request->user());
                     $record = $records->first();
                     abort_unless($record instanceof Model, 422, 'Konfirmasi penerima tidak berhasil dibentuk.');
@@ -183,6 +213,69 @@ class MobileOperationalController extends Controller
                     }
 
                     return $record->refresh();
+                }
+
+                if ($module === 'gudang-stok-awal') {
+                    $input = $request->validate([
+                        'fields' => ['present', 'array'],
+                        'fields.opening_date' => ['required', 'date', 'before_or_equal:today'],
+                        'fields.notes' => ['nullable', 'string', 'max:3000'],
+                        'fields.rows_payload' => ['required', 'string', 'max:1000000'],
+                        'files.photo_path' => ['required', 'string', 'max:7500000'],
+                    ]);
+                    $rows = json_decode((string) $input['fields']['rows_payload'], true);
+                    if (! is_array($rows)) {
+                        throw ValidationException::withMessages(['fields.rows_payload' => 'Daftar barang stok awal tidak valid.']);
+                    }
+                    $rows = validator(['rows' => $rows], [
+                        'rows' => ['required', 'array', 'min:1', 'max:100'],
+                        'rows.*.mode' => ['required', Rule::in(['existing', 'new'])],
+                        'rows.*.ingredient_id' => ['nullable', 'integer'],
+                        'rows.*.new_name' => ['nullable', 'string', 'max:255'],
+                        'rows.*.new_category' => ['nullable', Rule::in([
+                            'staple', 'animal_protein', 'plant_protein', 'vegetable', 'fruit', 'seasoning',
+                            'oil', 'drink', 'dairy', 'processed', 'other',
+                        ])],
+                        'rows.*.measurement_unit_id' => ['nullable', 'integer'],
+                        'rows.*.quantity' => ['required', 'numeric', 'gt:0', 'max:9999999999'],
+                        'rows.*.lot_number' => ['nullable', 'string', 'max:100'],
+                        'rows.*.expired_date' => ['nullable', 'date'],
+                        'rows.*.storage_type' => ['required', Rule::in(['dry', 'wet', 'freezer', 'chiller'])],
+                        'rows.*.location_name' => ['nullable', 'string', 'max:255'],
+                        'rows.*.condition_notes' => ['nullable', 'string', 'max:2000'],
+                    ])->validate()['rows'];
+                    foreach ($rows as $index => &$row) {
+                        $row += [
+                            'ingredient_id' => null, 'new_name' => null, 'new_category' => 'other',
+                            'measurement_unit_id' => null, 'lot_number' => null, 'expired_date' => null,
+                            'location_name' => null, 'condition_notes' => null,
+                        ];
+                        if ($row['mode'] === 'existing' && blank($row['ingredient_id'])) {
+                            throw ValidationException::withMessages(['fields.rows_payload' => 'Pilih barang pada baris '.($index + 1).'.']);
+                        }
+                        if ($row['mode'] === 'new' && (blank($row['new_name']) || blank($row['measurement_unit_id']))) {
+                            throw ValidationException::withMessages(['fields.rows_payload' => 'Nama dan satuan barang baru pada baris '.($index + 1).' wajib diisi.']);
+                        }
+                    }
+                    unset($row);
+                    $photoPath = $this->storeEncodedImage(
+                        (string) data_get($input, 'files.photo_path'),
+                        'v3/warehouse/opening-stocks',
+                        'files.photo_path',
+                    );
+                    try {
+                        return app(OpeningStockService::class)->create(
+                            $unitId,
+                            (string) $input['fields']['opening_date'],
+                            $photoPath,
+                            $input['fields']['notes'] ?? null,
+                            $rows,
+                            $request->user(),
+                        );
+                    } catch (\Throwable $exception) {
+                        Storage::disk('public')->delete($photoPath);
+                        throw $exception;
+                    }
                 }
 
                 if (in_array($module, [
@@ -199,7 +292,7 @@ class MobileOperationalController extends Controller
                     ])['fields'];
                     $division = str_replace('pengambilan-gudang-', '', $module);
 
-                    return app(\App\Services\WarehouseWithdrawalService::class)->createMobileDraft(
+                    return app(WarehouseWithdrawalService::class)->createMobileDraft(
                         $unitId,
                         $division,
                         (string) $fields['reference_selection'],
@@ -216,7 +309,7 @@ class MobileOperationalController extends Controller
                         'fields.report_date' => ['required', 'date'],
                     ])['fields'];
 
-                    return app(\App\Services\FieldDailyReportGenerator::class)->generate(
+                    return app(FieldDailyReportGenerator::class)->generate(
                         $unitId,
                         (string) $fields['report_date'],
                         $request->user(),
@@ -238,7 +331,7 @@ class MobileOperationalController extends Controller
                         'fields.notes' => ['nullable', 'string', 'max:2000'],
                     ])['fields'];
 
-                    return app(\App\Services\ContainerCollectionWorkflow::class)
+                    return app(ContainerCollectionWorkflow::class)
                         ->startRun($unitId, $request->user(), $fields);
                 }
 
@@ -256,7 +349,7 @@ class MobileOperationalController extends Controller
                         'fields.notes' => ['nullable', 'string', 'max:2000'],
                         'files.photo_path' => ['nullable', 'string', 'max:7500000'],
                     ]);
-                    $sourceItem = \App\Models\PreparationSessionItem::query()
+                    $sourceItem = PreparationSessionItem::query()
                         ->whereHas('session', fn (Builder $query) => $query->where('sppg_unit_id', $unitId))
                         ->findOrFail((int) $input['fields']['preparation_session_item_id']);
                     $session = $sourceItem->session()->firstOrFail();
@@ -269,7 +362,7 @@ class MobileOperationalController extends Controller
                         );
                     }
                     try {
-                        return app(\App\Services\PreparationOutputService::class)->store(
+                        return app(PreparationOutputService::class)->store(
                             $session,
                             $sourceItem,
                             $request->user(),
@@ -287,7 +380,7 @@ class MobileOperationalController extends Controller
                 $item = new $model;
                 $values = $this->validatedValues($request, $definition);
                 if (str_starts_with($module, 'ba-limbah-')) {
-                    $values = app(\App\Services\WasteHandoverWorkflow::class)
+                    $values = app(WasteHandoverWorkflow::class)
                         ->normalizeAndValidateSource($values, $unitId);
                 }
                 $item->fill($values);
@@ -373,7 +466,7 @@ class MobileOperationalController extends Controller
 
             $values = $this->validatedValues($request, $definition);
             if ($module === 'lapangan-laporan') {
-                app(\App\Services\FieldDailyReportWorkflow::class)->update(
+                app(FieldDailyReportWorkflow::class)->update(
                     $item,
                     $request->user(),
                     $values,
@@ -381,7 +474,7 @@ class MobileOperationalController extends Controller
             } else {
                 if (str_starts_with($module, 'ba-limbah-')) {
                     $this->unlinkWasteHandoverSource($item);
-                    $values = app(\App\Services\WasteHandoverWorkflow::class)
+                    $values = app(WasteHandoverWorkflow::class)
                         ->normalizeAndValidateSource(
                             $values + $item->only(['source_type', 'source_id']),
                             (int) $systemUnit->id(),
@@ -480,15 +573,14 @@ class MobileOperationalController extends Controller
                 return match ($module) {
                     'gudang' => $this->runWarehouseReceiptAction($action, $item, $actor),
                     'gudang-stok' => $this->runWarehouseStockAction($action, $item, $actor, $fields, $notes),
+                    'gudang-penyesuaian' => $this->runWarehouseAdjustmentAction($action, $item, $actor),
                     'gudang-pengambilan' => $this->runWarehouseWithdrawalAction($action, $item, $actor, $notes),
-                    'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian' =>
-                        $this->runDivisionWarehouseWithdrawalAction($action, $item, $actor),
+                    'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian' => $this->runDivisionWarehouseWithdrawalAction($action, $item, $actor),
                     'gudang-retur' => $this->runPreparationReturnAction($action, $item, $actor, $fields, $notes),
                     'gudang-retur-pengolahan' => $this->runProcessingReturnAction($action, $item, $actor, $fields, $notes),
                     'lapangan-konfirmasi' => $this->runDailyBeneficiaryConfirmationAction($action, $item, $actor),
                     'persiapan' => $this->runPreparationAction($action, $item, $actor, $notes),
-                    'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' =>
-                        $this->runPreparationOutputAction($module, $action, $item, $actor, $fields, $notes),
+                    'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => $this->runPreparationOutputAction($module, $action, $item, $actor, $fields, $notes),
                     'pengolahan' => $this->runStandardAction(app(ProcessingWorkflow::class), $action, $item, $actor, $notes),
                     'pemorsian' => $this->runStandardAction(app(PortioningWorkflow::class), $action, $item, $actor, $notes),
                     'distribusi' => $this->runDistributionAction($action, $item, $actor, $data, $notes),
@@ -497,8 +589,7 @@ class MobileOperationalController extends Controller
                     ),
                     'pencucian' => $this->runWashingAction($action, $item, $actor, $data, $notes),
                     'kebersihan' => $this->runCleaningAction($action, $item, $actor, $data, $notes),
-                    'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan' =>
-                        $this->runWasteHandoverAction($action, $item, $actor, $notes),
+                    'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan' => $this->runWasteHandoverAction($action, $item, $actor, $notes),
                     'lapangan-laporan' => $this->runFieldDailyReportAction($action, $item, $actor, $notes),
                     'lapangan-insiden' => $this->runFieldIncidentAction($action, $item, $actor, $fields, $notes),
                     default => abort(422, 'Tindakan belum tersedia untuk modul ini.'),
@@ -559,7 +650,7 @@ class MobileOperationalController extends Controller
                 );
             }
             try {
-                $return = app(\App\Services\PreparationReturnService::class)->submit(
+                $return = app(PreparationReturnService::class)->submit(
                     $parent,
                     $sourceItem,
                     (float) $input['fields']['requested_quantity'],
@@ -597,7 +688,7 @@ class MobileOperationalController extends Controller
                 )
                 : null;
             try {
-                $return = app(\App\Services\ProcessingReturnService::class)->submit(
+                $return = app(ProcessingReturnService::class)->submit(
                     $parent,
                     $usage,
                     (float) $input['fields']['requested_quantity'],
@@ -661,6 +752,25 @@ class MobileOperationalController extends Controller
             $request, $module, $record, $relation, $registry, $systemUnit, 'update',
         );
         $child = $parent->{$relation}()->whereKey($item)->firstOrFail();
+
+        if ($module === 'gudang' && $relation === 'items') {
+            $fields = $request->validate([
+                'fields' => ['present', 'array'],
+                'fields.received_quantity' => ['required', 'numeric', 'min:0'],
+                'fields.accepted_quantity' => ['required', 'numeric', 'min:0'],
+                'fields.rejected_quantity' => ['required', 'numeric', 'min:0'],
+                'fields.supplier_batch_number' => ['nullable', 'string', 'max:100'],
+                'fields.expired_date' => ['nullable', 'date'],
+                'fields.received_temperature_celsius' => ['nullable', 'numeric'],
+                'fields.quality_notes' => ['nullable', 'string', 'max:1000'],
+            ])['fields'];
+            $child = app(StockReceiptService::class)->updateInspection($child, $fields);
+
+            return response()->json([
+                'message' => 'Penerimaan dan hasil QC berhasil diperbarui.',
+                'data' => $this->relationItemData($child->refresh(), $relationDefinition, $registry, (int) $systemUnit->id()),
+            ]);
+        }
 
         if ($module === 'distribusi'
             && $relation === 'stops'
@@ -776,7 +886,7 @@ class MobileOperationalController extends Controller
         if ($relation === 'incidents') {
             abort_unless($action === 'resolve', 422);
             $child->forceFill([
-                'status' => \App\Enums\DistributionIncidentStatus::Resolved,
+                'status' => DistributionIncidentStatus::Resolved,
                 'resolved_at' => now(),
                 'resolved_by' => $request->user()->getKey(),
             ])->save();
@@ -798,6 +908,10 @@ class MobileOperationalController extends Controller
     /** @param array<string, mixed> $definition */
     private function applyDefinitionScope(Builder $query, array $definition): void
     {
+        if (! empty($definition['with'])) {
+            $query->with((array) $definition['with']);
+        }
+
         foreach ($definition['where'] ?? [] as $column => $value) {
             $query->where($column, $value);
         }
@@ -811,6 +925,7 @@ class MobileOperationalController extends Controller
     {
         $relations = match ($module) {
             'gudang' => ['items'],
+            'gudang-stok-awal' => ['items'],
             'gudang-stok' => ['movements'],
             'gudang-pengambilan', 'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian' => ['items'],
             'lapangan-konfirmasi' => ['items'],
@@ -907,8 +1022,7 @@ class MobileOperationalController extends Controller
         MobileWorkspaceRegistry $registry,
         int $unitId,
         bool $relationMode = false,
-    ): array
-    {
+    ): array {
         return collect($definition['fields'] ?? [])->map(function (array $field) use ($item, $registry, $unitId, $relationMode): array {
             $name = $field['name'];
             $editable = ($field['editable'] ?? true)
@@ -982,7 +1096,7 @@ class MobileOperationalController extends Controller
         $actor = $request->user();
         $actions = [];
 
-        if ($module === 'gudang' && $status === \App\Models\StockReceipt::STATUS_DRAFT
+        if ($module === 'gudang' && $status === StockReceipt::STATUS_DRAFT
             && $actor->can('stock.update')) {
             return [$this->actionDefinition('receive', 'Selesaikan penerimaan dan bentuk stok')];
         }
@@ -997,11 +1111,10 @@ class MobileOperationalController extends Controller
                         true,
                         (string) $item->balance_quantity,
                     ),
-                    $this->actionField('adjustment_type', 'Jenis penyesuaian', 'select', true, 'physical_count', [
-                        'physical_count' => 'Stok opname',
+                    $this->actionField('adjustment_type', 'Jenis penyesuaian', 'select', true, 'stock_opname', [
+                        'stock_opname' => 'Stok opname',
+                        'return_from_division' => 'Retur dari divisi',
                         'damage' => 'Rusak',
-                        'expired' => 'Kedaluwarsa',
-                        'correction' => 'Koreksi pencatatan',
                     ]),
                     $this->actionField('reason', 'Alasan penyesuaian', 'textarea', true),
                 ]),
@@ -1023,6 +1136,12 @@ class MobileOperationalController extends Controller
             ];
         }
 
+        if ($module === 'gudang-penyesuaian'
+            && $status === StockAdjustment::DRAFT
+            && $actor->can('stock.approve')) {
+            return [$this->actionDefinition('verify', 'Verifikasi dan perbarui stok')];
+        }
+
         if ($module === 'lapangan-konfirmasi'
             && $item->isEditable()
             && $actor->can('daily_beneficiary_confirmations.submit')) {
@@ -1030,13 +1149,13 @@ class MobileOperationalController extends Controller
         }
 
         if (str_starts_with($module, 'pengambilan-gudang-')
-            && in_array($status, [\App\Models\WarehouseWithdrawal::DRAFT, \App\Models\WarehouseWithdrawal::REVISION], true)
+            && in_array($status, [WarehouseWithdrawal::DRAFT, WarehouseWithdrawal::REVISION], true)
             && (int) $item->taken_by === (int) $actor->getKey()) {
             return [$this->actionDefinition('submit', 'Ajukan untuk verifikasi Gudang')];
         }
 
         if ($module === 'gudang-pengambilan'
-            && $status === \App\Models\WarehouseWithdrawal::WAITING
+            && $status === WarehouseWithdrawal::WAITING
             && $actor->can('stock.approve')) {
             return [
                 $this->actionDefinition('verify', 'Verifikasi pengambilan'),
@@ -1046,7 +1165,7 @@ class MobileOperationalController extends Controller
         }
 
         if ($module === 'gudang-retur'
-            && $status === \App\Models\PreparationReturn::WAITING
+            && $status === PreparationReturn::WAITING
             && $actor->can('stock.approve')) {
             return [
                 $this->actionDefinition('verify', 'Terima retur ke Gudang', false, [
@@ -1068,7 +1187,7 @@ class MobileOperationalController extends Controller
         }
 
         if ($module === 'gudang-retur-pengolahan'
-            && $status === \App\Models\ProcessingReturn::WAITING
+            && $status === ProcessingReturn::WAITING
             && $actor->can('stock.approve')) {
             return [
                 $this->actionDefinition('verify', 'Terima retur Pengolahan', false, [
@@ -1096,13 +1215,13 @@ class MobileOperationalController extends Controller
             $targetField = $division === 'processing' ? 'processing_batch_id' : 'portioning_session_id';
             $targetLabel = $division === 'processing' ? 'Batch Pengolahan' : 'Sesi Pemorsian';
             $targetOptions = $division === 'processing'
-                ? \App\Models\ProcessingBatch::query()
+                ? ProcessingBatch::query()
                     ->where('sppg_unit_id', $item->sppg_unit_id)
                     ->whereIn('state', ['planned', 'in_progress'])
                     ->latest('production_date')->limit(100)->pluck('batch_number', 'id')->mapWithKeys(
                         fn ($label, $id): array => [(string) $id => (string) $label],
                     )->all()
-                : \App\Models\PortioningSession::query()
+                : PortioningSession::query()
                     ->where('sppg_unit_id', $item->sppg_unit_id)
                     ->whereIn('state', ['planned', 'in_progress'])
                     ->latest('portioning_date')->limit(100)->pluck('session_number', 'id')->mapWithKeys(
@@ -1117,7 +1236,7 @@ class MobileOperationalController extends Controller
 
         if ($module === 'hasil-persiapan' && $actor->can('preparation.update')) {
             $pendingOptions = $item->withdrawals()
-                ->where('status', \App\Models\PreparationOutputWithdrawal::WAITING)
+                ->where('status', PreparationOutputWithdrawal::WAITING)
                 ->get()
                 ->mapWithKeys(fn ($withdrawal): array => [
                     (string) $withdrawal->getKey() => sprintf(
@@ -1140,13 +1259,13 @@ class MobileOperationalController extends Controller
             }
         }
 
-        if ($module === 'pengambilan-ompreng' && $state === \App\Models\ContainerCollectionRun::ACTIVE
+        if ($module === 'pengambilan-ompreng' && $state === ContainerCollectionRun::ACTIVE
             && $actor->can('distribution.update')) {
-            $taskOptions = \App\Models\ContainerCollectionTask::query()
+            $taskOptions = ContainerCollectionTask::query()
                 ->where('sppg_unit_id', $item->sppg_unit_id)
                 ->whereIn('status', [
-                    \App\Models\ContainerCollectionTask::PENDING,
-                    \App\Models\ContainerCollectionTask::PARTIAL,
+                    ContainerCollectionTask::PENDING,
+                    ContainerCollectionTask::PARTIAL,
                 ])
                 ->where('remaining_containers', '>', 0)
                 ->orderBy('delivery_date')
@@ -1355,7 +1474,7 @@ class MobileOperationalController extends Controller
         ?string $notes,
     ): Model {
         abort_unless($actor->can('stock.update'), 403);
-        $service = app(\App\Services\StockControlService::class);
+        $service = app(StockControlService::class);
 
         if ($action === 'update_lot') {
             $service->updateLot(
@@ -1370,7 +1489,7 @@ class MobileOperationalController extends Controller
 
         abort_unless($action === 'adjust_stock', 422);
         $type = (string) ($fields['adjustment_type'] ?? '');
-        if (! in_array($type, ['physical_count', 'damage', 'expired', 'correction'], true)) {
+        if (! in_array($type, ['stock_opname', 'return_from_division', 'damage'], true)) {
             throw ValidationException::withMessages(['fields.adjustment_type' => 'Jenis penyesuaian tidak valid.']);
         }
         $reason = trim((string) ($fields['reason'] ?? $notes ?? ''));
@@ -1382,8 +1501,16 @@ class MobileOperationalController extends Controller
             throw ValidationException::withMessages(['fields.actual_quantity' => 'Jumlah fisik aktual harus nol atau lebih.']);
         }
 
-        $adjustment = $service->create($item, (float) $actual, $type, $reason, $actor);
-        $service->verify($adjustment, $actor);
+        $service->create($item, (float) $actual, $type, $reason, $actor);
+
+        return $item->refresh();
+    }
+
+    private function runWarehouseAdjustmentAction(string $action, Model $item, $actor): Model
+    {
+        abort_unless($action === 'verify', 422);
+        abort_unless($actor->can('stock.approve'), 403);
+        app(StockControlService::class)->verify($item, $actor);
 
         return $item->refresh();
     }
@@ -1397,7 +1524,7 @@ class MobileOperationalController extends Controller
             'received_by_name' => $actor->name,
         ])->save();
 
-        return app(\App\Services\StockReceiptService::class)->receive($item);
+        return app(StockReceiptService::class)->receive($item);
     }
 
     private function runDivisionWarehouseWithdrawalAction(
@@ -1407,7 +1534,7 @@ class MobileOperationalController extends Controller
     ): Model {
         abort_unless($action === 'submit', 422);
 
-        return app(\App\Services\WarehouseWithdrawalService::class)
+        return app(WarehouseWithdrawalService::class)
             ->submitMobileDraft($item, $actor);
     }
 
@@ -1418,7 +1545,7 @@ class MobileOperationalController extends Controller
     ): Model {
         abort_unless($action === 'confirm', 422);
 
-        return app(\App\Services\MobileDailyBeneficiaryConfirmationService::class)
+        return app(MobileDailyBeneficiaryConfirmationService::class)
             ->confirm($item, $actor);
     }
 
@@ -1428,7 +1555,7 @@ class MobileOperationalController extends Controller
         $actor,
         ?string $notes,
     ): Model {
-        $service = app(\App\Services\WarehouseWithdrawalService::class);
+        $service = app(WarehouseWithdrawalService::class);
 
         return match ($action) {
             'verify' => $service->verify($item, $actor),
@@ -1445,7 +1572,7 @@ class MobileOperationalController extends Controller
         array $fields,
         ?string $notes,
     ): Model {
-        $service = app(\App\Services\PreparationReturnService::class);
+        $service = app(PreparationReturnService::class);
 
         return match ($action) {
             'verify' => $service->verify(
@@ -1467,7 +1594,7 @@ class MobileOperationalController extends Controller
         array $fields,
         ?string $notes,
     ): Model {
-        $service = app(\App\Services\ProcessingReturnService::class);
+        $service = app(ProcessingReturnService::class);
 
         return match ($action) {
             'verify' => $service->verify(
@@ -1490,7 +1617,7 @@ class MobileOperationalController extends Controller
         array $fields,
         ?string $notes,
     ): Model {
-        $service = app(\App\Services\PreparationOutputService::class);
+        $service = app(PreparationOutputService::class);
         if ($action === 'request_withdrawal') {
             $division = $module === 'hasil-persiapan-pengolahan' ? 'processing' : 'portioning';
             $service->requestWithdrawal($item, $actor, [
@@ -1532,12 +1659,12 @@ class MobileOperationalController extends Controller
         ?string $notes,
         ?string $photoPath,
     ): Model {
-        $service = app(\App\Services\ContainerCollectionWorkflow::class);
+        $service = app(ContainerCollectionWorkflow::class);
         if ($action === 'return') {
             return $service->returnToSppg($item, $actor);
         }
 
-        $task = \App\Models\ContainerCollectionTask::query()
+        $task = ContainerCollectionTask::query()
             ->where('sppg_unit_id', $item->sppg_unit_id)
             ->findOrFail((int) ($fields['task_id'] ?? 0));
         if ($action === 'collect_partial') {
@@ -1563,7 +1690,7 @@ class MobileOperationalController extends Controller
         $actor,
         ?string $notes,
     ): Model {
-        $service = app(\App\Services\FieldDailyReportWorkflow::class);
+        $service = app(FieldDailyReportWorkflow::class);
         match ($action) {
             'submit' => $service->submit($item, $actor, $notes),
             'approve' => $service->approve($item, $actor, $notes),
@@ -1584,7 +1711,7 @@ class MobileOperationalController extends Controller
         abort_unless($actor->can('field_incidents.update'), 403);
         if ($action === 'start_follow_up') {
             $item->forceFill([
-                'status' => \App\Enums\FieldIncidentStatus::InProgress,
+                'status' => FieldIncidentStatus::InProgress,
                 'responsible_user_id' => $item->responsible_user_id ?: $actor->getKey(),
                 'responsible_name_snapshot' => $item->responsible_name_snapshot ?: $actor->name,
                 'immediate_action' => $notes ?: $item->immediate_action,
@@ -1599,7 +1726,7 @@ class MobileOperationalController extends Controller
             throw ValidationException::withMessages(['fields.resolution' => 'Penyelesaian wajib diisi.']);
         }
         $item->forceFill([
-            'status' => \App\Enums\FieldIncidentStatus::Resolved,
+            'status' => FieldIncidentStatus::Resolved,
             'resolution' => $resolution,
             'root_cause' => trim((string) ($fields['root_cause'] ?? '')) ?: $item->root_cause,
             'immediate_action' => trim((string) ($fields['immediate_action'] ?? '')) ?: $item->immediate_action,
@@ -1686,7 +1813,7 @@ class MobileOperationalController extends Controller
 
     private function runWasteHandoverAction(string $action, Model $item, $actor, ?string $notes): Model
     {
-        $service = app(\App\Services\WasteHandoverWorkflow::class);
+        $service = app(WasteHandoverWorkflow::class);
 
         return match ($action) {
             'submit' => $service->submit($item, $actor, $notes),
@@ -1701,21 +1828,21 @@ class MobileOperationalController extends Controller
             return;
         }
         match ($report->source_type) {
-            'washing_session' => \App\Models\WashingSession::query()
+            'washing_session' => WashingSession::query()
                 ->where('sppg_unit_id', $report->sppg_unit_id)
                 ->whereKey($report->source_id)
                 ->update([
                     'waste_handover_report_id' => $report->getKey(),
                     'waste_handed_over_at' => $report->handed_over_at ?: now(),
                 ]),
-            'cleaning_session' => \App\Models\CleaningSession::query()
+            'cleaning_session' => CleaningSession::query()
                 ->where('sppg_unit_id', $report->sppg_unit_id)
                 ->whereKey($report->source_id)
                 ->update([
                     'waste_handover_report_id' => $report->getKey(),
                     'waste_presence' => 'yes',
                 ]),
-            'preparation_session' => \App\Models\PreparationSession::query()
+            'preparation_session' => PreparationSession::query()
                 ->where('sppg_unit_id', $report->sppg_unit_id)
                 ->whereKey($report->source_id)
                 ->update(['waste_handover_report_id' => $report->getKey()]),
@@ -1729,15 +1856,15 @@ class MobileOperationalController extends Controller
             return;
         }
         match ($report->source_type) {
-            'washing_session' => \App\Models\WashingSession::query()
+            'washing_session' => WashingSession::query()
                 ->whereKey($report->source_id)
                 ->where('waste_handover_report_id', $report->getKey())
                 ->update(['waste_handover_report_id' => null, 'waste_handed_over_at' => null]),
-            'cleaning_session' => \App\Models\CleaningSession::query()
+            'cleaning_session' => CleaningSession::query()
                 ->whereKey($report->source_id)
                 ->where('waste_handover_report_id', $report->getKey())
                 ->update(['waste_handover_report_id' => null]),
-            'preparation_session' => \App\Models\PreparationSession::query()
+            'preparation_session' => PreparationSession::query()
                 ->whereKey($report->source_id)
                 ->where('waste_handover_report_id', $report->getKey())
                 ->update(['waste_handover_report_id' => null]),
@@ -1767,7 +1894,7 @@ class MobileOperationalController extends Controller
             ]);
         }
 
-        $report = \App\Models\WasteHandoverReport::create([
+        $report = WasteHandoverReport::create([
             'sppg_unit_id' => $session->sppg_unit_id,
             'division_type' => 'washing',
             'source_type' => 'washing_session',
@@ -1799,7 +1926,7 @@ class MobileOperationalController extends Controller
                 'sort_order' => $index + 1,
             ]);
         }
-        app(\App\Services\WasteHandoverWorkflow::class)->submit($report, $actor);
+        app(WasteHandoverWorkflow::class)->submit($report, $actor);
         $session->update([
             'waste_handover_report_id' => $report->getKey(),
             'waste_handed_over_at' => $report->handed_over_at,
@@ -1834,7 +1961,7 @@ class MobileOperationalController extends Controller
         $relationEditable = $this->isEditable($parent)
             || ($module === 'gudang-pengambilan'
                 && $relation === 'items'
-                && $this->scalarValue($parent->getAttribute('status')) === \App\Models\WarehouseWithdrawal::WAITING);
+                && $this->scalarValue($parent->getAttribute('status')) === WarehouseWithdrawal::WAITING);
         abort_unless($relationEditable, 422, 'Data sudah dikunci dan tidak dapat diubah.');
         abort_unless(method_exists($parent, $relation), 404);
 
@@ -1847,8 +1974,7 @@ class MobileOperationalController extends Controller
         return match ($module) {
             'gudang' => $relation === 'items' ? ['update'] : [],
             'gudang-pengambilan' => $relation === 'items' ? ['update'] : [],
-            'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian' =>
-                $relation === 'items' ? ['create', 'update', 'delete'] : [],
+            'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian' => $relation === 'items' ? ['create', 'update', 'delete'] : [],
             'lapangan-konfirmasi' => $relation === 'items' ? ['update'] : [],
             'persiapan' => match ($relation) {
                 'items' => ['update'],
@@ -1914,6 +2040,7 @@ class MobileOperationalController extends Controller
             if (($field['type'] ?? 'text') === 'file') {
                 $required = (bool) ($field['required'] ?? false) && blank($item?->getAttribute($name));
                 $rules['files.'.$name] = [$required ? 'required' : 'nullable', 'string', 'max:7500000'];
+
                 continue;
             }
             $rule = [($field['required'] ?? false) ? 'required' : 'nullable'];
@@ -2054,7 +2181,7 @@ class MobileOperationalController extends Controller
             ],
             ['distribusi', 'incidents'] => [
                 'occurred_at' => $values['occurred_at'] ?? now(),
-                'status' => \App\Enums\DistributionIncidentStatus::Open,
+                'status' => DistributionIncidentStatus::Open,
             ],
             ['pencucian', 'documentations'], ['kebersihan', 'documentations'] => [
                 'created_by' => $request->user()->getKey(),
@@ -2157,7 +2284,7 @@ class MobileOperationalController extends Controller
             $operations = $this->relationOperations($module, $key, $parent);
             $relationDefinition = $definition['relations'][$key];
             $related = $parent->getRelation($key);
-            $models = $related instanceof \Illuminate\Support\Collection
+            $models = $related instanceof Collection
                 ? $related->keyBy(fn (Model $item) => $item->getKey())
                 : collect($related ? [$related->getKey() => $related] : []);
             $section['can_create'] = $editable && in_array('create', $operations, true);
@@ -2190,7 +2317,7 @@ class MobileOperationalController extends Controller
                 $usageOptions = $parent->materialUsages
                     ->mapWithKeys(function (Model $usage): array {
                         $returned = $usage->returns()
-                            ->whereIn('status', [\App\Models\ProcessingReturn::WAITING, \App\Models\ProcessingReturn::VERIFIED])
+                            ->whereIn('status', [ProcessingReturn::WAITING, ProcessingReturn::VERIFIED])
                             ->sum(DB::raw('COALESCE(actual_quantity, requested_quantity)'));
                         $remaining = max(0, (float) $usage->quantity - (float) $returned);
 

@@ -8,6 +8,9 @@
                     <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Penerimaan lolos QC menambah stok. Pengambilan terverifikasi dan penyesuaian mengurangi atau mengoreksi stok dengan referensi yang dapat diaudit.</p>
                 </div>
                 <div class="flex gap-2">
+                    @if(auth()->user()->is_super_admin || auth()->user()->can('stock.create'))
+                        <a wire:navigate href="{{ route('v3.warehouse.opening-stocks.index') }}" class="inline-flex h-11 items-center rounded-xl bg-cyan-300 px-4 text-xs font-bold text-[#081d3a]">Input Stok Awal</a>
+                    @endif
                     <a wire:navigate href="{{ route('v3.warehouse.receipts.index') }}" class="inline-flex h-11 items-center rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-bold text-white">Penerimaan</a>
                     <a wire:navigate href="{{ route('v3.warehouse.withdrawals.index') }}" class="inline-flex h-11 items-center rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-bold text-white">Pengambilan</a>
                 </div>

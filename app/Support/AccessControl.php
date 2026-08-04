@@ -271,6 +271,7 @@ final class AccessControl
             ...self::module('suppliers', ['view']),
             ...self::module('ingredients', ['view']),
             ...self::module('menus', ['view']),
+            ...self::module('security', ['view']),
         ];
     }
 

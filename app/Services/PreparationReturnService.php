@@ -13,6 +13,8 @@ use Illuminate\Validation\ValidationException;
 
 class PreparationReturnService
 {
+    public function __construct(private readonly InventoryUnitService $units) {}
+
     public function submit(
         PreparationSession $session,
         PreparationSessionItem $item,
@@ -90,6 +92,8 @@ class PreparationReturnService
             $destinationLot = $disposition === 'available'
                 ? $this->restoreToSourceLot($return, $actualQuantity)
                 : $this->createSeparatedReturnLot($return, $actualQuantity, $disposition);
+            $destinationLot->loadMissing('ingredient.measurementUnit');
+            $legacyKg = $this->units->legacyKilograms($destinationLot->ingredient, $actualQuantity);
 
             StockMovement::query()->create([
                 'sppg_unit_id' => $return->sppg_unit_id,
@@ -99,7 +103,7 @@ class PreparationReturnService
                 'unit_snapshot' => $return->unit_snapshot,
                 'movement_type' => StockMovement::TYPE_RETURN_FROM_PREPARATION,
                 'movement_date' => today(),
-                'quantity_in_kg' => $return->unit_snapshot === 'kg' ? $actualQuantity : 0,
+                'quantity_in_kg' => $legacyKg,
                 'quantity_out_kg' => 0,
                 'quantity_in' => $actualQuantity,
                 'quantity_out' => 0,
@@ -150,7 +154,7 @@ class PreparationReturnService
 
     private function restoreToSourceLot(PreparationReturn $return, float $quantity): InventoryLot
     {
-        $lot = InventoryLot::query()->lockForUpdate()->find($return->source_inventory_lot_id);
+        $lot = InventoryLot::query()->with('ingredient.measurementUnit')->lockForUpdate()->find($return->source_inventory_lot_id);
         if (! $lot || $lot->sppg_unit_id !== $return->sppg_unit_id || $lot->ingredient_id !== $return->ingredient_id) {
             throw ValidationException::withMessages(['returnStatus' => 'Lot asal retur tidak ditemukan atau tidak sesuai.']);
         }
@@ -158,9 +162,10 @@ class PreparationReturnService
             throw ValidationException::withMessages(['returnStatus' => 'Lot asal sedang dikarantina atau ditolak. Pilih keputusan Karantina untuk retur ini.']);
         }
 
+        $newBalance = (float) $lot->balance_quantity + $quantity;
         $lot->update([
-            'balance_quantity' => (float) $lot->balance_quantity + $quantity,
-            'balance_quantity_kg' => $lot->unit_snapshot === 'kg' ? (float) $lot->balance_quantity_kg + $quantity : $lot->balance_quantity_kg,
+            'balance_quantity' => $newBalance,
+            'balance_quantity_kg' => $this->units->legacyKilograms($lot->ingredient, $newBalance),
             'status' => InventoryLot::AVAILABLE,
         ]);
 
@@ -169,7 +174,8 @@ class PreparationReturnService
 
     private function createSeparatedReturnLot(PreparationReturn $return, float $quantity, string $disposition): InventoryLot
     {
-        $source = InventoryLot::query()->find($return->source_inventory_lot_id);
+        $source = InventoryLot::query()->with('ingredient.measurementUnit')->find($return->source_inventory_lot_id);
+        $legacyKg = $this->units->legacyKilograms($source?->ingredient, $quantity);
 
         return InventoryLot::query()->create([
             'sppg_unit_id' => $return->sppg_unit_id,
@@ -182,8 +188,8 @@ class PreparationReturnService
             'location_name' => 'Area Retur Gudang',
             'storage_type' => $source?->storage_type ?: 'dry',
             'status' => $disposition,
-            'initial_quantity_kg' => $return->unit_snapshot === 'kg' ? $quantity : 0,
-            'balance_quantity_kg' => $return->unit_snapshot === 'kg' ? $quantity : 0,
+            'initial_quantity_kg' => $legacyKg,
+            'balance_quantity_kg' => $legacyKg,
         ]);
     }
 

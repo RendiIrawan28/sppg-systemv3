@@ -17,6 +17,8 @@ class StockMovement extends Model
 
     public const TYPE_ADJUSTMENT = 'adjustment';
 
+    public const TYPE_OPENING_BALANCE = 'opening_balance';
+
     public const TYPE_RETURN_FROM_PREPARATION = 'return_from_preparation';
 
     public const TYPE_RETURN_FROM_PROCESSING = 'return_from_processing';
