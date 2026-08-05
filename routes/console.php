@@ -16,3 +16,7 @@ Schedule::command('sanctum:prune-expired --hours=24')
 Schedule::command('mobile:send-task-reminders')
     ->everyFiveMinutes()
     ->withoutOverlapping();
+
+Schedule::command('attendance:auto-check-out')
+    ->everyMinute()
+    ->withoutOverlapping();

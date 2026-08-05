@@ -12,7 +12,7 @@ class AttendanceSession extends Model
 {
     use SoftDeletes;
 
-    protected $fillable = ['uuid', 'sppg_unit_id', 'user_id', 'work_date', 'check_in_at', 'check_out_at', 'check_in_device_id', 'check_out_device_id', 'source', 'status', 'notes', 'corrected_by', 'corrected_at', 'deleted_by', 'deletion_reason'];
+    protected $fillable = ['uuid', 'sppg_unit_id', 'user_id', 'work_date', 'check_in_at', 'check_out_at', 'check_in_device_id', 'check_out_device_id', 'check_out_source', 'source', 'status', 'notes', 'corrected_by', 'corrected_at', 'deleted_by', 'deletion_reason'];
 
     protected function casts(): array
     {

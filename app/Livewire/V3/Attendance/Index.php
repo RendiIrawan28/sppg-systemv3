@@ -127,6 +127,8 @@ class Index extends Component
                 'work_date' => $data['manualWorkDate'],
                 'check_in_at' => $checkIn,
                 'check_out_at' => $checkOut,
+                'check_out_device_id' => null,
+                'check_out_source' => $checkOut ? 'manual' : null,
                 'status' => $data['manualStatus'],
                 'notes' => trim($data['manualNotes']) ?: null,
             ],

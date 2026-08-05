@@ -18,6 +18,8 @@ class VolunteerAttendanceService
 
     public const MINIMUM_WORK_HOURS = 4;
 
+    public const MAXIMUM_WORK_HOURS = 14;
+
     public const REENTRY_WAIT_HOURS = 6;
 
     public static function normalizeUid(?string $uid): string
@@ -120,7 +122,11 @@ class VolunteerAttendanceService
                     ]);
                 }
 
-                $latest->update(['check_out_at' => $eventAt, 'check_out_device_id' => $device->getKey()]);
+                $latest->update([
+                    'check_out_at' => $eventAt,
+                    'check_out_device_id' => $device->getKey(),
+                    'check_out_source' => $offline ? 'rfid_offline' : 'rfid',
+                ]);
 
                 return $this->storeTap($device, $user, $latest, $uid, $requestId, 'check_out', 'success', 'Presensi pulang berhasil.', $eventAt, $offline, [
                     'status' => 'success',
@@ -164,6 +170,48 @@ class VolunteerAttendanceService
                 'recorded_at' => $eventAt->toIso8601String(),
             ]);
         });
+    }
+
+    public function autoCheckOutOverdue(?Carbon $asOf = null): int
+    {
+        $asOf = ($asOf?->copy() ?? now())->setTimezone(config('app.timezone'));
+        $cutoff = $asOf->copy()->subHours(self::MAXIMUM_WORK_HOURS);
+        $updated = 0;
+
+        AttendanceSession::query()
+            ->where('status', 'present')
+            ->whereNull('check_out_at')
+            ->whereNotNull('check_in_at')
+            ->where('check_in_at', '<=', $cutoff)
+            ->orderBy('id')
+            ->pluck('id')
+            ->each(function (int $sessionId) use (&$updated, $asOf): void {
+                DB::transaction(function () use ($sessionId, &$updated, $asOf): void {
+                    $session = AttendanceSession::query()->lockForUpdate()->find($sessionId);
+                    if (! $session || $session->check_out_at || $session->status !== 'present' || ! $session->check_in_at) {
+                        return;
+                    }
+
+                    $automaticCheckOutAt = $session->check_in_at->copy()->addHours(self::MAXIMUM_WORK_HOURS);
+                    if ($automaticCheckOutAt->gt($asOf)) {
+                        return;
+                    }
+
+                    $automaticNote = 'Presensi pulang dicatat otomatis setelah mencapai batas 14 jam kerja.';
+                    $notes = trim((string) $session->notes);
+
+                    $session->update([
+                        'check_out_at' => $automaticCheckOutAt,
+                        'check_out_device_id' => null,
+                        'check_out_source' => 'automatic',
+                        'notes' => $notes === '' ? $automaticNote : $notes."\n".$automaticNote,
+                    ]);
+
+                    $updated++;
+                });
+            });
+
+        return $updated;
     }
 
     public function saveManual(
