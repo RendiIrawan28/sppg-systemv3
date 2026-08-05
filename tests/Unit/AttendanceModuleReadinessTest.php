@@ -17,6 +17,7 @@ it('exposes secured device endpoints and volunteer name lcd payloads', function 
 
     expect($routes)->toContain("Route::prefix('iot/attendance')")
         ->and($service)->toContain("'pegawai' => \$user->name")
+        ->toContain('MINIMUM_WORK_HOURS = 4')
         ->toContain('REENTRY_WAIT_HOURS = 6')
         ->toContain('DUPLICATE_SECONDS = 60');
 });

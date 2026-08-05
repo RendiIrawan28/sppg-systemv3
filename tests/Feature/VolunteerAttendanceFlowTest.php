@@ -53,6 +53,26 @@ it('requires six hours after check out before another check in', function (): vo
         ->and(AttendanceSession::query()->count())->toBe(2);
 });
 
+it('blocks check out until the volunteer has worked for four hours', function (): void {
+    $service = app(VolunteerAttendanceService::class);
+    Carbon::setTestNow('2026-08-02 07:00:00');
+    $service->recordTap($this->device, 'A1B2C3D4', 'tap-minimum-work-1');
+
+    Carbon::setTestNow('2026-08-02 10:00:00');
+    $blocked = $service->recordTap($this->device, 'A1B2C3D4', 'tap-minimum-work-2');
+
+    expect($blocked['action'])->toBe('wait_4_hours')
+        ->and($blocked['remaining_minutes'])->toBe(60)
+        ->and(AttendanceSession::query()->sole()->check_out_at)->toBeNull()
+        ->and(AttendanceTap::query()->latest('id')->first()->result)->toBe('blocked');
+
+    Carbon::setTestNow('2026-08-02 11:00:00');
+    $checkOut = $service->recordTap($this->device, 'A1B2C3D4', 'tap-minimum-work-3');
+
+    expect($checkOut['action'])->toBe('check_out')
+        ->and(AttendanceSession::query()->sole()->check_out_at->format('H:i'))->toBe('11:00');
+});
+
 it('keeps a cross-midnight session on the check-in date', function (): void {
     $service = app(VolunteerAttendanceService::class);
     Carbon::setTestNow('2026-08-02 22:00:00');

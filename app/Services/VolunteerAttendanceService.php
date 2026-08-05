@@ -16,6 +16,8 @@ class VolunteerAttendanceService
 {
     public const DUPLICATE_SECONDS = 60;
 
+    public const MINIMUM_WORK_HOURS = 4;
+
     public const REENTRY_WAIT_HOURS = 6;
 
     public static function normalizeUid(?string $uid): string
@@ -102,6 +104,19 @@ class VolunteerAttendanceService
                         'action' => 'duplicate_tap',
                         'pegawai' => $user->name,
                         'message' => 'Kartu baru saja terbaca.',
+                    ]);
+                }
+
+                $checkoutAllowedAt = $latest->check_in_at?->copy()->addHours(self::MINIMUM_WORK_HOURS);
+                if ($checkoutAllowedAt && $eventAt->lt($checkoutAllowedAt)) {
+                    $minutes = max(1, (int) ceil($eventAt->diffInSeconds($checkoutAllowedAt) / 60));
+
+                    return $this->storeTap($device, $user, $latest, $uid, $requestId, 'wait_4_hours', 'blocked', "Tunggu {$minutes} menit sebelum pulang.", $eventAt, $offline, [
+                        'status' => 'success',
+                        'action' => 'wait_4_hours',
+                        'pegawai' => $user->name,
+                        'message' => "Belum memenuhi minimal 4 jam kerja. Tunggu {$minutes} menit sebelum presensi pulang.",
+                        'remaining_minutes' => $minutes,
                     ]);
                 }
 

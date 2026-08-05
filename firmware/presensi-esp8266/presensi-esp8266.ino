@@ -23,7 +23,7 @@
 const String SERVER_URL = "http://202.155.19.32";
 const String DEVICE_CODE = "PRESENSI_01";
 const String DEVICE_KEY = "E07nn4prNreGQOVJHnJqnEWndfY4eEgtAtmlYys7";
-const String FIRMWARE_VERSION = "1.0.0";
+const String FIRMWARE_VERSION = "1.0.1";
 
 const char* WIFI_AP_NAME = "SPPG-PRESENSI-SETUP";
 const char* WIFI_AP_PASSWORD = "12345678";
@@ -180,6 +180,9 @@ void showServerResponse(int status, const String& response, const String& uid) {
     displayMessage(name, "Berhasil Pulang");
     ledResult(true);
   } else if (action == "wait_6_hours") {
+    displayMessage(name, "Tunggu " + minutes + " mnt");
+    ledResult(false);
+  } else if (action == "wait_4_hours") {
     displayMessage(name, "Tunggu " + minutes + " mnt");
     ledResult(false);
   } else if (action == "duplicate_tap") {
