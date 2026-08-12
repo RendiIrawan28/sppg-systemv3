@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import id.sppg.mobile.data.FieldPlanRepository
 import id.sppg.mobile.data.remote.FieldPlan
+import id.sppg.mobile.data.remote.FieldPlanOption
 import id.sppg.mobile.data.remote.ReadinessResponse
 import id.sppg.mobile.data.remote.UpdateFieldPlanRequest
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +22,7 @@ data class FieldPlanUiState(
     val lastPage: Int = 1,
     val isLoadingMore: Boolean = false,
     val selectedPlan: FieldPlan? = null,
+    val options: List<FieldPlanOption> = emptyList(),
     val readiness: ReadinessResponse? = null,
     val successMessage: String? = null,
     val errorMessage: String? = null,
@@ -100,6 +102,37 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
         _uiState.update { it.copy(selectedPlan = null, readiness = null, successMessage = null, errorMessage = null) }
     }
 
+    fun loadOptions(force: Boolean = false) {
+        if (!force && (_uiState.value.isLoading || _uiState.value.options.isNotEmpty())) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null, successMessage = null) }
+            repository.getOptions()
+                .onSuccess { options -> _uiState.update { it.copy(options = options) } }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            _uiState.update { it.copy(isLoading = false) }
+        }
+    }
+
+    fun createPlan(menuCycleDayId: Long, notes: String?, onCreated: (Long) -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null) }
+            repository.createPlan(menuCycleDayId, notes)
+                .onSuccess { plan ->
+                    _uiState.update {
+                        it.copy(
+                            selectedPlan = plan,
+                            plans = listOf(plan) + it.plans.filterNot { item -> item.id == plan.id },
+                            options = it.options.map { option -> if (option.id == menuCycleDayId) option.copy(hasPlan = true) else option },
+                            successMessage = "Rencana distribusi berhasil dibuat.",
+                        )
+                    }
+                    onCreated(plan.id)
+                }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            _uiState.update { it.copy(isSubmitting = false) }
+        }
+    }
+
     fun updatePlan(request: UpdateFieldPlanRequest) {
         val id = _uiState.value.selectedPlan?.id ?: return
         viewModelScope.launch {
@@ -121,10 +154,35 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
 
     fun checkReadiness() {
         val id = _uiState.value.selectedPlan?.id ?: return
+        _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null, readiness = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null, readiness = null) }
             repository.checkReadiness(id)
                 .onSuccess { readiness -> _uiState.update { it.copy(readiness = readiness) } }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            _uiState.update { it.copy(isSubmitting = false) }
+        }
+    }
+
+    fun refreshBeneficiaries() {
+        val id = _uiState.value.selectedPlan?.id ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null, readiness = null) }
+            repository.refreshBeneficiaries(id)
+                .onSuccess { plan -> _uiState.update { it.copy(selectedPlan = plan, plans = replacePlan(it.plans, plan), successMessage = "Data penerima berhasil diperbarui.") } }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            _uiState.update { it.copy(isSubmitting = false) }
+        }
+    }
+
+    fun deletePlan(onDeleted: () -> Unit) {
+        val id = _uiState.value.selectedPlan?.id ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null) }
+            repository.deletePlan(id)
+                .onSuccess {
+                    _uiState.update { it.copy(selectedPlan = null, plans = it.plans.filterNot { plan -> plan.id == id }, options = emptyList()) }
+                    onDeleted()
+                }
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isSubmitting = false) }
         }
@@ -150,11 +208,11 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
         }
     }
 
-    fun downloadDocument(id: Long, onReady: (java.io.File) -> Unit) {
+    fun downloadDocument(id: Long, format: String = "pdf", onReady: (java.io.File) -> Unit) {
         if (_uiState.value.isSubmitting) return
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null) }
-            repository.downloadDocument(id)
+            repository.downloadDocument(id, format)
                 .onSuccess(onReady)
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isSubmitting = false) }

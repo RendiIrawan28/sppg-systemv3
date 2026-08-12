@@ -48,7 +48,6 @@ class Show extends Component
         $this->runAction(function () use ($service): string {
             $target = $this->period();
             $this->authorizeUpdate($target);
-            abort_if($target->categoryTotals()->exists(), 422, 'Salin periode tersedia untuk mode data penerima bernama.');
             $source = BeneficiaryPeriod::query()
                 ->where('sppg_unit_id', $target->sppg_unit_id)
                 ->whereKeyNot($target->getKey())
@@ -138,7 +137,11 @@ class Show extends Component
                 ->where('sppg_unit_id', $unit->getKey())
                 ->whereKeyNot($period->getKey())
                 ->whereHas('destinations')
-                ->whereDoesntHave('categoryTotals')
+                ->when(
+                    $period->categoryTotals()->exists(),
+                    fn ($query) => $query->whereHas('categoryTotals'),
+                    fn ($query) => $query->whereDoesntHave('categoryTotals'),
+                )
                 ->orderByDesc('start_date')
                 ->limit(20)
                 ->get(['id', 'code', 'name', 'start_date', 'end_date', 'status']),

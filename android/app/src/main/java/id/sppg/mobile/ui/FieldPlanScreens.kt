@@ -1,5 +1,7 @@
 package id.sppg.mobile.ui
 
+import android.app.DatePickerDialog
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +23,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.PictureAsPdf
@@ -32,6 +37,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,11 +62,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import id.sppg.mobile.data.remote.FieldPlan
+import id.sppg.mobile.data.remote.FieldPlanOption
 import id.sppg.mobile.data.remote.FieldPlanDestination
 import id.sppg.mobile.data.remote.UpdateFieldPlanDestinationRequest
 import id.sppg.mobile.data.remote.UpdateFieldPlanRequest
@@ -75,6 +86,7 @@ fun FieldPlanListScreen(
     onLoad: () -> Unit,
     onLoadMore: () -> Unit,
     onPlanClick: (Long) -> Unit,
+    onCreate: () -> Unit,
 ) {
     LaunchedEffect(Unit) { onLoad() }
 
@@ -82,13 +94,16 @@ fun FieldPlanListScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Rencana Lapangan", fontWeight = FontWeight.Bold) },
+                title = { Text("Rencana Distribusi", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
                     }
                 },
                 actions = {
+                    IconButton(onClick = onCreate) {
+                        Icon(Icons.Outlined.Add, contentDescription = "Tambah rencana")
+                    }
                     IconButton(onClick = onRefresh, enabled = !state.isLoading) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Muat ulang")
                     }
@@ -131,7 +146,7 @@ fun FieldPlanListScreen(
                             Spacer(Modifier.width(16.dp))
                             Column {
                                 Text(
-                                    "Rencana H-3",
+                                    "Rencana Distribusi",
                                     style = MaterialTheme.typography.headlineSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.ExtraBold,
@@ -234,7 +249,9 @@ fun FieldPlanDetailScreen(
     onEdit: () -> Unit,
     onCheckReadiness: () -> Unit,
     onActivate: (String?) -> Unit,
-    onOpenDocument: () -> Unit,
+    onRefreshBeneficiaries: () -> Unit,
+    onDelete: () -> Unit,
+    onOpenDocument: (String) -> Unit,
     onClearFeedback: () -> Unit,
 ) {
     LaunchedEffect(planId) { onLoad(planId) }
@@ -269,6 +286,8 @@ fun FieldPlanDetailScreen(
                 onEdit = onEdit,
                 onCheckReadiness = onCheckReadiness,
                 onActivate = onActivate,
+                onRefreshBeneficiaries = onRefreshBeneficiaries,
+                onDelete = onDelete,
                 onOpenDocument = onOpenDocument,
                 onClearFeedback = onClearFeedback,
             )
@@ -284,11 +303,24 @@ private fun FieldPlanDetailContent(
     onEdit: () -> Unit,
     onCheckReadiness: () -> Unit,
     onActivate: (String?) -> Unit,
-    onOpenDocument: () -> Unit,
+    onRefreshBeneficiaries: () -> Unit,
+    onDelete: () -> Unit,
+    onOpenDocument: (String) -> Unit,
     onClearFeedback: () -> Unit,
 ) {
     var showActivationDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var activationRequested by remember { mutableStateOf(false) }
     var activationNotes by remember { mutableStateOf("") }
+
+    LaunchedEffect(state.readiness, activationRequested) {
+        if (activationRequested && state.readiness != null) {
+            if (state.readiness.ready) {
+                showActivationDialog = true
+            }
+            activationRequested = false
+        }
+    }
 
     if (showActivationDialog) {
         AlertDialog(
@@ -296,7 +328,7 @@ private fun FieldPlanDetailContent(
             title = { Text("Aktifkan rencana?") },
             text = {
                 Column {
-                    Text("Aktivasi akan membuat pekerjaan Pengolahan, Pemorsian, dan Distribusi. Data rencana tidak dapat diubah lagi.")
+                    Text("Aktivasi akan menyiapkan rute Distribusi. Pengolahan dan Pemorsian tetap dimulai manual oleh divisi masing-masing. Data rencana tidak dapat diubah lagi.")
                     Spacer(Modifier.height(14.dp))
                     OutlinedTextField(
                         value = activationNotes,
@@ -322,6 +354,19 @@ private fun FieldPlanDetailContent(
                     enabled = !state.isSubmitting,
                 ) { Text("Batal") }
             },
+        )
+    }
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!state.isSubmitting) showDeleteDialog = false },
+            title = { Text("Hapus draft rencana?") },
+            text = { Text("Draft dan seluruh rincian tujuan di dalamnya akan dihapus.") },
+            confirmButton = {
+                Button(onClick = { showDeleteDialog = false; onDelete() }, enabled = !state.isSubmitting) {
+                    Text("Hapus")
+                }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Batal") } },
         )
     }
 
@@ -394,9 +439,20 @@ private fun FieldPlanDetailContent(
                         ) { Text("Ubah konfirmasi tujuan") }
                         Spacer(Modifier.height(10.dp))
                     }
+                    if (plan.canRefresh) {
+                        OutlinedButton(
+                            onClick = onRefreshBeneficiaries,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !state.isSubmitting,
+                        ) { Text("Ambil ulang jumlah penerima") }
+                        Spacer(Modifier.height(10.dp))
+                    }
                     if (plan.canActivate) {
                         Button(
-                            onClick = onCheckReadiness,
+                            onClick = {
+                                activationRequested = true
+                                onCheckReadiness()
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.isSubmitting,
                         ) {
@@ -407,8 +463,16 @@ private fun FieldPlanDetailContent(
                                     color = MaterialTheme.colorScheme.onPrimary,
                                 )
                             } else {
-                                Text("Periksa kesiapan")
+                                Text("Aktifkan rencana")
                             }
+                        }
+                    }
+                    if (plan.canDelete) {
+                        Spacer(Modifier.height(10.dp))
+                        TextButton(onClick = { showDeleteDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Outlined.Delete, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Hapus draft")
                         }
                     }
                 }
@@ -420,11 +484,7 @@ private fun FieldPlanDetailContent(
                     ready = state.readiness.ready,
                     message = state.readiness.message,
                     issues = state.readiness.issues,
-                    onActivate = if (state.readiness.ready && plan.canActivate) {
-                        { showActivationDialog = true }
-                    } else {
-                        null
-                    },
+                    onActivate = null,
                 )
             }
         }
@@ -440,15 +500,17 @@ private fun FieldPlanDetailContent(
         }
         if (plan.canExport) {
             item {
-                OutlinedButton(
-                    onClick = onOpenDocument,
-                    enabled = !state.isSubmitting,
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Lihat dokumen PDF", fontWeight = FontWeight.Bold)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = { onOpenDocument("pdf") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(50.dp)) {
+                        Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("PDF", fontWeight = FontWeight.Bold)
+                    }
+                    OutlinedButton(onClick = { onOpenDocument("xlsx") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(50.dp)) {
+                        Icon(Icons.Outlined.Download, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Excel", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -518,10 +580,6 @@ private fun DestinationCard(destination: FieldPlanDestination) {
                 Spacer(Modifier.height(6.dp))
                 InfoLine(Icons.Outlined.LocationOn, destination.routeName)
             }
-            if (!destination.plannedArrivalTime.isNullOrBlank()) {
-                Spacer(Modifier.height(6.dp))
-                InfoLine(Icons.Outlined.CalendarMonth, "Tiba ${destination.plannedArrivalTime}")
-            }
             if (destination.recipientGroups.isNotEmpty()) {
                 Spacer(Modifier.height(14.dp))
                 HorizontalDivider()
@@ -547,6 +605,8 @@ private data class RecipientGroupEditState(
     val name: String,
     val registered: Int,
     val confirmed: String,
+    val menuAudience: String,
+    val portionSize: String,
     val notes: String,
 )
 
@@ -555,8 +615,6 @@ private data class DestinationEditState(
     val name: String,
     val sequenceOrder: Int,
     val routeName: String,
-    val departureTime: String,
-    val arrivalTime: String,
     val specialNotes: String,
     val changeReason: String,
     val groups: List<RecipientGroupEditState>,
@@ -628,8 +686,6 @@ private fun FieldPlanEditForm(
                     name = destination.name,
                     sequenceOrder = destination.sequenceOrder,
                     routeName = destination.routeName.orEmpty(),
-                    departureTime = destination.plannedDepartureTime.orEmpty(),
-                    arrivalTime = destination.plannedArrivalTime.orEmpty(),
                     specialNotes = destination.specialNotes.orEmpty(),
                     changeReason = destination.changeReason.orEmpty(),
                     groups = destination.recipientGroups.map { group ->
@@ -638,6 +694,8 @@ private fun FieldPlanEditForm(
                             name = group.categoryName,
                             registered = group.registeredBeneficiaries,
                             confirmed = group.confirmedBeneficiaries.toString(),
+                            menuAudience = group.menuAudience ?: "student",
+                            portionSize = group.portionSize ?: "small",
                             notes = group.notes.orEmpty(),
                         )
                     },
@@ -646,6 +704,13 @@ private fun FieldPlanEditForm(
         )
     }
     var localError by remember { mutableStateOf<String?>(null) }
+    val routeOptions = remember(plan.id, destinations.size) {
+        (
+            destinations.map { it.routeName }.filter { it.isNotBlank() } +
+                listOf("Rute Utama") +
+                (1..maxOf(10, destinations.size)).map { "Rute $it" }
+            ).distinct()
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -689,6 +754,7 @@ private fun FieldPlanEditForm(
             val destinationIndex = destinations.indexOfFirst { it.id == destination.id }
             DestinationEditCard(
                 destination = destination,
+                routeOptions = routeOptions,
                 enabled = !isSubmitting,
                 onDestinationChange = { updated ->
                     destinations = destinations.toMutableList().also { it[destinationIndex] = updated }
@@ -709,6 +775,8 @@ private fun FieldPlanEditForm(
                             UpdateRecipientGroupRequest(
                                 id = group.id,
                                 confirmedBeneficiaries = confirmed,
+                                menuAudience = group.menuAudience,
+                                portionSize = group.portionSize,
                                 notes = group.notes.trim().ifBlank { null },
                             )
                         }
@@ -723,10 +791,9 @@ private fun FieldPlanEditForm(
                             id = destination.id,
                             routeName = destination.routeName.trim().ifBlank { null },
                             sequenceOrder = destination.sequenceOrder,
-                            plannedDepartureTime = destination.departureTime.ifBlank { null },
-                            plannedArrivalTime = destination.arrivalTime.ifBlank { null },
                             specialNotes = destination.specialNotes.trim().ifBlank { null },
                             changeReason = destination.changeReason.trim().ifBlank { null },
+                            noServiceReason = if (destination.groups.sumOf { it.confirmed.toIntOrNull() ?: 0 } == 0) destination.changeReason.trim().ifBlank { null } else null,
                             recipientGroups = groups,
                         )
                     }
@@ -758,12 +825,15 @@ private fun FieldPlanEditForm(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DestinationEditCard(
     destination: DestinationEditState,
+    routeOptions: List<String>,
     enabled: Boolean,
     onDestinationChange: (DestinationEditState) -> Unit,
 ) {
+    var routeExpanded by remember(destination.id) { mutableStateOf(false) }
     val hasChangedCount = destination.groups.any {
         it.confirmed.toIntOrNull() != it.registered
     }
@@ -779,46 +849,39 @@ private fun DestinationEditCard(
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(14.dp))
-            OutlinedTextField(
-                value = destination.routeName,
-                onValueChange = { onDestinationChange(destination.copy(routeName = it)) },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Nama rute") },
-                singleLine = true,
-                enabled = enabled,
-            )
-            Spacer(Modifier.height(10.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ExposedDropdownMenuBox(
+                expanded = routeExpanded,
+                onExpandedChange = { if (enabled) routeExpanded = !routeExpanded },
             ) {
                 OutlinedTextField(
-                    value = destination.departureTime,
-                    onValueChange = { onDestinationChange(destination.copy(departureTime = it)) },
-                    modifier = Modifier.weight(1f),
-                    label = { Text("Berangkat") },
-                    placeholder = { Text("07:00") },
+                    value = destination.routeName,
+                    onValueChange = {},
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                    label = { Text("Nama rute") },
+                    placeholder = { Text("Pilih rute") },
+                    readOnly = true,
                     singleLine = true,
                     enabled = enabled,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Next,
-                    ),
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(routeExpanded) },
                 )
-                OutlinedTextField(
-                    value = destination.arrivalTime,
-                    onValueChange = { onDestinationChange(destination.copy(arrivalTime = it)) },
-                    modifier = Modifier.weight(1f),
-                    label = { Text("Tiba") },
-                    placeholder = { Text("08:00") },
-                    singleLine = true,
-                    enabled = enabled,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Next,
-                    ),
-                )
+                ExposedDropdownMenu(
+                    expanded = routeExpanded,
+                    onDismissRequest = { routeExpanded = false },
+                ) {
+                    routeOptions.forEach { route ->
+                        DropdownMenuItem(
+                            text = { Text(route) },
+                            onClick = {
+                                onDestinationChange(destination.copy(routeName = route))
+                                routeExpanded = false
+                            },
+                        )
+                    }
+                }
             }
+            Spacer(Modifier.height(10.dp))
             Spacer(Modifier.height(16.dp))
             Text("Kelompok penerima", fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(10.dp))
@@ -849,6 +912,30 @@ private fun DestinationEditCard(
                 )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
+                    value = group.menuAudience,
+                    onValueChange = { value ->
+                        val groups = destination.groups.toMutableList().also { it[groupIndex] = group.copy(menuAudience = value) }
+                        onDestinationChange(destination.copy(groups = groups))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Kelompok menu") },
+                    singleLine = true,
+                    enabled = enabled,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("small" to "Porsi kecil", "large" to "Porsi besar").forEach { (value, label) ->
+                        OutlinedButton(
+                            onClick = {
+                                val groups = destination.groups.toMutableList().also { it[groupIndex] = group.copy(portionSize = value) }
+                                onDestinationChange(destination.copy(groups = groups))
+                            },
+                            enabled = enabled && group.portionSize != value,
+                        ) { Text(label) }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
                     value = group.notes,
                     onValueChange = { value ->
                         val groups = destination.groups.toMutableList().also {
@@ -868,7 +955,7 @@ private fun DestinationEditCard(
                     value = destination.changeReason,
                     onValueChange = { onDestinationChange(destination.copy(changeReason = it)) },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Alasan perubahan jumlah*") },
+                    label = { Text(if (destination.groups.sumOf { it.confirmed.toIntOrNull() ?: 0 } == 0) "Alasan tidak dilayani*" else "Alasan perubahan jumlah*") },
                     minLines = 2,
                     enabled = enabled,
                     isError = destination.changeReason.isBlank(),
@@ -883,6 +970,174 @@ private fun DestinationEditCard(
                 minLines = 2,
                 enabled = enabled,
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FieldPlanCreateScreen(
+    state: FieldPlanUiState,
+    onBack: () -> Unit,
+    onLoadOptions: () -> Unit,
+    onCreate: (Long, String?) -> Unit,
+    onClearFeedback: () -> Unit,
+) {
+    LaunchedEffect(Unit) { onLoadOptions() }
+    var selectedId by remember { mutableStateOf<Long?>(null) }
+    var selectedDate by remember { mutableStateOf<String?>(null) }
+    var notes by remember { mutableStateOf("") }
+    val context = LocalContext.current
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("Tambah Rencana Distribusi", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack, enabled = !state.isSubmitting) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+            )
+        },
+    ) { padding ->
+        if (state.isLoading && state.options.isEmpty()) {
+            LoadingContent(padding)
+        } else {
+            val optionsForDate = selectedDate?.let { date ->
+                state.options.filter { it.distributionDate == date }
+            }.orEmpty()
+            val available = optionsForDate.filter { it.isAvailable }
+            val unavailable = optionsForDate.filterNot { it.isAvailable }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 12.dp, 20.dp, 32.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                state.errorMessage?.let { message ->
+                    item { FeedbackCard(message, true, onClearFeedback) }
+                }
+                item {
+                    Text("1. Tentukan tanggal distribusi", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Menu yang dapat dipilih akan disesuaikan dengan tanggal distribusi.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val initial = selectedDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now()
+                            DatePickerDialog(
+                                context,
+                                { _, year, month, day ->
+                                    selectedDate = LocalDate.of(year, month + 1, day).toString()
+                                    selectedId = null
+                                },
+                                initial.year,
+                                initial.monthValue - 1,
+                                initial.dayOfMonth,
+                            ).show()
+                        },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        enabled = !state.isSubmitting,
+                    ) {
+                        Icon(Icons.Outlined.CalendarMonth, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(selectedDate?.let(::formatDate) ?: "Pilih tanggal distribusi", fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (selectedDate == null) {
+                    item {
+                        SectionCard("2. Pilih menu") {
+                            Text("Tentukan tanggal distribusi terlebih dahulu.")
+                        }
+                    }
+                } else if (optionsForDate.isEmpty()) {
+                    item {
+                        SectionCard("Tidak ada menu pada tanggal ini") {
+                            Text("Belum ada menu siklus yang disetujui atau aktif untuk ${formatDate(requireNotNull(selectedDate))}.")
+                        }
+                    }
+                } else {
+                    item {
+                        Text("2. Pilih menu", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    }
+                    items(available, key = { it.id }) { option ->
+                        FieldPlanOptionCard(option, selectedId == option.id) { selectedId = option.id }
+                    }
+                }
+                if (unavailable.isNotEmpty()) {
+                    item {
+                        Text("Belum dapat digunakan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                    items(unavailable, key = { "unavailable-${it.id}" }) { option ->
+                        FieldPlanOptionCard(option, selected = false, enabled = false) {}
+                    }
+                }
+                item {
+                    Text("3. Catatan rencana", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Catatan umum (opsional)") },
+                        minLines = 3,
+                        enabled = !state.isSubmitting,
+                    )
+                }
+                item {
+                    Button(
+                        onClick = { selectedId?.let { onCreate(it, notes.trim().ifBlank { null }) } },
+                        enabled = selectedId != null && !state.isSubmitting,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) {
+                        if (state.isSubmitting) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else Text("Buat rencana dan muat penerima", fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Setelah rencana dibuat, sekolah/Posyandu dan jumlah penerima dimuat otomatis lalu Anda diarahkan untuk mengonfirmasi rute.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FieldPlanOptionCard(
+    option: FieldPlanOption,
+    selected: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        ),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(option.menuName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(5.dp))
+            Text(formatDate(option.distributionDate), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val cycle = listOfNotNull(option.cycleCode, option.labelCode).joinToString(" • ")
+            if (cycle.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(cycle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (option.isRapel) {
+                Spacer(Modifier.height(5.dp))
+                Text("Distribusi rapel", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+            }
+            if (!enabled && !option.unavailableReason.isNullOrBlank()) {
+                Spacer(Modifier.height(7.dp))
+                Text(option.unavailableReason, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
@@ -1043,10 +1298,10 @@ private fun EmptyContent(padding: PaddingValues) {
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))
-        Text("Belum ada rencana lapangan", fontWeight = FontWeight.Bold)
+        Text("Belum ada rencana distribusi", fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
         Text(
-            "Rencana yang dibuat pada sistem SPPG V3 akan tampil di sini.",
+            "Buat rencana dari menu siklus aktif melalui tombol tambah.",
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }

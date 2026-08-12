@@ -53,11 +53,15 @@
             </div>
         </section>
 
-        @if ($editable && $canUpdate && $inputMode === 'master')
+        @if ($editable && $canUpdate)
             <section class="rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
-                <div><p class="text-[10px] font-bold uppercase tracking-[.16em] text-sky-700">Kelola snapshot</p><h3 class="mt-1 text-lg font-bold text-slate-950">Penerima berdasarkan nama</h3><p class="mt-1 text-xs text-slate-600">Pilih salah satu cara memperbarui isi draft sebelum diajukan.</p></div>
+                <div><p class="text-[10px] font-bold uppercase tracking-[.16em] text-sky-700">Salin periode sebelumnya</p><h3 class="mt-1 text-lg font-bold text-slate-950">Gunakan data periode yang sudah ada</h3><p class="mt-1 text-xs text-slate-600">Salin seluruh sekolah/Posyandu dan jumlah per kategori dari periode sebelumnya ke draft ini.</p></div>
                 <div class="mt-4 grid gap-3 lg:grid-cols-[auto_minmax(260px,1fr)_auto]">
-                    <button type="button" wire:click="refreshSnapshot" wire:confirm="Ganti snapshot dengan seluruh penerima aktif saat ini?" class="h-11 rounded-xl bg-sky-700 px-4 text-xs font-bold text-white">Perbarui snapshot master</button>
+                    @if($inputMode === 'master')
+                        <button type="button" wire:click="refreshSnapshot" wire:confirm="Ganti snapshot dengan seluruh penerima aktif saat ini?" class="h-11 rounded-xl bg-sky-700 px-4 text-xs font-bold text-white">Perbarui snapshot master</button>
+                    @else
+                        <div class="hidden lg:block"></div>
+                    @endif
                     <div class="flex min-w-0 gap-2">
                         <select wire:model="sourcePeriodId" class="h-11 min-w-0 flex-1 rounded-xl border border-sky-200 bg-white px-3 text-sm text-slate-800">
                             <option value="">Pilih periode sumber</option>
@@ -65,9 +69,13 @@
                                 <option value="{{ $source->id }}">{{ $source->code }} — {{ $source->name }}</option>
                             @endforeach
                         </select>
-                        <button type="button" wire:click="copyPeriod" wire:confirm="Ganti isi draft dengan snapshot dari periode yang dipilih?" class="h-11 shrink-0 rounded-xl border border-sky-300 bg-white px-4 text-xs font-bold text-sky-800">Salin periode</button>
+                        <button type="button" wire:click="copyPeriod" wire:confirm="Ganti seluruh isi draft dengan data dari periode yang dipilih?" class="h-11 shrink-0 rounded-xl border border-sky-300 bg-white px-4 text-xs font-bold text-sky-800">Salin data</button>
                     </div>
-                    <button type="button" wire:click="promoteClasses" wire:confirm="Naikkan kelas seluruh siswa pada snapshot ini?" class="h-11 rounded-xl bg-amber-500 px-4 text-xs font-bold text-white">Kenaikan kelas massal</button>
+                    @if($inputMode === 'master')
+                        <button type="button" wire:click="promoteClasses" wire:confirm="Naikkan kelas seluruh siswa pada snapshot ini?" class="h-11 rounded-xl bg-amber-500 px-4 text-xs font-bold text-white">Kenaikan kelas massal</button>
+                    @else
+                        <div class="hidden lg:block"></div>
+                    @endif
                 </div>
                 @error('sourcePeriodId')<span class="mt-2 block text-xs text-rose-600">{{ $message }}</span>@enderror
             </section>

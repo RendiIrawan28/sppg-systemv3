@@ -7,171 +7,71 @@ use App\Models\User;
 
 final class Navigation
 {
-    /** @return array<int, array{label: string, items: array<int, array<string, mixed>>}> */
+    /** @return array<int, array<string, mixed>> */
     public function for(User $user, SppgUnit $unit): array
     {
         $groups = [
-            [
-                'label' => 'Ruang kerja',
-                'items' => [
-                    $this->item(
-                        label: 'Dashboard',
-                        icon: 'home',
-                        url: route('v3.dashboard'),
-                        active: request()->routeIs('v3.dashboard'),
-                        visible: $this->allowed($user, 'dashboard.view'),
-                    ),
-                    $this->item(
-                        label: 'Penerima manfaat',
-                        icon: 'users',
-                        url: route('v3.beneficiaries.index'),
-                        active: request()->routeIs('v3.beneficiaries.*'),
-                        visible: $this->allowed($user, 'beneficiaries.view'),
-                    ),
-                    $this->item(
-                        label: 'Jumlah penerima',
-                        icon: 'calendar',
-                        url: route('v3.beneficiary-periods.index'),
-                        active: request()->routeIs('v3.beneficiary-periods.*'),
-                        visible: $this->allowed($user, 'beneficiary_periods.view'),
-                    ),
-                    $this->item(
-                        label: 'Perencanaan menu',
-                        icon: 'calendar',
-                        url: route('v3.nutrition.menu-matrix'),
-                        active: request()->routeIs('v3.nutrition.menu-matrix'),
-                        visible: $this->allowed($user, 'menus.view'),
-                    ),
-                    $this->item(
-                        label: 'Kebutuhan & pengadaan',
-                        icon: 'calculator',
-                        url: route('v3.nutrition.requirements.index'),
-                        active: request()->routeIs('v3.nutrition.requirements.*'),
-                        visible: $this->allowed($user, 'nutrition.view'),
-                    ),
-                    $this->item(
-                        label: 'Evaluasi gizi harian',
-                        icon: 'clipboard',
-                        url: route('v3.nutrition.daily-evaluation'),
-                        active: request()->routeIs('v3.nutrition.daily-evaluation'),
-                        visible: $this->allowed($user, 'nutrition.view'),
-                    ),
-                    $this->item(
-                        label: 'Referensi gizi & bahan',
-                        icon: 'settings',
-                        url: route('v3.nutrition.standards'),
-                        active: request()->routeIs('v3.nutrition.standards'),
-                        visible: $this->allowed($user, 'nutrition.view')
-                            || $this->allowed($user, 'measurement_units.view'),
-                    ),
-                    $this->item(
-                        label: 'Pengadaan bahan',
-                        icon: 'clipboard',
-                        url: route('v3.procurement.index'),
-                        active: request()->routeIs('v3.procurement.*'),
-                        visible: $this->allowed($user, 'procurement.view'),
-                    ),
-                    $this->item(
-                        label: 'Penerimaan bahan',
-                        icon: 'box',
-                        url: route('v3.warehouse.receipts.index'),
-                        active: request()->routeIs('v3.warehouse.receipts.*'),
-                        visible: $this->allowed($user, 'stock.view'),
-                    ),
-                    $this->item(
-                        label: 'Kartu stok',
-                        icon: 'calculator',
-                        url: route('v3.warehouse.stock.index'),
-                        active: request()->routeIs('v3.warehouse.stock.*'),
-                        visible: $this->allowed($user, 'stock.view'),
-                    ),
-                    $this->item(
-                        label: 'Input Stok Awal',
-                        icon: 'plus',
-                        url: route('v3.warehouse.opening-stocks.index'),
-                        active: request()->routeIs('v3.warehouse.opening-stocks.*'),
-                        visible: $this->allowed($user, 'stock.create'),
-                    ),
-                    $this->item(
-                        label: 'Pengambilan Gudang', icon: 'arrow-up-right', url: route('v3.warehouse.withdrawals.index'),
-                        active: request()->routeIs('v3.warehouse.withdrawals.*'),
-                        visible: $this->allowed($user, 'stock.view') || $this->allowed($user, 'preparation.view') || $this->allowed($user, 'processing.view') || $this->allowed($user, 'portioning.view'),
-                    ),
-                    $this->item(
-                        label: 'Kontrol Stok', icon: 'settings', url: route('v3.warehouse.controls.index'),
-                        active: request()->routeIs('v3.warehouse.controls.*'), visible: $this->allowed($user, 'stock.view'),
-                    ),
-                    $this->item(
-                        label: 'Persiapan', icon: 'clipboard', url: route('v3.preparation.index'),
-                        active: request()->routeIs('v3.preparation.*'), visible: $this->allowed($user, 'preparation.view'),
-                    ),
-                    $this->item(
-                        label: 'Hasil Persiapan', icon: 'box', url: route('v3.preparation-outputs.index'),
-                        active: request()->routeIs('v3.preparation-outputs.*'),
-                        visible: $this->allowed($user, 'preparation.view') || $this->allowed($user, 'processing.view') || $this->allowed($user, 'portioning.view'),
-                    ),
-                    $this->item(
-                        label: 'Rencana lapangan', icon: 'calendar', url: route('v3.field.plans.index'),
-                        active: request()->routeIs('v3.field.plans.*'), visible: $this->allowed($user, 'field_planning.view'),
-                    ),
-                    $this->item(
-                        label: 'Laporan harian', icon: 'clipboard', url: route('v3.field.daily-reports'),
-                        active: request()->routeIs('v3.field.daily-reports'), visible: $this->allowed($user, 'field_daily_reports.view'),
-                    ),
-                    $this->item(
-                        label: 'Insiden lapangan', icon: 'alert', url: route('v3.field.incidents.index'),
-                        active: request()->routeIs('v3.field.incidents.*'), visible: $this->allowed($user, 'field_incidents.view'),
-                    ),
-                    $this->item(
-                        label: 'Pengolahan', icon: 'settings', url: route('v3.processing.index'),
-                        active: request()->routeIs('v3.processing.*'), visible: $this->allowed($user, 'processing.view'),
-                    ),
-                    $this->item(
-                        label: 'Pemorsian', icon: 'calculator', url: route('v3.portioning.index'),
-                        active: request()->routeIs('v3.portioning.*'), visible: $this->allowed($user, 'portioning.view'),
-                    ),
-                    $this->item(
-                        label: 'Distribusi', icon: 'arrow-up-right', url: route('v3.operations.index', ['module' => 'distribusi']),
-                        active: request()->routeIs('v3.operations.*') && request()->route('module') === 'distribusi', visible: $this->allowed($user, 'distribution.view'),
-                    ),
-                    $this->item(
-                        label: 'Pengambilan Ompreng', icon: 'arrow-up-right', url: route('v3.container-collections.index'),
-                        active: request()->routeIs('v3.container-collections.*'), visible: $this->allowed($user, 'distribution.view'),
-                    ),
-                    $this->item(
-                        label: 'Pencucian', icon: 'box', url: route('v3.operations.index', ['module' => 'pencucian']),
-                        active: request()->routeIs('v3.operations.*') && request()->route('module') === 'pencucian', visible: $this->allowed($user, 'washing.view'),
-                    ),
-                    $this->item(
-                        label: 'Kebersihan', icon: 'home', url: route('v3.operations.index', ['module' => 'kebersihan']),
-                        active: request()->routeIs('v3.operations.*') && request()->route('module') === 'kebersihan', visible: $this->allowed($user, 'cleaning.view'),
-                    ),
-                    $this->item(
-                        label: 'Berita Acara Limbah', icon: 'clipboard', url: route('v3.waste-handovers.index'),
-                        active: request()->routeIs('v3.waste-handovers.*'),
-                        visible: $this->allowed($user, 'preparation.view') || $this->allowed($user, 'washing.view') || $this->allowed($user, 'cleaning.view'),
-                    ),
-                    $this->item(
-                        label: 'Keamanan', icon: 'shield', url: route('v3.security.index'),
-                        active: request()->routeIs('v3.security.*'), visible: $this->allowed($user, 'security.view'),
-                    ),
-                    $this->item(
-                        label: 'Kirim notifikasi', icon: 'alert', url: route('v3.notifications.broadcast'),
-                        active: request()->routeIs('v3.notifications.broadcast'), visible: $this->allowed($user, 'notifications.manage'),
-                    ),
-                    $this->item(
-                        label: 'Presensi relawan', icon: 'users', url: route('v3.attendance.index'),
-                        active: request()->routeIs('v3.attendance.*'), visible: $this->allowed($user, 'attendance.view'),
-                    ),
-                    $this->item(
-                        label: 'Master data',
-                        icon: 'settings',
-                        url: route('v3.master-data.index'),
-                        active: request()->routeIs('v3.master-data.*'),
-                        visible: $this->canSeeMasterData($user),
-                    ),
-                ],
-            ],
+            $this->standalone('dashboard', 'Dashboard', 'home', [
+                $this->item('Dashboard', 'home', route('v3.dashboard'), request()->routeIs('v3.dashboard'), $this->allowed($user, 'dashboard.view')),
+            ]),
+            $this->module('penerima', 'Penerima Manfaat', 'users', [
+                $this->item('Data penerima', 'users', route('v3.beneficiaries.index'), request()->routeIs('v3.beneficiaries.*'), $this->allowed($user, 'beneficiaries.view')),
+                $this->item('Jumlah penerima', 'calendar', route('v3.beneficiary-periods.index'), request()->routeIs('v3.beneficiary-periods.*'), $this->allowed($user, 'beneficiary_periods.view')),
+            ]),
+            $this->module('ahli-gizi', 'Ahli Gizi', 'nutrition', [
+                $this->item('Perencanaan menu', 'calendar', route('v3.nutrition.menu-matrix'), request()->routeIs('v3.nutrition.menu-matrix') || request()->routeIs('v3.nutrition.menus.*'), $this->allowed($user, 'menus.view')),
+                $this->item('Kebutuhan bahan', 'calculator', route('v3.nutrition.requirements.index'), request()->routeIs('v3.nutrition.requirements.*'), $this->allowed($user, 'nutrition.view')),
+                $this->item('Evaluasi gizi harian', 'clipboard', route('v3.nutrition.daily-evaluation'), request()->routeIs('v3.nutrition.daily-evaluation'), $this->allowed($user, 'nutrition.view')),
+                $this->item('Referensi gizi & bahan', 'settings', route('v3.nutrition.standards'), request()->routeIs('v3.nutrition.standards'), $this->allowed($user, 'nutrition.view') || $this->allowed($user, 'measurement_units.view')),
+            ]),
+            $this->module('pengadaan', 'Pengadaan', 'cart', [
+                $this->item('Pengadaan bahan', 'clipboard', route('v3.procurement.index'), request()->routeIs('v3.procurement.*'), $this->allowed($user, 'procurement.view')),
+            ]),
+            $this->module('gudang', 'Gudang', 'box', [
+                $this->item('Penerimaan bahan', 'box', route('v3.warehouse.receipts.index'), request()->routeIs('v3.warehouse.receipts.*'), $this->allowed($user, 'stock.view')),
+                $this->item('Input stok awal', 'plus', route('v3.warehouse.opening-stocks.index'), request()->routeIs('v3.warehouse.opening-stocks.*'), $this->allowed($user, 'stock.create')),
+                $this->item('Kartu stok', 'calculator', route('v3.warehouse.stock.index'), request()->routeIs('v3.warehouse.stock.*'), $this->allowed($user, 'stock.view')),
+                $this->item('Pengambilan barang', 'arrow-up-right', route('v3.warehouse.withdrawals.index'), request()->routeIs('v3.warehouse.withdrawals.*'), $this->allowed($user, 'stock.view') || $this->allowed($user, 'preparation.view') || $this->allowed($user, 'processing.view') || $this->allowed($user, 'portioning.view')),
+                $this->item('Kontrol stok', 'settings', route('v3.warehouse.controls.index'), request()->routeIs('v3.warehouse.controls.*'), $this->allowed($user, 'stock.view')),
+            ]),
+            $this->module('lapangan', 'Asisten Lapangan', 'route', [
+                $this->item('Rencana distribusi', 'calendar', route('v3.field.plans.index'), request()->routeIs('v3.field.plans.*'), $this->allowed($user, 'field_planning.view')),
+                $this->item('Laporan harian', 'clipboard', route('v3.field.daily-reports'), request()->routeIs('v3.field.daily-reports'), $this->allowed($user, 'field_daily_reports.view')),
+                $this->item('Insiden lapangan', 'alert', route('v3.field.incidents.index'), request()->routeIs('v3.field.incidents.*'), $this->allowed($user, 'field_incidents.view')),
+            ]),
+            $this->module('persiapan', 'Persiapan', 'clipboard', [
+                $this->item('Pekerjaan persiapan', 'clipboard', route('v3.preparation.index'), request()->routeIs('v3.preparation.*'), $this->allowed($user, 'preparation.view')),
+                $this->item('Hasil persiapan', 'box', route('v3.preparation-outputs.index'), request()->routeIs('v3.preparation-outputs.*'), $this->allowed($user, 'preparation.view') || $this->allowed($user, 'processing.view') || $this->allowed($user, 'portioning.view')),
+            ]),
+            $this->module('pengolahan', 'Pengolahan', 'nutrition', [
+                $this->item('Pekerjaan pengolahan', 'settings', route('v3.processing.index'), request()->routeIs('v3.processing.*'), $this->allowed($user, 'processing.view')),
+            ]),
+            $this->module('pemorsian', 'Pemorsian', 'calculator', [
+                $this->item('Pekerjaan pemorsian', 'calculator', route('v3.portioning.index'), request()->routeIs('v3.portioning.*'), $this->allowed($user, 'portioning.view')),
+            ]),
+            $this->module('distribusi', 'Distribusi', 'truck', [
+                $this->item('Pelaksanaan distribusi', 'truck', route('v3.operations.index', ['module' => 'distribusi']), request()->routeIs('v3.operations.*') && request()->route('module') === 'distribusi', $this->allowed($user, 'distribution.view')),
+                $this->item('Pengambilan ompreng', 'arrow-up-right', route('v3.container-collections.index'), request()->routeIs('v3.container-collections.*'), $this->allowed($user, 'distribution.view')),
+            ]),
+            $this->module('pencucian', 'Pencucian', 'droplets', [
+                $this->item('Pekerjaan pencucian', 'droplets', route('v3.operations.index', ['module' => 'pencucian']), request()->routeIs('v3.operations.*') && request()->route('module') === 'pencucian', $this->allowed($user, 'washing.view')),
+            ]),
+            $this->module('kebersihan', 'Kebersihan', 'sparkles', [
+                $this->item('Pekerjaan kebersihan', 'sparkles', route('v3.operations.index', ['module' => 'kebersihan']), request()->routeIs('v3.operations.*') && request()->route('module') === 'kebersihan', $this->allowed($user, 'cleaning.view')),
+            ]),
+            $this->module('limbah', 'Limbah', 'recycle', [
+                $this->item('Berita acara limbah', 'clipboard', route('v3.waste-handovers.index'), request()->routeIs('v3.waste-handovers.*'), $this->allowed($user, 'preparation.view') || $this->allowed($user, 'washing.view') || $this->allowed($user, 'cleaning.view')),
+            ]),
+            $this->module('keamanan', 'Keamanan', 'shield', [
+                $this->item('Laporan keamanan', 'shield', route('v3.security.index'), request()->routeIs('v3.security.*'), $this->allowed($user, 'security.view')),
+            ]),
+            $this->module('kepegawaian', 'Kepegawaian', 'briefcase', [
+                $this->item('Presensi relawan', 'users', route('v3.attendance.index'), request()->routeIs('v3.attendance.*'), $this->allowed($user, 'attendance.view')),
+            ]),
+            $this->module('administrasi', 'Administrasi Sistem', 'settings', [
+                $this->item('Kirim notifikasi', 'alert', route('v3.notifications.broadcast'), request()->routeIs('v3.notifications.broadcast'), $this->allowed($user, 'notifications.manage')),
+                $this->item('Master data', 'settings', route('v3.master-data.index'), request()->routeIs('v3.master-data.*'), $this->canSeeMasterData($user)),
+            ]),
         ];
 
         return collect($groups)
@@ -180,6 +80,7 @@ final class Navigation
                     $group['items'],
                     static fn (array $item): bool => $item['visible'],
                 ));
+                $group['active'] = collect($group['items'])->contains('active', true);
 
                 return $group;
             })
@@ -188,15 +89,21 @@ final class Navigation
             ->all();
     }
 
+    /** @param array<int, array<string, mixed>> $items */
+    private function module(string $key, string $label, string $icon, array $items): array
+    {
+        return compact('key', 'label', 'icon', 'items') + ['standalone' => false, 'active' => false];
+    }
+
+    /** @param array<int, array<string, mixed>> $items */
+    private function standalone(string $key, string $label, string $icon, array $items): array
+    {
+        return compact('key', 'label', 'icon', 'items') + ['standalone' => true, 'active' => false];
+    }
+
     /** @return array<string, mixed> */
-    private function item(
-        string $label,
-        string $icon,
-        string $url,
-        bool $active,
-        bool $visible,
-        bool $external = false,
-    ): array {
+    private function item(string $label, string $icon, string $url, bool $active, bool $visible, bool $external = false): array
+    {
         return compact('label', 'icon', 'url', 'active', 'visible', 'external');
     }
 

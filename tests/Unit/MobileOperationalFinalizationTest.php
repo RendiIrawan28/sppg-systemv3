@@ -14,6 +14,14 @@ it('registers mobile workflow and document endpoints', function (): void {
         ->toContain('api/mobile/operational-modules/{module}/records/{record}/relations/{relation}/{item}/actions/{action}');
 });
 
+it('routes the approved preparation report through the mobile document controller', function (): void {
+    $source = file_get_contents(app_path('Http/Controllers/Api/MobileDocumentController.php'));
+
+    expect($source)
+        ->toContain("'persiapan' => app(PreparationSessionCalculationPdfController::class)")
+        ->toContain('PreparationSessionCalculationPdfController');
+});
+
 it('locks automatically generated operational sessions from generic mobile creation', function (): void {
     $definitions = app(MobileWorkspaceRegistry::class)->definitions();
 

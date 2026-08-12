@@ -4,6 +4,8 @@ import android.content.Context
 import id.sppg.mobile.data.remote.ActivateFieldPlanRequest
 import id.sppg.mobile.data.remote.ApiErrorHandler
 import id.sppg.mobile.data.remote.FieldPlan
+import id.sppg.mobile.data.remote.FieldPlanOption
+import id.sppg.mobile.data.remote.CreateFieldPlanRequest
 import id.sppg.mobile.data.remote.MobileApi
 import id.sppg.mobile.data.remote.ReadinessResponse
 import id.sppg.mobile.data.remote.SessionExpiredException
@@ -42,10 +44,36 @@ class FieldPlanRepository(
         response.body()?.data ?: throw IOException("Rincian rencana tidak tersedia.")
     }
 
+    suspend fun getOptions(): Result<List<FieldPlanOption>> = safeApiCall(errorHandler) {
+        val response = api.fieldPlanOptions(authorization())
+        if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
+        response.body()?.data ?: throw IOException("Pilihan menu distribusi tidak tersedia.")
+    }
+
+    suspend fun createPlan(menuCycleDayId: Long, notes: String?): Result<FieldPlan> = safeApiCall(errorHandler) {
+        val response = api.createFieldPlan(
+            authorization(),
+            CreateFieldPlanRequest(menuCycleDayId = menuCycleDayId, generalNotes = notes?.trim()?.ifBlank { null }),
+        )
+        if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
+        response.body()?.data ?: throw IOException("Rencana distribusi gagal dibuat.")
+    }
+
     suspend fun updatePlan(id: Long, request: UpdateFieldPlanRequest): Result<FieldPlan> = safeApiCall(errorHandler) {
         val response = api.updateFieldPlan(authorization(), id, request)
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
         response.body()?.data ?: throw IOException("Rincian rencana tidak tersedia.")
+    }
+
+    suspend fun refreshBeneficiaries(id: Long): Result<FieldPlan> = safeApiCall(errorHandler) {
+        val response = api.refreshFieldPlanBeneficiaries(authorization(), id)
+        if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
+        response.body()?.data ?: throw IOException("Data penerima gagal diperbarui.")
+    }
+
+    suspend fun deletePlan(id: Long): Result<Unit> = safeApiCall(errorHandler) {
+        val response = api.deleteFieldPlan(authorization(), id)
+        if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
     }
 
     suspend fun checkReadiness(id: Long): Result<ReadinessResponse> = safeApiCall(errorHandler) {
@@ -64,8 +92,8 @@ class FieldPlanRepository(
         response.body()?.data ?: throw IOException("Rencana gagal diperbarui setelah aktivasi.")
     }
 
-    suspend fun downloadDocument(id: Long): Result<File> = safeApiCall(errorHandler) {
-        val response = api.fieldPlanDocument(authorization(), id)
+    suspend fun downloadDocument(id: Long, format: String = "pdf"): Result<File> = safeApiCall(errorHandler) {
+        val response = api.fieldPlanDocument(authorization(), id, format)
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
         val body = response.body() ?: throw IOException("Dokumen rencana tidak tersedia.")
         val directory = File(context.cacheDir, "documents").apply { mkdirs() }
@@ -73,7 +101,7 @@ class FieldPlanRepository(
             ?.substringAfter("filename=", "")
             ?.trim('"', '\'', ' ')
             ?.takeIf { it.isNotBlank() }
-            ?: "rencana-distribusi-$id.pdf"
+            ?: "rencana-distribusi-$id.${if (format == "xlsx") "xlsx" else "pdf"}"
         val file = File(directory, filename.replace(Regex("[^A-Za-z0-9._-]"), "-"))
         body.byteStream().use { input -> file.outputStream().use { output -> input.copyTo(output) } }
         file

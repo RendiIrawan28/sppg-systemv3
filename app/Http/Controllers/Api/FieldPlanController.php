@@ -7,6 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\MobileFieldPlanResource;
 use App\Models\FieldDistributionPlan;
 use App\Services\FieldDistributionPlanWorkflow;
+use App\Services\FieldPlanActualConfirmationService;
+use App\Services\MobileFieldPlanCreationService;
 use App\Services\MobileFieldPlanUpdateService;
 use App\Support\V3\SystemUnit;
 use DomainException;
@@ -19,6 +21,39 @@ use RuntimeException;
 
 class FieldPlanController extends Controller
 {
+    public function options(
+        Request $request,
+        SystemUnit $systemUnit,
+        MobileFieldPlanCreationService $creationService,
+    ): JsonResponse {
+        Gate::authorize('create', FieldDistributionPlan::class);
+
+        return response()->json([
+            'data' => $creationService->options($systemUnit->id()),
+            'can_create' => true,
+        ]);
+    }
+
+    public function store(
+        Request $request,
+        SystemUnit $systemUnit,
+        MobileFieldPlanCreationService $creationService,
+    ): JsonResponse {
+        Gate::authorize('create', FieldDistributionPlan::class);
+        $data = $request->validate([
+            'menu_cycle_day_id' => ['required', 'integer'],
+            'confirmation_deadline_at' => ['nullable', 'date'],
+            'general_notes' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        $plan = $creationService->create($systemUnit->id(), $request->user(), $data);
+
+        return response()->json([
+            'message' => 'Rencana distribusi dibuat dan data penerima berhasil dimuat.',
+            'data' => new MobileFieldPlanResource($plan),
+        ], 201);
+    }
+
     public function index(Request $request, SystemUnit $systemUnit): AnonymousResourceCollection
     {
         Gate::authorize('viewAny', FieldDistributionPlan::class);
@@ -76,15 +111,44 @@ class FieldPlanController extends Controller
             'destinations.*.planned_arrival_time' => ['nullable', 'date_format:H:i'],
             'destinations.*.special_notes' => ['nullable', 'string', 'max:2000'],
             'destinations.*.change_reason' => ['nullable', 'string', 'max:1000'],
+            'destinations.*.no_service_reason' => ['nullable', 'string', 'max:1000'],
             'destinations.*.recipient_groups' => ['required', 'array', 'min:1'],
             'destinations.*.recipient_groups.*.id' => ['required', 'integer'],
             'destinations.*.recipient_groups.*.confirmed_beneficiaries' => ['required', 'integer', 'min:0'],
+            'destinations.*.recipient_groups.*.menu_audience' => ['required', 'string', 'max:100'],
+            'destinations.*.recipient_groups.*.portion_size' => ['required', 'in:small,large'],
             'destinations.*.recipient_groups.*.notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         return new MobileFieldPlanResource(
             $updateService->update($plan, $request->user(), $data),
         );
+    }
+
+    public function refreshBeneficiaries(
+        Request $request,
+        FieldDistributionPlan $plan,
+        FieldPlanActualConfirmationService $confirmationService,
+    ): JsonResponse {
+        Gate::authorize('update', $plan);
+        $result = $confirmationService->synchronize($plan, $request->user());
+
+        return response()->json([
+            'message' => sprintf('Penerima diperbarui: %d tujuan dan %d penerima.', $result['destination_count'], $result['confirmed_beneficiaries']),
+            'data' => new MobileFieldPlanResource($plan->refresh()->load('destinations.recipientGroups')),
+        ]);
+    }
+
+    public function destroy(FieldDistributionPlan $plan): JsonResponse
+    {
+        Gate::authorize('delete', $plan);
+        $cycleDay = $plan->menuCycleDay;
+        $plan->delete();
+        if ($cycleDay && (int) $cycleDay->field_distribution_plan_id === (int) $plan->getKey()) {
+            $cycleDay->forceFill(['field_distribution_plan_id' => null])->save();
+        }
+
+        return response()->json(['message' => 'Draft rencana distribusi berhasil dihapus.']);
     }
 
     public function readiness(

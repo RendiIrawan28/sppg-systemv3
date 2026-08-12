@@ -36,11 +36,34 @@ interface MobileApi {
         @Path("id") id: Long,
     ): Response<FieldPlanResponse>
 
+    @GET("field-plans/options")
+    suspend fun fieldPlanOptions(
+        @Header("Authorization") authorization: String,
+    ): Response<FieldPlanOptionsResponse>
+
+    @POST("field-plans")
+    suspend fun createFieldPlan(
+        @Header("Authorization") authorization: String,
+        @Body request: CreateFieldPlanRequest,
+    ): Response<FieldPlanResponse>
+
     @PUT("field-plans/{id}")
     suspend fun updateFieldPlan(
         @Header("Authorization") authorization: String,
         @Path("id") id: Long,
         @Body request: UpdateFieldPlanRequest,
+    ): Response<FieldPlanResponse>
+
+    @DELETE("field-plans/{id}")
+    suspend fun deleteFieldPlan(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+    ): Response<MessageResponse>
+
+    @POST("field-plans/{id}/refresh-beneficiaries")
+    suspend fun refreshFieldPlanBeneficiaries(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
     ): Response<FieldPlanResponse>
 
     @GET("field-plans/{id}/readiness")
@@ -61,6 +84,7 @@ interface MobileApi {
     suspend fun fieldPlanDocument(
         @Header("Authorization") authorization: String,
         @Path("id") id: Long,
+        @Query("format") format: String = "pdf",
     ): Response<ResponseBody>
 
     @GET("operational-modules")
@@ -72,6 +96,9 @@ interface MobileApi {
     suspend fun operationalRecords(
         @Header("Authorization") authorization: String,
         @Path("module") module: String,
+        @Query("status") status: String? = null,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
         @Query("per_page") perPage: Int = 50,
         @Query("page") page: Int = 1,
     ): Response<OperationalRecordsResponse>
@@ -148,6 +175,7 @@ interface MobileApi {
         @Header("Authorization") authorization: String,
         @Path("module") module: String,
         @Path("id") id: Long,
+        @Query("type") type: String? = null,
     ): Response<ResponseBody>
 
     @POST("operational-modules/{module}/records/{id}/relations/{relation}/{item}/actions/{action}")
@@ -282,6 +310,33 @@ data class PaginationMeta(
 
 data class FieldPlanResponse(val data: FieldPlan)
 
+data class FieldPlanOptionsResponse(
+    val data: List<FieldPlanOption>,
+    @SerializedName("can_create") val canCreate: Boolean,
+)
+
+data class FieldPlanOption(
+    val id: Long,
+    @SerializedName("cycle_code") val cycleCode: String?,
+    @SerializedName("cycle_name") val cycleName: String?,
+    @SerializedName("day_number") val dayNumber: Int,
+    @SerializedName("label_code") val labelCode: String?,
+    @SerializedName("menu_name") val menuName: String,
+    @SerializedName("distribution_date") val distributionDate: String,
+    @SerializedName("service_date") val serviceDate: String?,
+    @SerializedName("production_date") val productionDate: String?,
+    @SerializedName("is_rapel") val isRapel: Boolean,
+    @SerializedName("has_plan") val hasPlan: Boolean,
+    @SerializedName("is_available") val isAvailable: Boolean,
+    @SerializedName("unavailable_reason") val unavailableReason: String?,
+)
+
+data class CreateFieldPlanRequest(
+    @SerializedName("menu_cycle_day_id") val menuCycleDayId: Long,
+    @SerializedName("confirmation_deadline_at") val confirmationDeadlineAt: String? = null,
+    @SerializedName("general_notes") val generalNotes: String? = null,
+)
+
 data class FieldPlan(
     val id: Long,
     val uuid: String,
@@ -304,6 +359,8 @@ data class FieldPlan(
     @SerializedName("general_notes") val generalNotes: String?,
     @SerializedName("is_editable") val isEditable: Boolean,
     @SerializedName("can_update") val canUpdate: Boolean,
+    @SerializedName("can_delete") val canDelete: Boolean = false,
+    @SerializedName("can_refresh") val canRefresh: Boolean = false,
     @SerializedName("can_activate") val canActivate: Boolean,
     @SerializedName("can_export") val canExport: Boolean = false,
     val destinations: List<FieldPlanDestination>?,
@@ -356,16 +413,17 @@ data class UpdateFieldPlanDestinationRequest(
     val id: Long,
     @SerializedName("route_name") val routeName: String?,
     @SerializedName("sequence_order") val sequenceOrder: Int,
-    @SerializedName("planned_departure_time") val plannedDepartureTime: String?,
-    @SerializedName("planned_arrival_time") val plannedArrivalTime: String?,
     @SerializedName("special_notes") val specialNotes: String?,
     @SerializedName("change_reason") val changeReason: String?,
+    @SerializedName("no_service_reason") val noServiceReason: String?,
     @SerializedName("recipient_groups") val recipientGroups: List<UpdateRecipientGroupRequest>,
 )
 
 data class UpdateRecipientGroupRequest(
     val id: Long,
     @SerializedName("confirmed_beneficiaries") val confirmedBeneficiaries: Int,
+    @SerializedName("menu_audience") val menuAudience: String,
+    @SerializedName("portion_size") val portionSize: String,
     val notes: String?,
 )
 

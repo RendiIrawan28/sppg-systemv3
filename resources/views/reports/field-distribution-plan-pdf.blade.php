@@ -62,23 +62,12 @@
                 <th>Porsi Kecil</th>
                 <th>Porsi Besar</th>
                 <th>Total</th>
-                <th>Jam Berangkat</th>
-                <th>Estimasi Tiba</th>
                 <th>Konfirmasi</th>
                 <th>Catatan</th>
             </tr>
         </thead>
         <tbody>
             @forelse ($plan->destinations as $index => $destination)
-                @php
-                    $departureTime = $destination->planned_departure_time
-                        ? substr((string) $destination->planned_departure_time, 0, 5)
-                        : ($destination->planned_departure_at?->format('H:i') ?? '-');
-
-                    $arrivalTime = $destination->planned_arrival_time
-                        ? substr((string) $destination->planned_arrival_time, 0, 5)
-                        : ($destination->planned_arrival_at?->format('H:i') ?? '-');
-                @endphp
                 <tr>
                     <td class="text-center">{{ $index + 1 }}</td>
                     <td>{{ $destination->destination_type === 'school' ? 'Sekolah' : ($destination->destination_type === 'posyandu' ? 'Posyandu' : 'Lainnya') }}</td>
@@ -96,13 +85,11 @@
                     <td class="text-right">{{ number_format((int) $destination->small_portions) }}</td>
                     <td class="text-right">{{ number_format((int) $destination->large_portions) }}</td>
                     <td class="text-right"><strong>{{ number_format((int) $destination->total_portions) }}</strong></td>
-                    <td>{{ $departureTime }}</td>
-                    <td>{{ $arrivalTime }}</td>
                     <td>{{ ucfirst(str_replace('_', ' ', (string) $destination->confirmation_status)) }}</td>
                     <td>{{ $destination->special_notes ?: '-' }}</td>
                 </tr>
             @empty
-                <tr><td colspan="14" class="text-center">Belum ada tujuan distribusi.</td></tr>
+                <tr><td colspan="12" class="text-center">Belum ada tujuan distribusi.</td></tr>
             @endforelse
         </tbody>
     </table>

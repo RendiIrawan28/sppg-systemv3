@@ -22,6 +22,7 @@ class MobileFieldPlanResource extends JsonResource
             'service_date' => $this->service_date?->toDateString(),
             'production_date' => $this->production_date?->toDateString(),
             'menu_name' => $this->menu_name_snapshot,
+            'shift' => $this->shift,
             'is_rapel' => (bool) $this->is_rapel,
             'status' => $status?->value,
             'status_label' => $status?->label() ?? '-',
@@ -35,6 +36,8 @@ class MobileFieldPlanResource extends JsonResource
             'general_notes' => $this->general_notes,
             'is_editable' => $this->isEditable(),
             'can_update' => $request->user()?->can('update', $this->resource) ?? false,
+            'can_delete' => $request->user()?->can('delete', $this->resource) ?? false,
+            'can_refresh' => $request->user()?->can('update', $this->resource) ?? false,
             'can_activate' => $this->isEditable()
                 && ($request->user()?->can('field_planning.submit') ?? false),
             'can_export' => $request->user()?->can('field_planning.export') ?? false,

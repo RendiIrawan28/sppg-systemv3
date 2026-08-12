@@ -299,6 +299,8 @@ class Index extends Component
                         }
                         $documentation->delete();
                     });
+
+                $batch->refresh()->recalculateTotals();
             });
         } catch (Throwable $exception) {
             Storage::disk('public')->delete(array_values(array_unique($newPaths)));

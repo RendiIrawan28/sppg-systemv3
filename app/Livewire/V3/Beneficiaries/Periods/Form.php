@@ -37,6 +37,10 @@ class Form extends Component
 
     public string $originalInputMode = 'master';
 
+    public ?int $sourcePeriodId = null;
+
+    public ?string $copyMessage = null;
+
     /** @var array<int, array{destination_key: string, counts: array<int|string, int|string|null>}> */
     public array $destinations = [];
 
@@ -123,6 +127,44 @@ class Form extends Component
             $this->addDestination();
         }
 
+        $this->resetValidation();
+    }
+
+    public function copyPreviousPeriod(): void
+    {
+        abort_unless(auth()->user()->is_super_admin || auth()->user()->can('beneficiary_periods.copy'), 403);
+        $this->validate(['sourcePeriodId' => ['required', 'integer']]);
+
+        $source = BeneficiaryPeriod::query()
+            ->with(['destinations' => fn ($query) => $query
+                ->where('is_active', true)
+                ->with('categoryTotals')])
+            ->where('sppg_unit_id', $this->currentUnit()->getKey())
+            ->whereKeyNot($this->periodId ?? 0)
+            ->whereHas('categoryTotals')
+            ->findOrFail($this->sourcePeriodId);
+
+        $this->inputMode = 'manual';
+        $this->destinations = $source->destinations
+            ->filter(fn ($destination): bool => $destination->categoryTotals->isNotEmpty())
+            ->map(fn ($destination): array => [
+                'destination_key' => "{$destination->destination_type}:{$destination->destination_id}",
+                'counts' => $destination->categoryTotals
+                    ->pluck('total_beneficiaries', 'beneficiary_category_id')
+                    ->all(),
+            ])
+            ->values()
+            ->all();
+
+        if ($this->destinations === []) {
+            $this->addDestination();
+        }
+
+        $this->copyMessage = sprintf(
+            'Data %d sekolah/Posyandu dan %s penerima berhasil disalin. Periksa kembali sebelum menyimpan.',
+            $source->destination_count,
+            number_format((int) $source->active_members, 0, ',', '.'),
+        );
         $this->resetValidation();
     }
 
@@ -251,6 +293,14 @@ class Form extends Component
                 ->orderBy('name')
                 ->get(),
             'destinationOptions' => $this->destinationOptions($unit->getKey()),
+            'previousPeriods' => BeneficiaryPeriod::query()
+                ->where('sppg_unit_id', $unit->getKey())
+                ->when($this->periodId, fn ($query) => $query->whereKeyNot($this->periodId))
+                ->whereHas('categoryTotals')
+                ->whereHas('destinations')
+                ->orderByDesc('start_date')
+                ->limit(20)
+                ->get(['id', 'code', 'name', 'start_date', 'end_date', 'status', 'active_members']),
         ])->layout('layouts.v3', ['title' => $this->periodId ? 'Ubah Periode Penerima' : 'Buat Periode Penerima']);
     }
 

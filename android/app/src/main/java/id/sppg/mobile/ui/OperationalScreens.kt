@@ -96,23 +96,64 @@ fun OperationalRecordListScreen(
     onBack: () -> Unit,
     onLoad: (String) -> Unit,
     onRefresh: () -> Unit,
+    onFilterChange: (String?, String?) -> Unit,
     onLoadMore: () -> Unit,
     onRecordClick: (Long) -> Unit,
     onCreate: () -> Unit,
 ) {
     LaunchedEffect(module) { onLoad(module) }
+    val context = LocalContext.current
+    val receiptHistory = module == "gudang" && state.statusFilter == "received"
+    val receiptDateLabel = state.dateFilter?.let { operationalDateDisplay(it, "date") }
+
+    fun selectReceiptDate() {
+        val currentDate = parseOperationalDate(state.dateFilter) ?: LocalDate.now()
+        DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                onFilterChange(
+                    "received",
+                    LocalDate.of(year, month + 1, day).format(apiDateFormatter),
+                )
+            },
+            currentDate.year,
+            currentDate.monthValue - 1,
+            currentDate.dayOfMonth,
+        ).show()
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(moduleLabel, fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        if (receiptHistory) "Riwayat Penerimaan" else moduleLabel,
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
                     }
                 },
                 actions = {
+                    if (module == "gudang") {
+                        if (receiptHistory) {
+                            IconButton(onClick = ::selectReceiptDate, enabled = !state.isLoading) {
+                                Icon(Icons.Outlined.CalendarMonth, contentDescription = "Filter tanggal")
+                            }
+                            TextButton(
+                                onClick = { onFilterChange("draft", null) },
+                                enabled = !state.isLoading,
+                            ) { Text("Belum diproses") }
+                        } else {
+                            TextButton(
+                                onClick = { onFilterChange("received", null) },
+                                enabled = !state.isLoading,
+                            ) { Text("Riwayat") }
+                        }
+                    }
                     if (state.modules.firstOrNull { it.slug == module }?.canCreate == true) {
                         IconButton(onClick = onCreate) {
                             Icon(Icons.Outlined.Add, contentDescription = "Tambah data")
@@ -135,7 +176,16 @@ fun OperationalRecordListScreen(
                 padding = innerPadding,
                 onRetry = onRefresh,
             )
-            state.records.isEmpty() -> OperationalEmpty(moduleLabel, innerPadding)
+            state.records.isEmpty() -> OperationalEmpty(
+                if (receiptHistory && !receiptDateLabel.isNullOrBlank()) {
+                    "Riwayat penerimaan tanggal $receiptDateLabel"
+                } else if (receiptHistory) {
+                    "Riwayat penerimaan"
+                } else {
+                    moduleLabel
+                },
+                innerPadding,
+            )
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
@@ -149,13 +199,17 @@ fun OperationalRecordListScreen(
                 item {
                     OperationalModuleHeader(
                         module = module,
-                        label = moduleLabel,
+                        label = when {
+                            receiptHistory && !receiptDateLabel.isNullOrBlank() -> "Riwayat · $receiptDateLabel"
+                            receiptHistory -> "Riwayat Penerimaan"
+                            else -> moduleLabel
+                        },
                         count = state.records.size,
                     )
                 }
                 item {
                     Text(
-                        "PEKERJAAN TERBARU",
+                        if (receiptHistory) "PENERIMAAN SELESAI" else "BELUM DIPROSES",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
@@ -309,7 +363,7 @@ fun OperationalRecordDetailScreen(
     onDelete: () -> Unit,
     watermarkProfile: PhotoWatermarkProfile,
     onAction: (String, String?, Map<String, String?>, Map<String, String>) -> Unit,
-    onOpenDocument: () -> Unit,
+    onOpenDocument: (String?) -> Unit,
     onRelationCreate: (OperationalSection) -> Unit,
     onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
@@ -451,6 +505,7 @@ fun OperationalRecordDetailScreen(
             )
             state.selectedRecord != null -> OperationalDetailContent(
                 record = state.selectedRecord,
+                module = module,
                 padding = innerPadding,
                 onEdit = onEdit,
                 onDelete = { confirmDelete = true },
@@ -476,6 +531,7 @@ fun OperationalRecordDetailScreen(
 @Composable
 private fun OperationalDetailContent(
     record: OperationalRecord,
+    module: String,
     padding: PaddingValues,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -483,13 +539,15 @@ private fun OperationalDetailContent(
     errorMessage: String?,
     successMessage: String?,
     onAction: (OperationalAction) -> Unit,
-    onOpenDocument: () -> Unit,
+    onOpenDocument: (String?) -> Unit,
     onRelationCreate: (OperationalSection) -> Unit,
     onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationAction: (OperationalSection, OperationalSectionItem, String) -> Unit,
 ) {
     val capabilities = record.capabilities
+    val receiptActions = capabilities?.actions.orEmpty().filter { it.key == "receive" }
+    val remainingActions = capabilities?.actions.orEmpty().filterNot { it.key == "receive" }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -557,6 +615,33 @@ private fun OperationalDetailContent(
                 }
             }
         }
+        if (receiptActions.isNotEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text("SEMUA BARANG SUDAH DIPERIKSA?", fontWeight = FontWeight.Bold)
+                        Text(
+                            "Pastikan jumlah, hasil QC, dan foto dokumentasi sudah benar sebelum stok dimasukkan.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        receiptActions.forEach { action ->
+                            Button(
+                                onClick = { onAction(action) },
+                                enabled = !isSaving,
+                                modifier = Modifier.fillMaxWidth().height(54.dp),
+                                shape = RoundedCornerShape(16.dp),
+                            ) { Text(action.label, fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                }
+            }
+        }
         val sections = record.sections.orEmpty()
         if (sections.isEmpty()) {
             item {
@@ -576,11 +661,11 @@ private fun OperationalDetailContent(
                 )
             }
         }
-        if (!capabilities?.actions.isNullOrEmpty()) {
+        if (remainingActions.isNotEmpty()) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("LANGKAH BERIKUTNYA", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    capabilities.actions.orEmpty().forEach { action ->
+                    remainingActions.forEach { action ->
                         Button(
                             onClick = { onAction(action) },
                             enabled = !isSaving,
@@ -593,15 +678,32 @@ private fun OperationalDetailContent(
         }
         if (capabilities?.canViewDocument == true) {
             item {
-                OutlinedButton(
-                    onClick = onOpenDocument,
-                    enabled = !isSaving,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Lihat dokumen PDF", fontWeight = FontWeight.Bold)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = { onOpenDocument(null) },
+                        enabled = !isSaving,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (module == "pengolahan") "Lihat monitoring produksi" else "Lihat dokumen PDF",
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    if (module == "pengolahan") {
+                        OutlinedButton(
+                            onClick = { onOpenDocument("temperature") },
+                            enabled = !isSaving,
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Lihat pemantauan suhu", fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
         }
@@ -881,6 +983,14 @@ private fun OperationalFormInput(
             value = value,
             onValueChange = onValueChange,
         )
+        field.type == "select" && !field.options.isNullOrEmpty()
+            && (field.key == "inventory_lot_id" || field.options.size > 20) ->
+            OpeningStockSearchableDropdown(
+                label = label,
+                value = value,
+                options = field.options,
+                onValueChange = onValueChange,
+            )
         field.type == "select" && !field.options.isNullOrEmpty() -> {
             var expanded by remember(field.key) { mutableStateOf(false) }
             ExposedDropdownMenuBox(

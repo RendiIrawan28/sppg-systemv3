@@ -70,10 +70,6 @@ class PreparationSessionService
             if ($session->state !== 'in_progress') {
                 throw ValidationException::withMessages(['state' => 'Sesi belum dikerjakan.']);
             }
-            if ($session->withdrawal?->status !== WarehouseWithdrawal::VERIFIED) {
-                throw ValidationException::withMessages(['items' => 'Pekerjaan dapat dimulai, tetapi belum dapat diselesaikan sampai jumlah pengambilan diverifikasi Gudang.']);
-            }
-
             foreach ($session->items as $item) {
                 $received = (float) ($item->received_quantity ?? $item->received_weight_kg);
                 $clean = (float) ($item->processed_quantity ?? $item->clean_weight_kg);

@@ -4,10 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\DistributionIncidentStatus;
 use App\Enums\FieldIncidentStatus;
+use App\Enums\OperationalReportStatus;
 use App\Http\Controllers\Controller;
 use App\Models\CleaningSession;
 use App\Models\ContainerCollectionRun;
 use App\Models\ContainerCollectionTask;
+use App\Models\InventoryLot;
 use App\Models\PortioningSession;
 use App\Models\PreparationOutputWithdrawal;
 use App\Models\PreparationReturn;
@@ -103,6 +105,7 @@ class MobileOperationalController extends Controller
         $definition = $registry->authorize($request->user(), $module);
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
+            'status' => ['nullable', 'string', 'max:50'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
@@ -112,6 +115,8 @@ class MobileOperationalController extends Controller
             ->where('sppg_unit_id', $systemUnit->id())
             ->when($filters['search'] ?? null, fn (Builder $query, string $search) => $query
                 ->where($definition['number'], 'like', "%{$search}%"))
+            ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query
+                ->where('status', $status))
             ->when($filters['date_from'] ?? null, fn (Builder $query, string $date) => $query
                 ->whereDate($definition['date'], '>=', $date))
             ->when($filters['date_to'] ?? null, fn (Builder $query, string $date) => $query
@@ -278,6 +283,27 @@ class MobileOperationalController extends Controller
                     }
                 }
 
+                if ($module === 'gudang-penyesuaian') {
+                    $fields = $request->validate([
+                        'fields' => ['present', 'array'],
+                        'fields.inventory_lot_id' => ['required', 'integer'],
+                        'fields.actual_quantity' => ['required', 'numeric', 'min:0'],
+                        'fields.type' => ['required', Rule::in(['stock_opname', 'return_from_division', 'damage'])],
+                        'fields.reason' => ['required', 'string', 'max:2000'],
+                    ])['fields'];
+                    $lot = InventoryLot::query()
+                        ->where('sppg_unit_id', $unitId)
+                        ->findOrFail((int) $fields['inventory_lot_id']);
+
+                    return app(StockControlService::class)->create(
+                        $lot,
+                        (float) $fields['actual_quantity'],
+                        (string) $fields['type'],
+                        (string) $fields['reason'],
+                        $request->user(),
+                    );
+                }
+
                 if (in_array($module, [
                     'pengambilan-gudang-persiapan',
                     'pengambilan-gudang-pengolahan',
@@ -339,13 +365,10 @@ class MobileOperationalController extends Controller
                     $input = $request->validate([
                         'fields' => ['present', 'array'],
                         'fields.preparation_session_item_id' => ['required', 'integer'],
-                        'fields.output_name' => ['required', 'string', 'max:180'],
                         'fields.quantity' => ['required', 'numeric', 'gt:0'],
-                        'fields.unit_snapshot' => ['required', 'string', 'max:30'],
                         'fields.target_division' => ['required', Rule::in(['processing', 'portioning', 'both'])],
-                        'fields.storage_location' => ['nullable', 'string', 'max:180'],
-                        'fields.stored_at' => ['nullable', 'date'],
-                        'fields.expires_at' => ['nullable', 'date', 'after:fields.stored_at'],
+                        'fields.storage_location' => ['nullable', Rule::in(['langsung_digunakan', 'area_persiapan', 'chiller', 'freezer'])],
+                        'fields.expires_at' => ['nullable', 'date', 'after:now'],
                         'fields.notes' => ['nullable', 'string', 'max:2000'],
                         'files.photo_path' => ['nullable', 'string', 'max:7500000'],
                     ]);
@@ -366,7 +389,13 @@ class MobileOperationalController extends Controller
                             $session,
                             $sourceItem,
                             $request->user(),
-                            [...$input['fields'], 'photo_path' => $photoPath],
+                            [
+                                ...$input['fields'],
+                                'output_name' => $sourceItem->ingredient_name_snapshot,
+                                'unit_snapshot' => $sourceItem->unit_snapshot,
+                                'stored_at' => now(),
+                                'photo_path' => $photoPath,
+                            ],
                         );
                     } catch (\Throwable $exception) {
                         if ($photoPath) {
@@ -720,6 +749,82 @@ class MobileOperationalController extends Controller
                 (int) $systemUnit->id(),
             );
         }
+        if (str_starts_with($module, 'pengambilan-gudang-') && $relation === 'items') {
+            $input = $request->validate([
+                'fields' => ['present', 'array'],
+                'fields.inventory_lot_id' => ['required', 'integer'],
+                'fields.requested_quantity' => ['required', 'numeric', 'gt:0'],
+                'fields.pickup_temperature_celsius' => ['nullable', 'numeric'],
+                'fields.notes' => ['nullable', 'string', 'max:2000'],
+                'files.photo_path' => ['required', 'string', 'max:7500000'],
+            ]);
+            $photoPath = $this->storeEncodedImage(
+                (string) data_get($input, 'files.photo_path'),
+                "mobile/{$module}/items",
+                'files.photo_path',
+            );
+            try {
+                $createdItem = app(WarehouseWithdrawalService::class)->createMobileDraftItem(
+                    $parent,
+                    (int) $input['fields']['inventory_lot_id'],
+                    (float) $input['fields']['requested_quantity'],
+                    filled($input['fields']['pickup_temperature_celsius'] ?? null)
+                        ? (float) $input['fields']['pickup_temperature_celsius']
+                        : null,
+                    $photoPath,
+                    $input['fields']['notes'] ?? null,
+                    $request->user(),
+                );
+            } catch (\Throwable $exception) {
+                Storage::disk('public')->delete($photoPath);
+                throw $exception;
+            }
+
+            return response()->json([
+                'message' => 'Barang pengambilan berhasil ditambahkan.',
+                'data' => $this->relationItemData(
+                    $createdItem,
+                    $relationDefinition,
+                    $registry,
+                    (int) $systemUnit->id(),
+                ),
+            ], 201);
+        }
+        if ($module === 'persiapan' && $relation === 'resultDocumentation') {
+            $input = $request->validate([
+                'fields' => ['present', 'array'],
+                'files.photo_path' => ['required', 'string', 'max:7500000'],
+            ]);
+            $photoPath = $this->storeEncodedImage(
+                (string) data_get($input, 'files.photo_path'),
+                'mobile/persiapan/result-documentation',
+                'files.photo_path',
+            );
+            $oldPhotoPath = $parent->resultDocumentation?->photo_path;
+            try {
+                $documentation = DB::transaction(fn () => $parent->resultDocumentation()->updateOrCreate([], [
+                    'photo_path' => $photoPath,
+                    'captured_at' => now(),
+                    'created_by' => $request->user()->getKey(),
+                ]));
+            } catch (\Throwable $exception) {
+                Storage::disk('public')->delete($photoPath);
+                throw $exception;
+            }
+            if ($oldPhotoPath && $oldPhotoPath !== $photoPath) {
+                Storage::disk('public')->delete($oldPhotoPath);
+            }
+
+            return response()->json([
+                'message' => 'Foto hasil Persiapan berhasil disimpan.',
+                'data' => $this->relationItemData(
+                    $documentation->refresh(),
+                    $relationDefinition,
+                    $registry,
+                    (int) $systemUnit->id(),
+                ),
+            ], 201);
+        }
         $relationObject = $parent->{$relation}();
         $item = DB::transaction(function () use ($request, $module, $relation, $parent, $relationObject, $relationDefinition): Model {
             $values = $this->validatedRelationValues($request, $relationDefinition, null);
@@ -985,7 +1090,7 @@ class MobileOperationalController extends Controller
 
         $validated = $request->validate($rules);
 
-        return collect($validated['fields'])
+        return collect($validated['fields'] ?? [])
             ->only($editableFields->keys())
             ->map(fn ($value) => $value === '' ? null : $value)
             ->all();
@@ -1066,15 +1171,15 @@ class MobileOperationalController extends Controller
                 && $request->user()->can($definition['permission'].'.delete'),
             'actions' => $module ? $this->availableActions($request, $module, $item) : [],
             'can_view_document' => $module !== null
-                && $this->canViewDocument($request, $module, $definition),
+                && $this->canViewDocument($request, $module, $definition, $item),
         ];
     }
 
     /** @param array<string,mixed> $definition */
-    private function canViewDocument(Request $request, string $module, array $definition): bool
+    private function canViewDocument(Request $request, string $module, array $definition, Model $item): bool
     {
         if (! in_array($module, [
-            'lapangan-laporan', 'pengolahan', 'pemorsian', 'distribusi',
+            'lapangan-laporan', 'persiapan', 'pengolahan', 'pemorsian', 'distribusi',
             'pencucian', 'kebersihan', 'ba-limbah-persiapan',
             'ba-limbah-pencucian', 'ba-limbah-kebersihan',
         ], true)) {
@@ -1083,6 +1188,11 @@ class MobileOperationalController extends Controller
 
         if (str_starts_with($module, 'ba-limbah-')) {
             return $request->user()->can($definition['permission'].'.view');
+        }
+
+        if (in_array($module, ['persiapan', 'pengolahan'], true)
+            && $this->scalarValue($item->getAttribute('status')) !== OperationalReportStatus::Verified->value) {
+            return false;
         }
 
         return $request->user()->can($definition['permission'].'.export');
@@ -1098,7 +1208,7 @@ class MobileOperationalController extends Controller
 
         if ($module === 'gudang' && $status === StockReceipt::STATUS_DRAFT
             && $actor->can('stock.update')) {
-            return [$this->actionDefinition('receive', 'Selesaikan penerimaan dan bentuk stok')];
+            return [$this->actionDefinition('receive', 'Masukkan barang ke kartu stok')];
         }
 
         if ($module === 'gudang-stok' && $actor->can('stock.update')) {
@@ -1977,14 +2087,21 @@ class MobileOperationalController extends Controller
             'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian' => $relation === 'items' ? ['create', 'update', 'delete'] : [],
             'lapangan-konfirmasi' => $relation === 'items' ? ['update'] : [],
             'persiapan' => match ($relation) {
-                'items' => ['update'],
-                'resultDocumentation' => ['create', 'update', 'delete'],
-                'returns' => ['create'],
+                'items' => $this->preparationDataIsEditable($parent) ? ['update'] : [],
+                'resultDocumentation' => ! $this->preparationDataIsEditable($parent)
+                    ? []
+                    : ($parent?->resultDocumentation()->exists() ? ['update'] : ['create']),
+                'returns' => $this->preparationDataIsEditable($parent) ? ['create'] : [],
                 default => [],
             },
             'pengolahan' => match ($relation) {
-                'materialUsages', 'temperatureLogs', 'documentations' => ['create', 'update', 'delete'],
-                'returns' => ['create'],
+                'materialUsages' => [],
+                'temperatureLogs', 'documentations' => $parent instanceof ProcessingBatch
+                    && $parent->isOperationalInputEditable()
+                        ? ['create', 'update', 'delete'] : [],
+                'returns' => $parent instanceof ProcessingBatch
+                    && $parent->isOperationalInputEditable()
+                        ? ['create'] : [],
                 default => [],
             },
             'pemorsian' => match ($relation) {
@@ -2064,7 +2181,7 @@ class MobileOperationalController extends Controller
             ->reject(fn (array $field): bool => ($field['type'] ?? 'text') === 'file')
             ->pluck('name');
 
-        return collect($validated['fields'])->only($allowed)->map(
+        return collect($validated['fields'] ?? [])->only($allowed)->map(
             fn ($value) => $value === '' ? null : $value,
         )->all();
     }
@@ -2170,7 +2287,10 @@ class MobileOperationalController extends Controller
                 'documentation_type' => 'finished_output',
                 'created_by' => $request->user()->getKey(),
             ],
-            ['persiapan', 'resultDocumentation'] => ['created_by' => $request->user()->getKey()],
+            ['persiapan', 'resultDocumentation'] => [
+                'created_by' => $request->user()->getKey(),
+                'captured_at' => now(),
+            ],
             ['pemorsian', 'routeRecords'] => [
                 'created_by' => $request->user()->getKey(),
                 'updated_by' => $request->user()->getKey(),
@@ -2483,6 +2603,17 @@ class MobileOperationalController extends Controller
         }
 
         return true;
+    }
+
+    private function preparationDataIsEditable(?Model $item): bool
+    {
+        if (! $item instanceof PreparationSession || ! $item->isReportEditable()) {
+            return false;
+        }
+
+        return $item->state === 'in_progress'
+            || ($item->state === 'completed'
+                && $item->status === OperationalReportStatus::RevisionRequired);
     }
 
     private function isDeletable(Model $item): bool

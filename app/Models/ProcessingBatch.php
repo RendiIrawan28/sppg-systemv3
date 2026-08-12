@@ -188,6 +188,40 @@ class ProcessingBatch extends Model
         ], true);
     }
 
+    public function isOperationalInputEditable(): bool
+    {
+        return $this->isReportEditable()
+            && $this->state === ProcessingBatchState::InProgress;
+    }
+
+    public function recalculateTotals(): void
+    {
+        $outputs = $this->documentations()
+            ->where('documentation_type', 'finished_output')
+            ->whereNotNull('output_quantity')
+            ->get(['output_quantity', 'output_unit']);
+
+        if ($outputs->isEmpty()) {
+            $this->forceFill([
+                'actual_output_quantity' => 0,
+                'actual_output_unit' => null,
+            ])->saveQuietly();
+
+            return;
+        }
+
+        $units = $outputs->pluck('output_unit')
+            ->filter(fn ($unit): bool => filled($unit))
+            ->map(fn ($unit): string => trim((string) $unit))
+            ->unique()
+            ->values();
+
+        $this->forceFill([
+            'actual_output_quantity' => $outputs->sum(fn ($output): float => (float) $output->output_quantity),
+            'actual_output_unit' => $units->count() === 1 ? $units->first() : 'campuran',
+        ])->saveQuietly();
+    }
+
     public function canBeSubmitted(): bool
     {
         return $this->isReportEditable()
@@ -239,5 +273,4 @@ class ProcessingBatch extends Model
     {
         return $this->hasMany(PreparationOutputWithdrawal::class);
     }
-
 }

@@ -20,6 +20,41 @@ it('exposes the missing mobile workflows for processing returns and distribution
         ->toContain('photo_path');
 });
 
+it('keeps processing identity and material sources automatic on mobile', function (): void {
+    $definition = app(MobileWorkspaceRegistry::class)->definitions()['pengolahan'];
+    $fields = collect($definition['fields'])->keyBy('name');
+    $materialFields = collect($definition['relations']['materialUsages']['fields'])->keyBy('name');
+    $documentationFields = collect($definition['relations']['documentations']['fields'])->keyBy('name');
+
+    expect($fields['production_date']['editable'])->toBeFalse()
+        ->and($fields['menu_name_snapshot']['editable'])->toBeFalse()
+        ->and($fields['product_name']['editable'])->toBeFalse()
+        ->and($fields['target_output_quantity']['editable'])->toBeFalse()
+        ->and($fields['target_output_unit']['editable'])->toBeFalse()
+        ->and($fields['petugas_id']['editable'])->toBeFalse()
+        ->and($fields['notes']['editable'] ?? true)->toBeTrue();
+
+    foreach ($materialFields as $field) {
+        expect($field['editable'])->toBeFalse();
+    }
+
+    expect($documentationFields['output_unit']['type'])->toBe('select')
+        ->and($documentationFields['output_unit']['options'])->toBe('processing_output_units');
+});
+
+it('offers both processing reports on android', function (): void {
+    $screen = file_get_contents(base_path('android/app/src/main/java/id/sppg/mobile/ui/OperationalScreens.kt'));
+    $documentController = file_get_contents(app_path('Http/Controllers/Api/MobileDocumentController.php'));
+
+    expect($screen)
+        ->toContain('Lihat monitoring produksi')
+        ->toContain('Lihat pemantauan suhu')
+        ->toContain('onOpenDocument("temperature")')
+        ->and($documentController)
+        ->toContain("query('type') === 'temperature'")
+        ->toContain('->temperature($request, $item)');
+});
+
 it('grants all field divisions mobile incident permissions', function (): void {
     $roles = [
         UserRole::StafGudang,
@@ -65,7 +100,7 @@ it('uses the supported cleaning shift value for automatic handover', function ()
         ->toContain("'afternoon'");
 });
 
-it('publishes incident reporting in every field role workspace', function (): void {
+it('publishes incident reporting for field divisions and limits the warehouse mobile workspace', function (): void {
     $constant = (new ReflectionClass(MobileWorkspaceRegistry::class))
         ->getReflectionConstant('ROLE_MODULES');
     expect($constant)->not->toBeFalse();
@@ -73,7 +108,6 @@ it('publishes incident reporting in every field role workspace', function (): vo
     $definitions = app(MobileWorkspaceRegistry::class)->definitions();
 
     foreach ([
-        UserRole::StafGudang,
         UserRole::KepalaDivisiPersiapan,
         UserRole::PetugasPersiapan,
         UserRole::KepalaDivisiPengolahan,
@@ -92,9 +126,8 @@ it('publishes incident reporting in every field role workspace', function (): vo
     }
 
     expect($roleModules[UserRole::StafGudang->value])
-        ->toContain('gudang-stok-awal')
-        ->toContain('gudang-penyesuaian')
-        ->toContain('gudang-retur-pengolahan');
+        ->toBe(['gudang', 'gudang-pengambilan', 'gudang-stok', 'gudang-penyesuaian'])
+        ->not->toContain('gudang-stok-awal', 'gudang-retur', 'gudang-retur-pengolahan', 'lapangan-insiden');
 
     expect($definitions['gudang-stok-awal']['allow_create'])->toBeTrue()
         ->and(collect($definitions['gudang-stok-awal']['fields'])->pluck('name'))

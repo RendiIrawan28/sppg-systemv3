@@ -23,6 +23,8 @@ data class OperationalUiState(
     val records: List<OperationalRecord> = emptyList(),
     val currentPage: Int = 1,
     val lastPage: Int = 1,
+    val statusFilter: String? = null,
+    val dateFilter: String? = null,
     val isLoadingMore: Boolean = false,
     val selectedRecord: OperationalRecord? = null,
     val editValues: Map<String, String?> = emptyMap(),
@@ -52,9 +54,15 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         }
     }
 
-    fun loadRecords(module: String, force: Boolean = false) {
+    fun loadRecords(
+        module: String,
+        force: Boolean = false,
+        status: String? = null,
+        date: String? = null,
+    ) {
         val current = _uiState.value
-        if (!force && current.activeModule == module && current.records.isNotEmpty()) return
+        if (!force && current.activeModule == module && current.records.isNotEmpty()
+            && current.statusFilter == status && current.dateFilter == date) return
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -63,12 +71,14 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                     records = if (it.activeModule == module && !force) it.records else emptyList(),
                     currentPage = 1,
                     lastPage = 1,
+                    statusFilter = status,
+                    dateFilter = date,
                     isLoadingMore = false,
                     selectedRecord = null,
                     errorMessage = null,
                 )
             }
-            repository.getRecords(module, page = 1)
+            repository.getRecords(module, page = 1, status = status, date = date)
                 .onSuccess { page ->
                     _uiState.update {
                         it.copy(
@@ -91,7 +101,12 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         viewModelScope.launch {
             val nextPage = _uiState.value.currentPage + 1
             _uiState.update { it.copy(isLoadingMore = true, errorMessage = null) }
-            repository.getRecords(module, page = nextPage)
+            repository.getRecords(
+                module,
+                page = nextPage,
+                status = current.statusFilter,
+                date = current.dateFilter,
+            )
                 .onSuccess { page ->
                     _uiState.update { state ->
                         state.copy(
@@ -104,6 +119,22 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isLoadingMore = false) }
         }
+    }
+
+    fun refreshRecords() {
+        val current = _uiState.value
+        val module = current.activeModule ?: return
+        loadRecords(
+            module = module,
+            force = true,
+            status = current.statusFilter,
+            date = current.dateFilter,
+        )
+    }
+
+    fun filterRecords(status: String?, date: String?) {
+        val module = _uiState.value.activeModule ?: return
+        loadRecords(module = module, force = true, status = status, date = date)
     }
 
     fun loadRecord(module: String, id: Long) {
@@ -345,11 +376,11 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         }
     }
 
-    fun downloadDocument(module: String, id: Long, onReady: (java.io.File) -> Unit) {
+    fun downloadDocument(module: String, id: Long, type: String? = null, onReady: (java.io.File) -> Unit) {
         if (_uiState.value.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, errorMessage = null, successMessage = null) }
-            repository.downloadDocument(module, id)
+            repository.downloadDocument(module, id, type)
                 .onSuccess { file -> onReady(file) }
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isSaving = false) }

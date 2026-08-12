@@ -41,8 +41,8 @@ class MobileWorkspaceRegistry
             'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan',
             'lapangan-insiden', 'lapangan-laporan',
         ],
-        UserRole::AsistenLapangan->value => ['lapangan-konfirmasi', 'lapangan-insiden', 'lapangan-laporan'],
-        UserRole::StafGudang->value => ['gudang', 'gudang-stok-awal', 'gudang-stok', 'gudang-penyesuaian', 'gudang-pengambilan', 'gudang-retur', 'gudang-retur-pengolahan', 'lapangan-insiden'],
+        UserRole::AsistenLapangan->value => ['lapangan-insiden', 'lapangan-laporan'],
+        UserRole::StafGudang->value => ['gudang', 'gudang-pengambilan', 'gudang-stok', 'gudang-penyesuaian'],
         UserRole::KepalaDivisiPersiapan->value => ['pengambilan-gudang-persiapan', 'persiapan', 'hasil-persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
         UserRole::PetugasPersiapan->value => ['pengambilan-gudang-persiapan', 'persiapan', 'hasil-persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
         UserRole::KepalaDivisiPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengolahan', 'hasil-persiapan-pengolahan', 'lapangan-insiden'],
@@ -67,10 +67,10 @@ class MobileWorkspaceRegistry
     {
         $definitions = [
             'gudang' => $this->warehouseDefinition(),
-            'gudang-stok-awal' => $this->warehouseOpeningStockDefinition(),
+            'gudang-pengambilan' => $this->warehouseWithdrawalDefinition(),
             'gudang-stok' => $this->warehouseStockDefinition(),
             'gudang-penyesuaian' => $this->warehouseAdjustmentDefinition(),
-            'gudang-pengambilan' => $this->warehouseWithdrawalDefinition(),
+            'gudang-stok-awal' => $this->warehouseOpeningStockDefinition(),
             'gudang-retur' => $this->warehouseReturnDefinition(),
             'gudang-retur-pengolahan' => $this->warehouseProcessingReturnDefinition(),
             'pengambilan-gudang-persiapan' => $this->divisionWarehouseWithdrawalDefinition('persiapan'),
@@ -90,6 +90,33 @@ class MobileWorkspaceRegistry
             if (in_array($slug, ['pengolahan', 'pemorsian', 'distribusi', 'pencucian', 'kebersihan'], true)) {
                 $definition['allow_create'] = false;
                 $definition['allow_delete'] = false;
+            }
+
+            if ($slug === 'pengolahan') {
+                $definition['description'] = 'Bahan otomatis dari Gudang atau hasil Persiapan. Catat suhu makanan matang dan jumlah hasil selama pekerjaan berlangsung.';
+                $definition['fields'] = collect($definition['fields'])
+                    ->map(function (array $field): array {
+                        if ($field['name'] !== 'notes') {
+                            $field['editable'] = false;
+                        }
+
+                        return $field;
+                    })->all();
+                $definition['relations']['materialUsages']['fields'] = collect($definition['relations']['materialUsages']['fields'])
+                    ->map(function (array $field): array {
+                        $field['editable'] = false;
+
+                        return $field;
+                    })->all();
+                $definition['relations']['documentations']['fields'] = collect($definition['relations']['documentations']['fields'])
+                    ->map(function (array $field): array {
+                        if ($field['name'] === 'output_unit') {
+                            $field['type'] = 'select';
+                            $field['options'] = 'processing_output_units';
+                        }
+
+                        return $field;
+                    })->all();
             }
 
             $definitions[$slug] = $definition;
@@ -148,11 +175,32 @@ class MobileWorkspaceRegistry
 
     public function options(mixed $source, int $unitId): array
     {
+        if ($source === 'processing_output_units') {
+            $defaults = collect([
+                'pack' => 'Pack',
+                'loyang' => 'Loyang',
+                'pcs' => 'Pcs',
+                'porsi' => 'Porsi',
+            ]);
+            $masterUnits = MeasurementUnit::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get()
+                ->mapWithKeys(function (MeasurementUnit $unit): array {
+                    $value = trim((string) ($unit->symbol ?: $unit->code ?: $unit->name));
+
+                    return [$value => $unit->name.($value !== $unit->name ? ' ('.$value.')' : '')];
+                });
+
+            return $defaults->union($masterUnits)->all();
+        }
+
         if ($source === 'preparation_session_items') {
             return PreparationSessionItem::query()
                 ->whereHas('session', fn ($query) => $query
                     ->where('sppg_unit_id', $unitId)
                     ->whereIn('state', ['in_progress', 'completed']))
+                ->where('processed_quantity', '>', 0)
                 ->with('session:id,session_number')
                 ->latest('id')
                 ->limit(200)
@@ -161,6 +209,7 @@ class MobileWorkspaceRegistry
                     (string) $item->getKey() => trim(implode(' - ', array_filter([
                         $item->session?->session_number,
                         $item->ingredient_name_snapshot,
+                        rtrim(rtrim(number_format((float) $item->processed_quantity, 4, '.', ''), '0'), '.').' '.$item->unit_snapshot,
                     ]))),
                 ])
                 ->all();
@@ -394,8 +443,8 @@ class MobileWorkspaceRegistry
     private function warehouseDefinition(): array
     {
         return [
-            'label' => 'Gudang',
-            'description' => 'Penerimaan bahan dan pemeriksaan mutu barang masuk.',
+            'label' => 'Penerimaan Barang',
+            'description' => 'Catat jumlah barang supplier, hasil pemeriksaan, dan dokumentasi penerimaan.',
             'model' => StockReceipt::class,
             'permission' => 'stock',
             'number' => 'receipt_number',
@@ -482,28 +531,28 @@ class MobileWorkspaceRegistry
             'allow_create' => false,
             'allow_delete' => false,
             'fields' => [
-                $this->field('preparation_date', 'Tanggal persiapan', 'date'),
-                $this->field('purpose_reference', 'Referensi kebutuhan'),
-                $this->field('state', 'Tahap pekerjaan'),
-                $this->field('status', 'Status laporan'),
-                $this->field('petugas_id', 'Penanggung jawab', 'select', false, 'users'),
-                $this->field('started_at', 'Mulai', 'datetime'),
-                $this->field('completed_at', 'Selesai', 'datetime'),
-                $this->field('notes', 'Catatan'),
+                [...$this->field('preparation_date', 'Tanggal persiapan', 'date'), 'editable' => false],
+                [...$this->field('purpose_reference', 'Referensi kebutuhan'), 'editable' => false],
+                [...$this->field('state', 'Tahap pekerjaan'), 'editable' => false],
+                [...$this->field('status', 'Status laporan'), 'editable' => false],
+                [...$this->field('petugas_id', 'Penanggung jawab', 'select', false, 'users'), 'editable' => false],
+                [...$this->field('started_at', 'Mulai', 'datetime'), 'editable' => false],
+                [...$this->field('completed_at', 'Selesai', 'datetime'), 'editable' => false],
+                $this->field('notes', 'Catatan sesi', 'textarea'),
             ],
             'relations' => [
                 'items' => $this->relation('Bahan yang dipersiapkan', [
-                    $this->field('ingredient_name_snapshot', 'Bahan'),
-                    $this->field('unit_snapshot', 'Satuan'),
-                    $this->field('received_quantity', 'Diterima', 'number'),
+                    [...$this->field('ingredient_name_snapshot', 'Bahan'), 'editable' => false],
+                    [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
+                    [...$this->field('received_quantity', 'Diterima', 'number'), 'editable' => false],
                     $this->field('processed_quantity', 'Hasil bersih', 'number'),
                     $this->field('waste_quantity', 'Sisa/limbah', 'number'),
-                    $this->field('condition_status', 'Kondisi'),
-                    $this->field('notes', 'Catatan'),
+                    [...$this->field('condition_status', 'Kondisi'), 'editable' => false],
+                    $this->field('notes', 'Catatan bahan', 'textarea'),
                 ]),
                 'resultDocumentation' => $this->relation('Dokumentasi hasil Persiapan', [
                     $this->field('photo_path', 'Foto hasil Persiapan', 'file', true),
-                    $this->field('captured_at', 'Waktu foto', 'datetime', true),
+                    [...$this->field('captured_at', 'Waktu foto', 'datetime'), 'editable' => false],
                 ]),
                 'returns' => $this->relation('Retur ke Gudang', [
                     $this->field('preparation_session_item_id', 'Bahan yang diretur', 'select', true, 'preparation_session_items'),
@@ -564,8 +613,8 @@ class MobileWorkspaceRegistry
     private function warehouseStockDefinition(): array
     {
         return [
-            'label' => 'Stok Gudang',
-            'description' => 'Saldo lot, lokasi penyimpanan, status mutu, dan masa kedaluwarsa.',
+            'label' => 'Kartu Stok',
+            'description' => 'Lihat saldo barang, lokasi penyimpanan, masa kedaluwarsa, dan riwayat mutasi.',
             'model' => InventoryLot::class,
             'with' => ['ingredient'],
             'permission' => 'stock',
@@ -610,26 +659,31 @@ class MobileWorkspaceRegistry
     private function warehouseAdjustmentDefinition(): array
     {
         return [
-            'label' => 'Penyesuaian Stok',
-            'description' => 'Daftar penyesuaian stok yang menunggu verifikasi dan yang sudah diproses.',
+            'label' => 'Kontrol Stok',
+            'description' => 'Periksa dan verifikasi penyesuaian antara saldo sistem dan stok fisik.',
             'model' => StockAdjustment::class,
             'permission' => 'stock',
             'number' => 'adjustment_number',
             'date' => 'adjustment_date',
-            'allow_create' => false,
+            'allow_create' => true,
             'allow_update' => false,
             'allow_delete' => false,
             'fields' => [
-                $this->field('adjustment_date', 'Tanggal', 'date'),
-                $this->field('adjustment_number', 'Nomor penyesuaian'),
-                $this->field('unit_snapshot', 'Satuan'),
-                $this->field('type', 'Jenis'),
-                $this->field('system_quantity', 'Saldo sistem', 'number'),
-                $this->field('actual_quantity', 'Saldo aktual', 'number'),
-                $this->field('difference_quantity', 'Selisih', 'number'),
-                $this->field('reason', 'Alasan'),
-                $this->field('status', 'Status'),
-                $this->field('verified_at', 'Diverifikasi', 'datetime'),
+                [...$this->field('inventory_lot_id', 'Barang dan lot', 'select', true, 'inventory_lots_available'), 'create_only' => true],
+                [...$this->field('adjustment_date', 'Tanggal', 'date'), 'editable' => false],
+                [...$this->field('adjustment_number', 'Nomor penyesuaian'), 'editable' => false],
+                [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
+                [...$this->field('type', 'Jenis kontrol', 'select', true, [
+                    'stock_opname' => 'Stok opname',
+                    'return_from_division' => 'Retur dari divisi',
+                    'damage' => 'Barang rusak',
+                ]), 'create_only' => true],
+                [...$this->field('system_quantity', 'Saldo sistem', 'number'), 'editable' => false],
+                [...$this->field('actual_quantity', 'Jumlah fisik aktual', 'number', true), 'create_only' => true],
+                [...$this->field('difference_quantity', 'Selisih', 'number'), 'editable' => false],
+                [...$this->field('reason', 'Alasan', 'textarea', true), 'create_only' => true],
+                [...$this->field('status', 'Status'), 'editable' => false],
+                [...$this->field('verified_at', 'Diverifikasi', 'datetime'), 'editable' => false],
             ],
             'relations' => [],
         ];
@@ -639,8 +693,8 @@ class MobileWorkspaceRegistry
     private function warehouseWithdrawalDefinition(): array
     {
         return [
-            'label' => 'Pengambilan Gudang',
-            'description' => 'Permintaan pengambilan bahan dan verifikasi aktual oleh Staf Gudang.',
+            'label' => 'Konfirmasi Pengambilan',
+            'description' => 'Pastikan jenis dan jumlah barang yang telah diambil oleh petugas divisi.',
             'model' => WarehouseWithdrawal::class,
             'permission' => 'stock',
             'number' => 'withdrawal_number',
@@ -752,18 +806,23 @@ class MobileWorkspaceRegistry
         };
 
         $fields = [
-            $this->field('output_name', 'Nama hasil', 'text', $viewer === 'preparation'),
+            [...$this->field('output_name', 'Nama hasil'), 'editable' => false],
             [...$this->field('source_ingredient_name_snapshot', 'Bahan asal'), 'editable' => false],
             $this->field('quantity', 'Jumlah awal', 'number', $viewer === 'preparation'),
             [...$this->field('available_quantity', 'Jumlah tersedia', 'number'), 'editable' => false],
-            $this->field('unit_snapshot', 'Satuan', 'text', $viewer === 'preparation'),
+            [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
             $this->field('target_division', 'Tujuan penggunaan', 'select', $viewer === 'preparation', [
                 'processing' => 'Pengolahan',
                 'portioning' => 'Pemorsian',
                 'both' => 'Pengolahan dan Pemorsian',
             ]),
-            $this->field('storage_location', 'Lokasi penyimpanan'),
-            $this->field('stored_at', 'Waktu disimpan', 'datetime'),
+            $this->field('storage_location', 'Lokasi setelah Persiapan', 'select', false, [
+                'langsung_digunakan' => 'Langsung digunakan',
+                'area_persiapan' => 'Area Persiapan',
+                'chiller' => 'Chiller',
+                'freezer' => 'Freezer',
+            ]),
+            [...$this->field('stored_at', 'Waktu disimpan', 'datetime'), 'editable' => false],
             $this->field('expires_at', 'Batas penggunaan', 'datetime'),
             [...$this->field('state', 'Status'), 'editable' => false],
             $this->field('photo_path', 'Dokumentasi', 'file'),
@@ -773,7 +832,7 @@ class MobileWorkspaceRegistry
         if ($viewer === 'preparation') {
             array_unshift(
                 $fields,
-                $this->field('preparation_session_item_id', 'Bahan sesi Persiapan', 'select', true, 'preparation_session_items'),
+                [...$this->field('preparation_session_item_id', 'Pilih hasil bahan Persiapan', 'select', true, 'preparation_session_items'), 'create_only' => true],
             );
         }
 

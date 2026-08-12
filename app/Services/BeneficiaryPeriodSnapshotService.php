@@ -87,7 +87,7 @@ class BeneficiaryPeriodSnapshotService
             throw new DomainException('Periode sumber dan tujuan harus berada pada Unit SPPG yang sama.');
         }
 
-        $source->load(['destinations.members']);
+        $source->load(['destinations.members', 'destinations.categoryTotals']);
 
         if ($source->destinations->isEmpty()) {
             throw new DomainException('Periode sumber belum memiliki snapshot penerima.');
@@ -129,6 +129,19 @@ class BeneficiaryPeriodSnapshotService
                     $data['beneficiary_period_destination_id'] = $destination->getKey();
                     BeneficiaryPeriodMember::withoutEvents(fn () => BeneficiaryPeriodMember::query()->create($data));
                     $memberCount++;
+                }
+
+                foreach ($sourceDestination->categoryTotals as $sourceTotal) {
+                    $destination->categoryTotals()->create([
+                        'beneficiary_period_id' => $target->getKey(),
+                        'beneficiary_category_id' => $sourceTotal->beneficiary_category_id,
+                        'beneficiary_category_code_snapshot' => $sourceTotal->beneficiary_category_code_snapshot,
+                        'beneficiary_category_name_snapshot' => $sourceTotal->beneficiary_category_name_snapshot,
+                        'portion_category' => $sourceTotal->portion_category,
+                        'menu_audience' => $sourceTotal->menu_audience,
+                        'total_beneficiaries' => $sourceTotal->total_beneficiaries,
+                    ]);
+                    $memberCount += (int) $sourceTotal->total_beneficiaries;
                 }
             }
 

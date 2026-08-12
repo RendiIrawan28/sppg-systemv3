@@ -80,6 +80,7 @@ private sealed interface AppScreen {
     data object Tasks : AppScreen
     data object Security : AppScreen
     data object FieldPlans : AppScreen
+    data object FieldPlanCreate : AppScreen
     data class FieldPlanDetail(val id: Long) : AppScreen
     data class FieldPlanEdit(val id: Long) : AppScreen
     data class OperationalRecords(val slug: String, val label: String) : AppScreen
@@ -192,6 +193,7 @@ private fun AuthenticatedContent(
             AppScreen.Tasks -> AppScreen.Dashboard
             AppScreen.Security -> AppScreen.Dashboard
             AppScreen.FieldPlans -> AppScreen.Dashboard
+            AppScreen.FieldPlanCreate -> AppScreen.FieldPlans
             is AppScreen.FieldPlanDetail -> {
                 fieldPlanViewModel.clearDetail()
                 AppScreen.FieldPlans
@@ -263,6 +265,23 @@ private fun AuthenticatedContent(
             onLoad = fieldPlanViewModel::loadPlans,
             onLoadMore = fieldPlanViewModel::loadMorePlans,
             onPlanClick = { screen = AppScreen.FieldPlanDetail(it) },
+            onCreate = {
+                fieldPlanViewModel.clearFeedback()
+                fieldPlanViewModel.loadOptions(force = true)
+                screen = AppScreen.FieldPlanCreate
+            },
+        )
+        AppScreen.FieldPlanCreate -> FieldPlanCreateScreen(
+            state = fieldPlanState,
+            onBack = { screen = AppScreen.FieldPlans },
+            onLoadOptions = fieldPlanViewModel::loadOptions,
+            onCreate = { optionId, notes ->
+                fieldPlanViewModel.createPlan(optionId, notes) { id ->
+                    fieldPlanViewModel.clearFeedback()
+                    screen = AppScreen.FieldPlanEdit(id)
+                }
+            },
+            onClearFeedback = fieldPlanViewModel::clearFeedback,
         )
         is AppScreen.FieldPlanDetail -> FieldPlanDetailScreen(
             state = fieldPlanState,
@@ -278,23 +297,32 @@ private fun AuthenticatedContent(
             },
             onCheckReadiness = fieldPlanViewModel::checkReadiness,
             onActivate = fieldPlanViewModel::activatePlan,
-            onOpenDocument = {
-                fieldPlanViewModel.downloadDocument(current.id) { file ->
+            onRefreshBeneficiaries = fieldPlanViewModel::refreshBeneficiaries,
+            onDelete = {
+                fieldPlanViewModel.deletePlan { screen = AppScreen.FieldPlans }
+            },
+            onOpenDocument = { format ->
+                fieldPlanViewModel.downloadDocument(current.id, format) { file ->
                     runCatching {
                         val uri = FileProvider.getUriForFile(
                             context,
                             "${context.packageName}.fileprovider",
                             file,
                         )
+                        val mimeType = if (format == "xlsx") {
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        } else {
+                            "application/pdf"
+                        }
                         val intent = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "application/pdf")
+                            setDataAndType(uri, mimeType)
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
-                        context.startActivity(Intent.createChooser(intent, "Buka dokumen PDF"))
+                        context.startActivity(Intent.createChooser(intent, "Buka dokumen rencana"))
                     }.onFailure {
                         Toast.makeText(
                             context,
-                            "Tidak ada aplikasi pembaca PDF pada perangkat ini.",
+                            "Tidak ada aplikasi yang dapat membuka dokumen ini.",
                             Toast.LENGTH_LONG,
                         ).show()
                     }
@@ -321,8 +349,18 @@ private fun AuthenticatedContent(
             module = current.slug,
             moduleLabel = current.label,
             onBack = { screen = AppScreen.Dashboard },
-            onLoad = { operationalViewModel.loadRecords(it) },
-            onRefresh = { operationalViewModel.loadRecords(current.slug, force = true) },
+            onLoad = {
+                if (operationalState.activeModule == it) {
+                    operationalViewModel.refreshRecords()
+                } else {
+                    operationalViewModel.loadRecords(
+                        it,
+                        status = if (it == "gudang") "draft" else null,
+                    )
+                }
+            },
+            onRefresh = operationalViewModel::refreshRecords,
+            onFilterChange = operationalViewModel::filterRecords,
             onLoadMore = operationalViewModel::loadMoreRecords,
             onRecordClick = {
                 screen = AppScreen.OperationalDetail(current.slug, current.label, it)
@@ -368,8 +406,8 @@ private fun AuthenticatedContent(
                     files,
                 )
             },
-            onOpenDocument = {
-                operationalViewModel.downloadDocument(current.slug, current.id) { file ->
+            onOpenDocument = { documentType ->
+                operationalViewModel.downloadDocument(current.slug, current.id, documentType) { file ->
                     runCatching {
                         val uri = FileProvider.getUriForFile(
                             context,
@@ -674,7 +712,7 @@ private fun DashboardScreen(
     val isFieldAssistant = session.role == "asisten_lapangan"
     val features = buildList {
         if (isFieldAssistant) {
-            add(FeatureItem("Rencana lapangan", "Konfirmasi penerima, rute, jadwal, dan aktivasi H-3.", "Siap digunakan", isAvailable = true))
+            add(FeatureItem("Rencana distribusi", "Buat rencana, konfirmasi penerima, atur rute, dan aktivasi.", "Siap digunakan", isAvailable = true))
         }
         addAll(
             operationalState.modules.map { module ->

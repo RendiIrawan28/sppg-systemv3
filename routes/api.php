@@ -35,8 +35,12 @@ Route::prefix('mobile')->group(function (): void {
         Route::post('/security/shifts', [MobileSecurityController::class, 'start']);
         Route::post('/security/shifts/{shift}/reports', [MobileSecurityController::class, 'report']);
         Route::get('/field-plans', [FieldPlanController::class, 'index']);
+        Route::get('/field-plans/options', [FieldPlanController::class, 'options']);
+        Route::post('/field-plans', [FieldPlanController::class, 'store']);
         Route::get('/field-plans/{plan}', [FieldPlanController::class, 'show']);
         Route::put('/field-plans/{plan}', [FieldPlanController::class, 'update']);
+        Route::delete('/field-plans/{plan}', [FieldPlanController::class, 'destroy']);
+        Route::post('/field-plans/{plan}/refresh-beneficiaries', [FieldPlanController::class, 'refreshBeneficiaries']);
         Route::get('/field-plans/{plan}/readiness', [FieldPlanController::class, 'readiness']);
         Route::post('/field-plans/{plan}/activate', [FieldPlanController::class, 'activate']);
         Route::get('/field-plans/{fieldDistributionPlan}/document', [MobileDocumentController::class, 'fieldPlan']);

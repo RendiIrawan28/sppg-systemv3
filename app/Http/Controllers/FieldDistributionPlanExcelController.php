@@ -18,7 +18,7 @@ class FieldDistributionPlanExcelController extends Controller
 
         $fieldDistributionPlan->loadMissing(['sppgUnit', 'destinations.recipientGroups']);
 
-        $spreadsheet = new Spreadsheet();
+        $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Rencana Distribusi');
 
@@ -35,7 +35,7 @@ class FieldDistributionPlanExcelController extends Controller
             [
                 'No', 'Jenis', 'Kode', 'Tujuan', 'Alamat', 'PIC', 'Telepon', 'Rute',
                 'Terdaftar', 'Terkonfirmasi', 'Porsi Kecil', 'Porsi Besar', 'Total',
-                'Jam Berangkat', 'Estimasi Tiba', 'Status Konfirmasi', 'Catatan',
+                'Status Konfirmasi', 'Catatan',
             ],
         ], null, 'A1');
 
@@ -55,23 +55,21 @@ class FieldDistributionPlanExcelController extends Controller
                 $destination->small_portions,
                 $destination->large_portions,
                 $destination->total_portions,
-                $this->formatTime($destination->planned_departure_time, $destination->planned_departure_at),
-                $this->formatTime($destination->planned_arrival_time, $destination->planned_arrival_at),
                 $destination->confirmation_status,
                 $destination->special_notes,
             ]], null, "A{$row}");
             $row++;
         }
 
-        $sheet->mergeCells('A1:Q1');
+        $sheet->mergeCells('A1:O1');
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
         $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-        $sheet->getStyle('A10:Q10')->getFont()->setBold(true);
-        $sheet->getStyle('A10:Q'.max(10, $row - 1))->getBorders()->getAllBorders()
+        $sheet->getStyle('A10:O10')->getFont()->setBold(true);
+        $sheet->getStyle('A10:O'.max(10, $row - 1))->getBorders()->getAllBorders()
             ->setBorderStyle(Border::BORDER_THIN);
         $sheet->freezePane('A11');
 
-        foreach (range('A', 'Q') as $column) {
+        foreach (range('A', 'O') as $column) {
             $sheet->getColumnDimension($column)->setAutoSize(true);
         }
 
@@ -86,15 +84,6 @@ class FieldDistributionPlanExcelController extends Controller
     private function authorizeExport(Request $request, FieldDistributionPlan $fieldDistributionPlan): void
     {
         $this->authorizeSystemRecord($fieldDistributionPlan, 'field_planning.export');
-    }
-
-    private function formatTime(mixed $timeValue, mixed $dateTimeValue): string
-    {
-        if ($timeValue) {
-            return substr((string) $timeValue, 0, 5);
-        }
-
-        return $dateTimeValue?->format('H:i') ?? '';
     }
 
     private function filename(FieldDistributionPlan $plan): string

@@ -12,6 +12,7 @@ use App\Models\ProcessingBatch;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
+use App\Models\WarehouseWithdrawalItem;
 use App\Support\DivisionRole;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -171,6 +172,52 @@ class WarehouseWithdrawalService
             ])->save();
 
             return $this->submit($withdrawal->refresh(), $actor);
+        });
+    }
+
+    public function createMobileDraftItem(
+        WarehouseWithdrawal $withdrawal,
+        int $inventoryLotId,
+        float $quantity,
+        ?float $pickupTemperature,
+        string $photoPath,
+        ?string $notes,
+        User $actor,
+    ): WarehouseWithdrawalItem {
+        return DB::transaction(function () use (
+            $withdrawal, $inventoryLotId, $quantity, $pickupTemperature, $photoPath, $notes, $actor,
+        ): WarehouseWithdrawalItem {
+            $withdrawal = WarehouseWithdrawal::query()->lockForUpdate()->findOrFail($withdrawal->getKey());
+            if (! $withdrawal->isEditable() || (int) $withdrawal->taken_by !== (int) $actor->getKey()) {
+                throw ValidationException::withMessages(['status' => 'Pengambilan tidak dapat diubah oleh pengguna ini.']);
+            }
+            if ($withdrawal->items()->where('inventory_lot_id', $inventoryLotId)->exists()) {
+                throw ValidationException::withMessages(['fields.inventory_lot_id' => 'Lot ini sudah ditambahkan dalam pengambilan.']);
+            }
+
+            $lot = InventoryLot::query()
+                ->with('ingredient.measurementUnit')
+                ->where('sppg_unit_id', $withdrawal->sppg_unit_id)
+                ->lockForUpdate()
+                ->findOrFail($inventoryLotId);
+            $this->assertLotCanBeWithdrawn($lot, $quantity, $this->availableQuantity($lot, $withdrawal->getKey()));
+            if (in_array($lot->storage_type, ['freezer', 'chiller'], true) && $pickupTemperature === null) {
+                throw ValidationException::withMessages(['fields.pickup_temperature_celsius' => 'Suhu pengambilan wajib diisi untuk barang freezer/chiller.']);
+            }
+
+            return $withdrawal->items()->create([
+                'ingredient_id' => $lot->ingredient_id,
+                'inventory_lot_id' => $lot->id,
+                'ingredient_name_snapshot' => $lot->ingredient?->name ?: 'Bahan',
+                'lot_number_snapshot' => $lot->lot_number,
+                'expiry_date_snapshot' => $lot->expired_date,
+                'unit_snapshot' => $lot->unit_snapshot,
+                'requested_quantity' => $quantity,
+                'pickup_temperature_celsius' => $pickupTemperature,
+                'photo_path' => $photoPath,
+                'taken_quantity_kg' => $this->units->legacyKilograms($lot->ingredient, $quantity),
+                'notes' => filled($notes) ? trim($notes) : null,
+            ]);
         });
     }
 

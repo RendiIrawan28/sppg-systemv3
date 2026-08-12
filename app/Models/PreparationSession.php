@@ -62,4 +62,11 @@ class PreparationSession extends Model
         return $this->hasMany(PreparationOutput::class, 'preparation_session_id');
     }
 
+    public function isReportEditable(): bool
+    {
+        return in_array($this->status, [
+            OperationalReportStatus::Draft,
+            OperationalReportStatus::RevisionRequired,
+        ], true);
+    }
 }

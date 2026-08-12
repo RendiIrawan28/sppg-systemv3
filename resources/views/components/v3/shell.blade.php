@@ -6,8 +6,11 @@
     'eyebrow' => 'Ruang kerja unit',
 ])
 
+@php($activeNavigationKey = data_get(collect($navigation)->first(fn (array $group): bool => $group['active'] && ! $group['standalone']), 'key'))
+
 <div
-    x-data="{ sidebarOpen: false, profileOpen: false, documentationUrl: null, documentationTitle: '' }"
+    x-data="{ sidebarOpen: false, profileOpen: false, documentationUrl: null, documentationTitle: '', openModule: @js($activeNavigationKey) }"
+    x-init="if (!openModule) { openModule = localStorage.getItem('v3-sidebar-module') || null }"
     x-on:open-documentation.window="documentationUrl = $event.detail.url; documentationTitle = $event.detail.title || 'Dokumentasi'"
     x-on:keydown.escape.window="documentationUrl = null"
     class="min-h-screen"
@@ -37,17 +40,59 @@
             </div>
         </div>
 
-        <nav class="relative mt-5 flex-1 overflow-y-auto px-4 pb-6">
+        <nav class="relative mt-4 flex-1 overflow-y-auto px-4 pb-6">
+            <p class="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.18em] text-slate-500">Modul kerja</p>
             @foreach ($navigation as $group)
-                <div class="mb-6">
-                    <p class="mb-2 px-3 text-[10px] font-semibold uppercase tracking-[.18em] text-slate-500">{{ $group['label'] }}</p>
-                    <div class="space-y-1">
+                @if ($group['standalone'])
+                    @php($item = $group['items'][0])
+                    <a
+                        href="{{ $item['url'] }}"
+                        @if ($item['external']) target="_blank" rel="noopener" @else wire:navigate @endif
+                        x-on:click="sidebarOpen = false"
+                        @class([
+                            'mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition',
+                            'bg-cyan-300 text-[#071a34] shadow-lg shadow-cyan-950/20' => $item['active'],
+                            'text-slate-300 hover:bg-white/[.07] hover:text-white' => ! $item['active'],
+                        ])
+                    >
+                        <x-v3.icon :name="$group['icon']" class="size-[19px] shrink-0" />
+                        <span class="min-w-0 flex-1 truncate">{{ $group['label'] }}</span>
+                    </a>
+                @else
+                    <div class="mb-1">
+                        <button
+                            type="button"
+                            x-on:click="openModule = openModule === @js($group['key']) ? null : @js($group['key']); localStorage.setItem('v3-sidebar-module', openModule || '')"
+                            @class([
+                                'flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition',
+                                'bg-white/[.08] text-white' => $group['active'],
+                                'text-slate-300 hover:bg-white/[.07] hover:text-white' => ! $group['active'],
+                            ])
+                            :aria-expanded="openModule === @js($group['key'])"
+                        >
+                            <x-v3.icon :name="$group['icon']" class="size-[19px] shrink-0" />
+                            <span class="min-w-0 flex-1 truncate">{{ $group['label'] }}</span>
+                            <x-v3.icon
+                                name="chevron-down"
+                                class="size-4 shrink-0 text-slate-500 transition-transform duration-200"
+                                x-bind:class="openModule === @js($group['key']) && 'rotate-180 text-cyan-300'"
+                            />
+                        </button>
+                        <div
+                            x-cloak
+                            x-show="openModule === @js($group['key'])"
+                            x-transition:enter="transition ease-out duration-150"
+                            x-transition:enter-start="opacity-0 -translate-y-1"
+                            x-transition:enter-end="opacity-100 translate-y-0"
+                            class="mt-1 space-y-1 border-l border-white/10 pl-3 ml-[21px]"
+                        >
                         @foreach ($group['items'] as $item)
                             <a
                                 href="{{ $item['url'] }}"
                                 @if ($item['external']) target="_blank" rel="noopener" @else wire:navigate @endif
+                                x-on:click="sidebarOpen = false"
                                 @class([
-                                    'group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition',
+                                    'group flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13px] font-medium transition',
                                     'bg-cyan-300 text-[#071a34] shadow-lg shadow-cyan-950/20' => $item['active'],
                                     'text-slate-300 hover:bg-white/[.07] hover:text-white' => ! $item['active'],
                                 ])
@@ -56,8 +101,9 @@
                                 <span class="min-w-0 flex-1 truncate">{{ $item['label'] }}</span>
                             </a>
                         @endforeach
+                        </div>
                     </div>
-                </div>
+                @endif
             @endforeach
         </nav>
 

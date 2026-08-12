@@ -9,6 +9,7 @@ use App\Models\StockAdjustment;
 use App\Models\StockReceipt;
 use App\Models\StockReceiptItem;
 use App\Models\User;
+use App\Models\WarehouseWithdrawal;
 use App\Support\Mobile\MobileWorkspaceRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
@@ -44,6 +45,50 @@ beforeEach(function (): void {
         'nutrition_reference_grams' => 100, 'is_active' => true,
     ]);
     Sanctum::actingAs($this->user, ['mobile']);
+});
+
+it('fills warehouse item snapshots when a division saves a newly taken item', function (): void {
+    $lot = InventoryLot::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'ingredient_id' => $this->ingredient->id,
+        'unit_snapshot' => 'kg',
+        'initial_quantity' => 20,
+        'balance_quantity' => 20,
+        'initial_quantity_kg' => 20,
+        'balance_quantity_kg' => 20,
+        'lot_number' => 'LOT-PENGAMBILAN',
+        'storage_type' => 'dry',
+        'status' => InventoryLot::AVAILABLE,
+    ]);
+    $withdrawal = WarehouseWithdrawal::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'withdrawal_date' => today(),
+        'division_code' => 'persiapan',
+        'status' => WarehouseWithdrawal::DRAFT,
+        'taken_by' => $this->user->id,
+    ]);
+    $photo = 'data:image/png;base64,'.base64_encode(base64_decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+    ));
+
+    $this->postJson("/api/mobile/operational-modules/pengambilan-gudang-persiapan/records/{$withdrawal->id}/relations/items", [
+        'fields' => [
+            'inventory_lot_id' => $lot->id,
+            'requested_quantity' => 8,
+            'pickup_temperature_celsius' => null,
+            'notes' => 'Diambil untuk persiapan',
+        ],
+        'files' => ['photo_path' => $photo],
+    ])->assertCreated()
+        ->assertJsonPath('data.form_fields.1.value', (string) $this->ingredient->name);
+
+    $item = $withdrawal->items()->firstOrFail();
+    expect($item->ingredient_id)->toBe($this->ingredient->id)
+        ->and($item->ingredient_name_snapshot)->toBe($this->ingredient->name)
+        ->and($item->unit_snapshot)->toBe('kg')
+        ->and((float) $item->requested_quantity)->toBe(8.0)
+        ->and((float) $item->taken_quantity_kg)->toBe(8.0)
+        ->and($item->photo_path)->not->toBeNull();
 });
 
 it('creates multi-item opening stock from mobile and activates it immediately', function (): void {
@@ -120,6 +165,93 @@ it('keeps mobile receipt quantities and kilogram conversion identical to the web
     ])->assertUnprocessable();
 });
 
+it('uploads receipt documentation without requiring another field to change', function (): void {
+    $receipt = StockReceipt::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'receipt_date' => today(),
+        'status' => StockReceipt::STATUS_DRAFT,
+        'created_by' => $this->user->id,
+    ]);
+    StockReceiptItem::query()->create([
+        'stock_receipt_id' => $receipt->id,
+        'ingredient_id' => $this->ingredient->id,
+        'ingredient_name_snapshot' => $this->ingredient->name,
+        'unit_snapshot' => 'kg',
+        'ordered_quantity' => 5,
+        'received_quantity' => 5,
+        'accepted_quantity' => 5,
+        'rejected_quantity' => 0,
+        'ordered_quantity_kg' => 5,
+        'received_quantity_kg' => 5,
+        'accepted_quantity_kg' => 5,
+        'rejected_quantity_kg' => 0,
+        'quality_status' => 'accepted',
+    ]);
+    $photo = 'data:image/png;base64,'.base64_encode(base64_decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+    ));
+
+    $this->putJson("/api/mobile/operational-modules/gudang/records/{$receipt->id}", [
+        'fields' => [],
+        'files' => ['documentation_path' => $photo],
+    ])->assertOk()
+        ->assertJsonPath('data.fields.1.key', 'status');
+
+    $receipt->refresh();
+    expect($receipt->documentation_path)->not->toBeNull();
+    Storage::disk('public')->assertExists($receipt->documentation_path);
+
+    $this->getJson("/api/mobile/operational-modules/gudang/records/{$receipt->id}")
+        ->assertOk()
+        ->assertJsonFragment([
+            'key' => 'receive',
+            'label' => 'Masukkan barang ke kartu stok',
+        ]);
+
+    $this->postJson("/api/mobile/operational-modules/gudang/records/{$receipt->id}/actions/receive", [
+        'fields' => [],
+        'files' => [],
+    ])->assertOk()
+        ->assertJsonPath('data.status', StockReceipt::STATUS_RECEIVED);
+});
+
+it('separates pending receipts from dated receipt history', function (): void {
+    StockReceipt::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'receipt_date' => today(),
+        'status' => StockReceipt::STATUS_DRAFT,
+        'created_by' => $this->user->id,
+    ]);
+    $receivedToday = StockReceipt::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'receipt_date' => today(),
+        'status' => StockReceipt::STATUS_RECEIVED,
+        'created_by' => $this->user->id,
+        'received_by' => $this->user->id,
+        'received_at' => now(),
+    ]);
+    StockReceipt::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'receipt_date' => today()->subDay(),
+        'status' => StockReceipt::STATUS_RECEIVED,
+        'created_by' => $this->user->id,
+        'received_by' => $this->user->id,
+        'received_at' => now()->subDay(),
+    ]);
+
+    $this->getJson('/api/mobile/operational-modules/gudang/records?status=draft')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.status', StockReceipt::STATUS_DRAFT);
+
+    $date = today()->toDateString();
+    $this->getJson("/api/mobile/operational-modules/gudang/records?status=received&date_from={$date}&date_to={$date}")
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $receivedToday->id)
+        ->assertJsonPath('data.0.status', StockReceipt::STATUS_RECEIVED);
+});
+
 it('creates mobile stock adjustment as draft and verifies it in a separate step', function (): void {
     $pieceIngredient = Ingredient::query()->create([
         'sppg_unit_id' => $this->unit->id, 'measurement_unit_id' => $this->pieces->id,
@@ -150,6 +282,44 @@ it('creates mobile stock adjustment as draft and verifies it in a separate step'
     expect($adjustment->refresh()->status)->toBe(StockAdjustment::VERIFIED)
         ->and((float) $lot->refresh()->balance_quantity)->toBe(18.0)
         ->and((float) $lot->balance_quantity_kg)->toBe(0.0);
+});
+
+it('creates stock control directly from the mobile control module', function (): void {
+    $lot = InventoryLot::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'ingredient_id' => $this->ingredient->id,
+        'unit_snapshot' => 'kg',
+        'initial_quantity' => 25,
+        'balance_quantity' => 25,
+        'initial_quantity_kg' => 25,
+        'balance_quantity_kg' => 25,
+        'lot_number' => 'LOT-CONTROL-MOBILE',
+        'location_name' => 'Gudang Utama',
+        'storage_type' => 'dry',
+        'status' => 'available',
+    ]);
+
+    $response = $this->postJson('/api/mobile/operational-modules/gudang-penyesuaian/records', [
+        'fields' => [
+            'inventory_lot_id' => (string) $lot->id,
+            'actual_quantity' => '23.5',
+            'type' => 'stock_opname',
+            'reason' => 'Hasil perhitungan fisik mobile',
+        ],
+        'files' => [],
+    ])->assertCreated()
+        ->assertJsonPath('data.status', StockAdjustment::DRAFT);
+
+    $adjustmentId = (int) $response->json('data.id');
+    expect((float) $lot->refresh()->balance_quantity)->toBe(25.0);
+
+    $this->postJson("/api/mobile/operational-modules/gudang-penyesuaian/records/{$adjustmentId}/actions/verify", [
+        'fields' => [],
+        'files' => [],
+    ])->assertOk()
+        ->assertJsonPath('data.status', StockAdjustment::VERIFIED);
+
+    expect((float) $lot->refresh()->balance_quantity)->toBe(23.5);
 });
 
 it('shows the ingredient name even when it is outside the capped option list', function (): void {

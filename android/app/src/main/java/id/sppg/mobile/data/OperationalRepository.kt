@@ -32,8 +32,20 @@ class OperationalRepository(
         response.body()?.data ?: throw IOException("Ruang kerja tidak tersedia.")
     }
 
-    suspend fun getRecords(module: String, page: Int = 1): Result<OperationalPage> = safeApiCall(errorHandler) {
-        val response = api.operationalRecords(authorization(), module, page = page)
+    suspend fun getRecords(
+        module: String,
+        page: Int = 1,
+        status: String? = null,
+        date: String? = null,
+    ): Result<OperationalPage> = safeApiCall(errorHandler) {
+        val response = api.operationalRecords(
+            authorization(),
+            module,
+            status = status,
+            dateFrom = date,
+            dateTo = date,
+            page = page,
+        )
         if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
         val body = response.body() ?: throw IOException("Daftar pekerjaan tidak tersedia.")
         OperationalPage(
@@ -154,8 +166,8 @@ class OperationalRepository(
         response.body()?.message ?: "Status tujuan berhasil diperbarui."
     }
 
-    suspend fun downloadDocument(module: String, id: Long): Result<File> = safeApiCall(errorHandler) {
-        val response = api.operationalDocument(authorization(), module, id)
+    suspend fun downloadDocument(module: String, id: Long, type: String? = null): Result<File> = safeApiCall(errorHandler) {
+        val response = api.operationalDocument(authorization(), module, id, type)
         if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
         val body = response.body() ?: throw IOException("Dokumen tidak tersedia.")
         val directory = File(context.cacheDir, "documents").apply { mkdirs() }
@@ -163,7 +175,7 @@ class OperationalRepository(
             ?.substringAfter("filename=", "")
             ?.trim('"', '\'', ' ')
             ?.takeIf { it.isNotBlank() }
-            ?: "$module-$id.pdf"
+            ?: listOfNotNull(module, type, id.toString()).joinToString("-") + ".pdf"
         val file = File(directory, filename.replace(Regex("[^A-Za-z0-9._-]"), "-"))
         body.byteStream().use { input -> file.outputStream().use { output -> input.copyTo(output) } }
         file

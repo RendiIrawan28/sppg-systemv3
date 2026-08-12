@@ -28,22 +28,19 @@ class MobileFieldPlanUpdateService
 
             foreach ($data['destinations'] as $destinationData) {
                 $destination = $plan->destinations()->findOrFail($destinationData['id']);
-                $departure = $destinationData['planned_departure_time'] ?? null;
-                $arrival = $destinationData['planned_arrival_time'] ?? null;
-
-                if ($departure && $arrival && $arrival < $departure) {
-                    throw ValidationException::withMessages([
-                        "destinations.{$destination->getKey()}.planned_arrival_time" => "{$destination->destination_name_snapshot}: jam tiba tidak boleh sebelum jam berangkat.",
-                    ]);
-                }
+                $confirmedTotal = collect($destinationData['recipient_groups'])
+                    ->sum(fn (array $group): int => (int) $group['confirmed_beneficiaries']);
+                $isNotServed = $confirmedTotal === 0;
 
                 $destination->update([
-                    'route_name' => filled($destinationData['route_name'] ?? null)
+                    'route_name' => ! $isNotServed && filled($destinationData['route_name'] ?? null)
                         ? trim((string) $destinationData['route_name'])
                         : null,
                     'sequence_order' => (int) $destinationData['sequence_order'],
-                    'planned_departure_time' => $departure ?: null,
-                    'planned_arrival_time' => $arrival ?: null,
+                    'planned_departure_time' => null,
+                    'planned_arrival_time' => null,
+                    'planned_departure_at' => null,
+                    'planned_arrival_at' => null,
                     'special_notes' => filled($destinationData['special_notes'] ?? null)
                         ? trim((string) $destinationData['special_notes'])
                         : null,
@@ -53,6 +50,8 @@ class MobileFieldPlanUpdateService
                     $group = $destination->recipientGroups()->findOrFail($groupData['id']);
                     $group->update([
                         'confirmed_beneficiaries' => (int) $groupData['confirmed_beneficiaries'],
+                        'menu_audience' => $groupData['menu_audience'],
+                        'portion_size' => $groupData['portion_size'],
                         'notes' => filled($groupData['notes'] ?? null)
                             ? trim((string) $groupData['notes'])
                             : null,
@@ -63,13 +62,16 @@ class MobileFieldPlanUpdateService
                 $destination->refresh();
                 $changed = (int) $destination->registered_beneficiaries
                     !== (int) $destination->confirmed_beneficiaries;
-                $changeReason = filled($destinationData['change_reason'] ?? null)
-                    ? trim((string) $destinationData['change_reason'])
+                $reasonValue = $isNotServed
+                    ? ($destinationData['no_service_reason'] ?? null)
+                    : ($destinationData['change_reason'] ?? null);
+                $changeReason = filled($reasonValue)
+                    ? trim((string) $reasonValue)
                     : null;
 
                 if ($changed && ! $changeReason) {
                     throw ValidationException::withMessages([
-                        "destinations.{$destination->getKey()}.change_reason" => "{$destination->destination_name_snapshot}: alasan perubahan jumlah penerima wajib diisi.",
+                        "destinations.{$destination->getKey()}.change_reason" => "{$destination->destination_name_snapshot}: alasan perubahan atau tidak dilayani wajib diisi.",
                     ]);
                 }
 
