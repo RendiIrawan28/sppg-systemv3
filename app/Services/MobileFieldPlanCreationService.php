@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\FieldDistributionPlan;
+use App\Models\MenuCycleDay;
 use App\Models\User;
 use DomainException;
 use Illuminate\Support\Carbon;
@@ -36,8 +37,8 @@ class MobileFieldPlanCreationService
 
                 return [
                     'id' => $start->copy()->addDays($offset)->timestamp,
-                    'cycle_code' => null, 'cycle_name' => null, 'day_number' => null, 'label_code' => null,
-                    'menu_name' => null,
+                    'cycle_code' => null, 'cycle_name' => null, 'day_number' => $offset + 1, 'label_code' => null,
+                    'menu_name' => 'Tidak terikat menu',
                     'distribution_date' => $distributionDate,
                     'service_date' => $distributionDate, 'production_date' => $distributionDate,
                     'is_rapel' => false,
@@ -54,6 +55,14 @@ class MobileFieldPlanCreationService
     public function create(int $unitId, User $actor, array $data): FieldDistributionPlan
     {
         $distributionDate = $data['distribution_date'] ?? null;
+        if (! $distributionDate && filled($data['menu_cycle_day_id'] ?? null)) {
+            $legacyDay = MenuCycleDay::query()
+                ->whereKey($data['menu_cycle_day_id'])
+                ->whereHas('cycle', fn ($query) => $query->where('sppg_unit_id', $unitId))
+                ->first();
+            $distributionDate = $legacyDay?->delivery_date?->toDateString()
+                ?: $legacyDay?->service_date?->toDateString();
+        }
         if (! $distributionDate) {
             throw ValidationException::withMessages(['distribution_date' => 'Tanggal distribusi wajib diisi.']);
         }

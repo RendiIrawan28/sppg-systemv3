@@ -14,6 +14,8 @@ import id.sppg.mobile.data.remote.safeApiCall
 import id.sppg.mobile.data.session.SessionStore
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class OperationalPage(
     val records: List<OperationalRecord>,
@@ -176,20 +178,38 @@ class OperationalRepository(
         response.body()?.message ?: "Status tujuan berhasil diperbarui."
     }
 
-    suspend fun downloadDocument(module: String, id: Long, type: String? = null): Result<File> = safeApiCall(errorHandler) {
-        val response = api.operationalDocument(authorization(), module, id, type)
-        if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
-        val body = response.body() ?: throw IOException("Dokumen tidak tersedia.")
-        val directory = File(context.cacheDir, "documents").apply { mkdirs() }
-        val filename = response.headers()["Content-Disposition"]
-            ?.substringAfter("filename=", "")
-            ?.trim('"', '\'', ' ')
-            ?.takeIf { it.isNotBlank() }
-            ?: listOfNotNull(module, type, id.toString()).joinToString("-") + ".pdf"
-        val file = File(directory, filename.replace(Regex("[^A-Za-z0-9._-]"), "-"))
-        body.byteStream().use { input -> file.outputStream().use { output -> input.copyTo(output) } }
-        file
-    }
+    suspend fun downloadDocument(module: String, id: Long, type: String? = null): Result<File> =
+        withContext(Dispatchers.IO) {
+            safeApiCall(errorHandler) {
+                val response = api.operationalDocument(authorization(), module, id, type)
+                if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
+                val body = response.body() ?: throw IOException("Dokumen tidak tersedia.")
+                val directory = File(context.cacheDir, "documents").apply { mkdirs() }
+                val filename = response.headers()["Content-Disposition"]
+                    ?.substringAfter("filename=", "")
+                    ?.trim('"', '\'', ' ')
+                    ?.takeIf { it.isNotBlank() }
+                    ?: listOfNotNull(module, type, id.toString()).joinToString("-") + ".pdf"
+                val file = File(directory, filename.replace(Regex("[^A-Za-z0-9._-]"), "-"))
+                val temporaryFile = File(directory, "${file.name}.part")
+
+                try {
+                    body.byteStream().use { input ->
+                        temporaryFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    if (temporaryFile.length() <= 0L) throw IOException("Dokumen dari server kosong.")
+                    if (file.exists() && !file.delete()) throw IOException("Dokumen lama tidak dapat diganti.")
+                    if (!temporaryFile.renameTo(file)) {
+                        temporaryFile.copyTo(file, overwrite = true)
+                        temporaryFile.delete()
+                    }
+                    file
+                } catch (error: Throwable) {
+                    temporaryFile.delete()
+                    throw error
+                }
+            }
+        }
 
     private suspend fun authorization(): String {
         val token = sessionStore.current()?.token ?: throw SessionExpiredException()

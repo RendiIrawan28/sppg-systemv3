@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.Card
@@ -394,6 +395,7 @@ fun OperationalRecordDetailScreen(
     watermarkProfile: PhotoWatermarkProfile,
     onAction: (String, String?, Map<String, String?>, Map<String, String>) -> Unit,
     onOpenDocument: (String?) -> Unit,
+    onShareDocument: (String?) -> Unit,
     onRelationCreate: (OperationalSection) -> Unit,
     onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
@@ -633,6 +635,7 @@ fun OperationalRecordDetailScreen(
                     actionFiles = emptyMap()
                 },
                 onOpenDocument = onOpenDocument,
+                onShareDocument = onShareDocument,
                 onRelationCreate = onRelationCreate,
                 onRelationEdit = onRelationEdit,
                 onRelationDelete = { section, item -> relationToDelete = section to item },
@@ -816,6 +819,7 @@ private fun OperationalDetailContent(
     successMessage: String?,
     onAction: (OperationalAction) -> Unit,
     onOpenDocument: (String?) -> Unit,
+    onShareDocument: (String?) -> Unit,
     onRelationCreate: (OperationalSection) -> Unit,
     onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
@@ -1047,29 +1051,44 @@ private fun OperationalDetailContent(
         if (capabilities?.canViewDocument == true) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
-                        onClick = { onOpenDocument(null) },
-                        enabled = !isSaving,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(16.dp),
-                    ) {
-                        Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            if (module == "pengolahan") "Lihat monitoring produksi" else "Lihat dokumen PDF",
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    if (module == "pengolahan") {
+                    Text("EKSPOR LAPORAN", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
-                            onClick = { onOpenDocument("temperature") },
-                            enabled = !isSaving,
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            shape = RoundedCornerShape(16.dp),
+                            onClick = { onOpenDocument(null) }, enabled = !isSaving,
+                            modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
                         ) {
                             Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Lihat pemantauan suhu", fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Buka PDF", fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = { onShareDocument(null) }, enabled = !isSaving,
+                            modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Icon(Icons.Outlined.Share, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Bagikan", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (module == "pengolahan") {
+                        Text("Pemantauan suhu", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = { onOpenDocument("temperature") }, enabled = !isSaving,
+                                modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                            ) {
+                                Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Buka PDF", fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = { onShareDocument("temperature") }, enabled = !isSaving,
+                                modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                            ) {
+                                Icon(Icons.Outlined.Share, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Bagikan", fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }

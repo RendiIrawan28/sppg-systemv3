@@ -1,5 +1,7 @@
 package id.sppg.mobile.ui
 
+import android.content.ClipData
+import android.content.Context
 import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -90,6 +92,7 @@ import id.sppg.mobile.ui.theme.ForestDark
 import id.sppg.mobile.ui.theme.Leaf
 import id.sppg.mobile.ui.theme.Navy
 import kotlinx.coroutines.flow.collect
+import java.io.File
 import java.time.LocalDate
 
 private sealed interface AppScreen {
@@ -294,8 +297,8 @@ private fun AuthenticatedContent(
             state = fieldPlanState,
             onBack = { screen = AppScreen.FieldPlans },
             onLoadOptions = fieldPlanViewModel::loadOptions,
-            onCreate = { distributionDate, notes ->
-                fieldPlanViewModel.createPlan(distributionDate, notes) { id ->
+            onCreate = { distributionDate, legacyOptionId, notes ->
+                fieldPlanViewModel.createPlan(distributionDate, legacyOptionId, notes) { id ->
                     fieldPlanViewModel.clearFeedback()
                     screen = AppScreen.FieldPlanEdit(id)
                 }
@@ -345,6 +348,20 @@ private fun AuthenticatedContent(
                             Toast.LENGTH_LONG,
                         ).show()
                     }
+                }
+            },
+            onShareDocument = { format ->
+                fieldPlanViewModel.downloadDocument(current.id, format) { file ->
+                    shareDocument(
+                        context = context,
+                        file = file,
+                        mimeType = if (format == "xlsx") {
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        } else {
+                            "application/pdf"
+                        },
+                        chooserTitle = "Bagikan dokumen rencana",
+                    )
                 }
             },
             onClearFeedback = fieldPlanViewModel::clearFeedback,
@@ -447,6 +464,16 @@ private fun AuthenticatedContent(
                             Toast.LENGTH_LONG,
                         ).show()
                     }
+                }
+            },
+            onShareDocument = { documentType ->
+                operationalViewModel.downloadDocument(current.slug, current.id, documentType) { file ->
+                    shareDocument(
+                        context = context,
+                        file = file,
+                        mimeType = "application/pdf",
+                        chooserTitle = "Bagikan laporan ${current.label}",
+                    )
                 }
             },
             onRelationCreate = { section ->
@@ -1228,5 +1255,33 @@ private fun UnsupportedRoleCard() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+private fun shareDocument(
+    context: Context,
+    file: File,
+    mimeType: String,
+    chooserTitle: String,
+) {
+    runCatching {
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file,
+        )
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newRawUri(file.name, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, chooserTitle))
+    }.onFailure {
+        Toast.makeText(
+            context,
+            "Tidak ada aplikasi yang dapat membagikan dokumen ini.",
+            Toast.LENGTH_LONG,
+        ).show()
     }
 }

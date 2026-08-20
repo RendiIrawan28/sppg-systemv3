@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material3.Card
@@ -292,6 +293,7 @@ fun FieldPlanDetailScreen(
     onRefreshBeneficiaries: () -> Unit,
     onDelete: () -> Unit,
     onOpenDocument: (String) -> Unit,
+    onShareDocument: (String) -> Unit,
     onClearFeedback: () -> Unit,
 ) {
     LaunchedEffect(planId) { onLoad(planId) }
@@ -327,6 +329,7 @@ fun FieldPlanDetailScreen(
                 onRefreshBeneficiaries = onRefreshBeneficiaries,
                 onDelete = onDelete,
                 onOpenDocument = onOpenDocument,
+                onShareDocument = onShareDocument,
                 onClearFeedback = onClearFeedback,
             )
         }
@@ -344,6 +347,7 @@ private fun FieldPlanDetailContent(
     onRefreshBeneficiaries: () -> Unit,
     onDelete: () -> Unit,
     onOpenDocument: (String) -> Unit,
+    onShareDocument: (String) -> Unit,
     onClearFeedback: () -> Unit,
 ) {
     var showActivationDialog by remember { mutableStateOf(false) }
@@ -538,16 +542,35 @@ private fun FieldPlanDetailContent(
         }
         if (plan.canExport) {
             item {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = { onOpenDocument("pdf") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(50.dp)) {
-                        Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("PDF", fontWeight = FontWeight.Bold)
+                SectionCard("Ekspor dan bagikan") {
+                    Text("PDF", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(onClick = { onOpenDocument("pdf") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(48.dp)) {
+                            Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Buka")
+                        }
+                        Button(onClick = { onShareDocument("pdf") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(48.dp)) {
+                            Icon(Icons.Outlined.Share, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Bagikan")
+                        }
                     }
-                    OutlinedButton(onClick = { onOpenDocument("xlsx") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(50.dp)) {
-                        Icon(Icons.Outlined.Download, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Excel", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(14.dp))
+                    Text("Excel", fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(onClick = { onOpenDocument("xlsx") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(48.dp)) {
+                            Icon(Icons.Outlined.Download, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Buka")
+                        }
+                        Button(onClick = { onShareDocument("xlsx") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(48.dp)) {
+                            Icon(Icons.Outlined.Share, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Bagikan")
+                        }
                     }
                 }
             }
@@ -1016,7 +1039,7 @@ fun FieldPlanCreateScreen(
     state: FieldPlanUiState,
     onBack: () -> Unit,
     onLoadOptions: () -> Unit,
-    onCreate: (String, String?) -> Unit,
+    onCreate: (String, Long?, String?) -> Unit,
     onClearFeedback: () -> Unit,
 ) {
     LaunchedEffect(Unit) { onLoadOptions() }
@@ -1115,7 +1138,11 @@ fun FieldPlanCreateScreen(
                 }
                 item {
                     Button(
-                        onClick = { selectedDate?.let { onCreate(it, notes.trim().ifBlank { null }) } },
+                        onClick = {
+                            selectedDate?.let {
+                                onCreate(it, selectedOption?.id, notes.trim().ifBlank { null })
+                            }
+                        },
                         enabled = selectedDate != null && selectedOption?.isAvailable == true && !state.isSubmitting,
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                     ) {

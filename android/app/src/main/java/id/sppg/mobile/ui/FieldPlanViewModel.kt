@@ -118,10 +118,10 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
         }
     }
 
-    fun createPlan(distributionDate: String, notes: String?, onCreated: (Long) -> Unit) {
+    fun createPlan(distributionDate: String, legacyOptionId: Long?, notes: String?, onCreated: (Long) -> Unit) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null) }
-            repository.createPlan(distributionDate, notes)
+            repository.createPlan(distributionDate, legacyOptionId, notes)
                 .onSuccess { plan ->
                     _uiState.update {
                         it.copy(

@@ -41,8 +41,8 @@ class FieldPlanController extends Controller
     ): JsonResponse {
         Gate::authorize('create', FieldDistributionPlan::class);
         $data = $request->validate([
-            'distribution_date' => ['required', 'date', 'after_or_equal:today'],
-            'menu_cycle_day_id' => ['nullable', 'integer'],
+            'distribution_date' => ['nullable', 'required_without:menu_cycle_day_id', 'date', 'after_or_equal:today'],
+            'menu_cycle_day_id' => ['nullable', 'required_without:distribution_date', 'integer'],
             'confirmation_deadline_at' => ['nullable', 'date'],
             'general_notes' => ['nullable', 'string', 'max:5000'],
         ]);

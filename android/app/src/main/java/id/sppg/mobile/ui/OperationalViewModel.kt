@@ -1,5 +1,6 @@
 package id.sppg.mobile.ui
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -413,7 +414,10 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
             _uiState.update { it.copy(isSaving = true, errorMessage = null, successMessage = null) }
             repository.downloadDocument(module, id, type)
                 .onSuccess { file -> onReady(file) }
-                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+                .onFailure { error ->
+                    Log.e("SppgDocument", "Gagal mengunduh dokumen $module/$id", error)
+                    _uiState.update { it.copy(errorMessage = error.message ?: "Dokumen gagal diunduh.") }
+                }
             _uiState.update { it.copy(isSaving = false) }
         }
     }

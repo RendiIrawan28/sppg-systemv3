@@ -14,6 +14,8 @@ import id.sppg.mobile.data.remote.safeApiCall
 import id.sppg.mobile.data.session.SessionStore
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class FieldPlanPage(
     val plans: List<FieldPlan>,
@@ -47,13 +49,17 @@ class FieldPlanRepository(
     suspend fun getOptions(): Result<List<FieldPlanOption>> = safeApiCall(errorHandler) {
         val response = api.fieldPlanOptions(authorization())
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
-        response.body()?.data ?: throw IOException("Pilihan menu distribusi tidak tersedia.")
+        response.body()?.data ?: throw IOException("Pilihan tanggal distribusi tidak tersedia.")
     }
 
-    suspend fun createPlan(distributionDate: String, notes: String?): Result<FieldPlan> = safeApiCall(errorHandler) {
+    suspend fun createPlan(distributionDate: String, legacyOptionId: Long?, notes: String?): Result<FieldPlan> = safeApiCall(errorHandler) {
         val response = api.createFieldPlan(
             authorization(),
-            CreateFieldPlanRequest(distributionDate = distributionDate, generalNotes = notes?.trim()?.ifBlank { null }),
+            CreateFieldPlanRequest(
+                distributionDate = distributionDate,
+                menuCycleDayId = legacyOptionId,
+                generalNotes = notes?.trim()?.ifBlank { null },
+            ),
         )
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
         response.body()?.data ?: throw IOException("Rencana distribusi gagal dibuat.")
@@ -92,20 +98,38 @@ class FieldPlanRepository(
         response.body()?.data ?: throw IOException("Rencana gagal diperbarui setelah aktivasi.")
     }
 
-    suspend fun downloadDocument(id: Long, format: String = "pdf"): Result<File> = safeApiCall(errorHandler) {
-        val response = api.fieldPlanDocument(authorization(), id, format)
-        if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
-        val body = response.body() ?: throw IOException("Dokumen rencana tidak tersedia.")
-        val directory = File(context.cacheDir, "documents").apply { mkdirs() }
-        val filename = response.headers()["Content-Disposition"]
-            ?.substringAfter("filename=", "")
-            ?.trim('"', '\'', ' ')
-            ?.takeIf { it.isNotBlank() }
-            ?: "rencana-distribusi-$id.${if (format == "xlsx") "xlsx" else "pdf"}"
-        val file = File(directory, filename.replace(Regex("[^A-Za-z0-9._-]"), "-"))
-        body.byteStream().use { input -> file.outputStream().use { output -> input.copyTo(output) } }
-        file
-    }
+    suspend fun downloadDocument(id: Long, format: String = "pdf"): Result<File> =
+        withContext(Dispatchers.IO) {
+            safeApiCall(errorHandler) {
+                val response = api.fieldPlanDocument(authorization(), id, format)
+                if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
+                val body = response.body() ?: throw IOException("Dokumen rencana tidak tersedia.")
+                val directory = File(context.cacheDir, "documents").apply { mkdirs() }
+                val filename = response.headers()["Content-Disposition"]
+                    ?.substringAfter("filename=", "")
+                    ?.trim('"', '\'', ' ')
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "rencana-distribusi-$id.${if (format == "xlsx") "xlsx" else "pdf"}"
+                val file = File(directory, filename.replace(Regex("[^A-Za-z0-9._-]"), "-"))
+                val temporaryFile = File(directory, "${file.name}.part")
+
+                try {
+                    body.byteStream().use { input ->
+                        temporaryFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    if (temporaryFile.length() <= 0L) throw IOException("Dokumen dari server kosong.")
+                    if (file.exists() && !file.delete()) throw IOException("Dokumen lama tidak dapat diganti.")
+                    if (!temporaryFile.renameTo(file)) {
+                        temporaryFile.copyTo(file, overwrite = true)
+                        temporaryFile.delete()
+                    }
+                    file
+                } catch (error: Throwable) {
+                    temporaryFile.delete()
+                    throw error
+                }
+            }
+        }
 
     private suspend fun authorization(): String {
         val token = sessionStore.current()?.token
