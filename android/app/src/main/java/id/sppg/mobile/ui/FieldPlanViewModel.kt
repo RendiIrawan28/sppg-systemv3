@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 data class FieldPlanUiState(
     val isLoading: Boolean = false,
@@ -20,6 +21,7 @@ data class FieldPlanUiState(
     val plans: List<FieldPlan> = emptyList(),
     val currentPage: Int = 1,
     val lastPage: Int = 1,
+    val dateFilter: String = LocalDate.now().toString(),
     val isLoadingMore: Boolean = false,
     val selectedPlan: FieldPlan? = null,
     val options: List<FieldPlanOption> = emptyList(),
@@ -36,7 +38,7 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
         _uiState.value = FieldPlanUiState()
     }
 
-    fun loadPlans(force: Boolean = false) {
+    fun loadPlans(force: Boolean = false, date: String = _uiState.value.dateFilter) {
         if (!force && (_uiState.value.isLoading || _uiState.value.plans.isNotEmpty())) return
         viewModelScope.launch {
             _uiState.update {
@@ -46,12 +48,13 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
                     currentPage = 1,
                     lastPage = 1,
                     isLoadingMore = false,
+                    dateFilter = date,
                     errorMessage = null,
                     successMessage = null,
                     selectedPlan = null,
                 )
             }
-            repository.getPlans(page = 1)
+            repository.getPlans(page = 1, date = date)
                 .onSuccess { page ->
                     _uiState.update {
                         it.copy(
@@ -72,7 +75,7 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
         viewModelScope.launch {
             val nextPage = _uiState.value.currentPage + 1
             _uiState.update { it.copy(isLoadingMore = true, errorMessage = null) }
-            repository.getPlans(page = nextPage)
+            repository.getPlans(page = nextPage, date = current.dateFilter)
                 .onSuccess { page ->
                     _uiState.update { state ->
                         state.copy(
@@ -86,6 +89,8 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
             _uiState.update { it.copy(isLoadingMore = false) }
         }
     }
+
+    fun filterPlans(date: String) = loadPlans(force = true, date = date)
 
     fun loadPlan(id: Long) {
         if (_uiState.value.isLoading || _uiState.value.selectedPlan?.id == id) return
@@ -113,16 +118,16 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
         }
     }
 
-    fun createPlan(menuCycleDayId: Long, notes: String?, onCreated: (Long) -> Unit) {
+    fun createPlan(distributionDate: String, notes: String?, onCreated: (Long) -> Unit) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null) }
-            repository.createPlan(menuCycleDayId, notes)
+            repository.createPlan(distributionDate, notes)
                 .onSuccess { plan ->
                     _uiState.update {
                         it.copy(
                             selectedPlan = plan,
                             plans = listOf(plan) + it.plans.filterNot { item -> item.id == plan.id },
-                            options = it.options.map { option -> if (option.id == menuCycleDayId) option.copy(hasPlan = true) else option },
+                            options = it.options.map { option -> if (option.distributionDate == distributionDate) option.copy(hasPlan = true) else option },
                             successMessage = "Rencana distribusi berhasil dibuat.",
                         )
                     }

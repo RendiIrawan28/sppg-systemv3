@@ -21,6 +21,7 @@ class MobileSecurityController extends Controller
     public function overview(Request $request, SystemUnit $systemUnit, MobileTaskService $tasks): JsonResponse
     {
         abort_unless($request->user()->can('security.view'), 403);
+        $filters = $request->validate(['date' => ['nullable', 'date']]);
         app(SecurityMonitoringService::class)->expireOverdueShifts(
             $systemUnit->id(),
             $request->user()->getKey(),
@@ -40,6 +41,7 @@ class MobileSecurityController extends Controller
             ->where('sppg_unit_id', $systemUnit->id())
             ->where('officer_id', $request->user()->getKey())
             ->withCount('reports')
+            ->when($filters['date'] ?? null, fn ($query, string $date) => $query->whereDate('started_at', $date))
             ->latest('started_at')
             ->limit(10)
             ->get();

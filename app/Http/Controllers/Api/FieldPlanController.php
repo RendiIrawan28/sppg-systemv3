@@ -41,7 +41,8 @@ class FieldPlanController extends Controller
     ): JsonResponse {
         Gate::authorize('create', FieldDistributionPlan::class);
         $data = $request->validate([
-            'menu_cycle_day_id' => ['required', 'integer'],
+            'distribution_date' => ['required', 'date', 'after_or_equal:today'],
+            'menu_cycle_day_id' => ['nullable', 'integer'],
             'confirmation_deadline_at' => ['nullable', 'date'],
             'general_notes' => ['nullable', 'string', 'max:5000'],
         ]);
@@ -115,7 +116,7 @@ class FieldPlanController extends Controller
             'destinations.*.recipient_groups' => ['required', 'array', 'min:1'],
             'destinations.*.recipient_groups.*.id' => ['required', 'integer'],
             'destinations.*.recipient_groups.*.confirmed_beneficiaries' => ['required', 'integer', 'min:0'],
-            'destinations.*.recipient_groups.*.menu_audience' => ['required', 'string', 'max:100'],
+            'destinations.*.recipient_groups.*.menu_audience' => ['nullable', 'string', 'max:100'],
             'destinations.*.recipient_groups.*.portion_size' => ['required', 'in:small,large'],
             'destinations.*.recipient_groups.*.notes' => ['nullable', 'string', 'max:1000'],
         ]);

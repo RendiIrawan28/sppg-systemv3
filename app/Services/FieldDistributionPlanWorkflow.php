@@ -18,14 +18,6 @@ class FieldDistributionPlanWorkflow
         $plan->load('destinations.recipientGroups');
         $issues = [];
 
-        if (blank($plan->menu_cycle_day_id) || blank($plan->menu_id)) {
-            $issues[] = 'Menu harus dipilih dari Siklus Menu yang sudah disetujui atau aktif.';
-        }
-
-        if (blank($plan->menu_name_snapshot)) {
-            $issues[] = 'Menu atau nama menu belum diisi.';
-        }
-
         if (blank($plan->service_date) || blank($plan->production_date)) {
             $issues[] = 'Tanggal layanan dan tanggal produksi dari siklus menu belum valid.';
         }
@@ -49,10 +41,6 @@ class FieldDistributionPlanWorkflow
                 // Nilai 0 sah, misalnya kelompok tidak hadir atau sekolah tidak menerima pelayanan.
                 if ((int) $group->confirmed_beneficiaries < 0) {
                     $issues[] = "{$label} - {$groupLabel}: jumlah aktual tidak boleh negatif.";
-                }
-
-                if (blank($group->menu_audience)) {
-                    $issues[] = "{$label} - {$groupLabel}: kelompok menu belum diisi.";
                 }
 
                 if (! in_array($group->portion_size, ['small', 'large'], true)) {
@@ -111,10 +99,6 @@ class FieldDistributionPlanWorkflow
 
         if ($plan->planned_total_portions !== $plan->confirmed_beneficiaries) {
             $issues[] = 'Total seluruh porsi tidak sama dengan total penerima terkonfirmasi.';
-        }
-
-        if ($plan->distribution_date && now()->startOfDay()->gt($plan->distribution_date->copy()->subDays(2)->startOfDay())) {
-            $issues[] = 'Rencana tidak dapat diajukan karena sudah melewati batas revisi maksimal H-2.';
         }
 
         return array_values(array_unique($issues));

@@ -67,8 +67,8 @@ class ProcessingInputService
 
     private function assertReceivesInput(ProcessingBatch $batch): void
     {
-        if (! in_array($batch->state, [ProcessingBatchState::Planned, ProcessingBatchState::InProgress], true)) {
-            throw ValidationException::withMessages(['state' => 'Batch Pengolahan sudah ditutup dan tidak dapat menerima bahan tambahan.']);
+        if ($batch->state !== ProcessingBatchState::InProgress) {
+            throw ValidationException::withMessages(['state' => 'Mulai produksi terlebih dahulu sebelum mengambil bahan untuk Pengolahan.']);
         }
     }
 

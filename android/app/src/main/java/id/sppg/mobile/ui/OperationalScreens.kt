@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import id.sppg.mobile.data.remote.OperationalField
 import id.sppg.mobile.data.remote.OperationalAction
+import id.sppg.mobile.data.remote.OperationalRelationAction
 import id.sppg.mobile.data.remote.OperationalRecord
 import id.sppg.mobile.data.remote.OperationalSection
 import id.sppg.mobile.data.remote.OperationalSectionItem
@@ -103,18 +104,21 @@ fun OperationalRecordListScreen(
 ) {
     LaunchedEffect(module) { onLoad(module) }
     val context = LocalContext.current
-    val receiptHistory = module == "gudang" && state.statusFilter == "received"
-    val receiptDateLabel = state.dateFilter?.let { operationalDateDisplay(it, "date") }
+    var showHistory by remember(module) { mutableStateOf(false) }
+    var historyDate by remember(module) { mutableStateOf(LocalDate.now()) }
+    val displayedRecords = state.records.filter { it.isHistory == showHistory }
+    val selectedDateLabel = operationalDateDisplay(
+        (state.dateFilter ?: LocalDate.now().format(apiDateFormatter)),
+        "date",
+    )
 
-    fun selectReceiptDate() {
-        val currentDate = parseOperationalDate(state.dateFilter) ?: LocalDate.now()
+    fun selectHistoryDate() {
+        val currentDate = historyDate
         DatePickerDialog(
             context,
             { _, year, month, day ->
-                onFilterChange(
-                    "received",
-                    LocalDate.of(year, month + 1, day).format(apiDateFormatter),
-                )
+                historyDate = LocalDate.of(year, month + 1, day)
+                onFilterChange(null, historyDate.format(apiDateFormatter))
             },
             currentDate.year,
             currentDate.monthValue - 1,
@@ -127,10 +131,7 @@ fun OperationalRecordListScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        if (receiptHistory) "Riwayat Penerimaan" else moduleLabel,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Text(moduleLabel, fontWeight = FontWeight.Bold)
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -138,34 +139,22 @@ fun OperationalRecordListScreen(
                     }
                 },
                 actions = {
-                    if (module == "gudang") {
-                        if (receiptHistory) {
-                            IconButton(onClick = ::selectReceiptDate, enabled = !state.isLoading) {
-                                Icon(Icons.Outlined.CalendarMonth, contentDescription = "Filter tanggal")
+                    if (!showHistory && state.modules.firstOrNull { it.slug == module }?.canCreate == true) {
+                        if (module == "pengolahan" || module == "pemorsian") {
+                            TextButton(onClick = onCreate) {
+                                Text(if (module == "pengolahan") "Mulai produksi" else "Mulai Pemorsian")
                             }
-                            TextButton(
-                                onClick = { onFilterChange("draft", null) },
-                                enabled = !state.isLoading,
-                            ) { Text("Belum diproses") }
                         } else {
-                            TextButton(
-                                onClick = { onFilterChange("received", null) },
-                                enabled = !state.isLoading,
-                            ) { Text("Riwayat") }
-                        }
-                    }
-                    if (state.modules.firstOrNull { it.slug == module }?.canCreate == true) {
-                        IconButton(onClick = onCreate) {
-                            Icon(Icons.Outlined.Add, contentDescription = "Tambah data")
+                            IconButton(onClick = onCreate) {
+                                Icon(Icons.Outlined.Add, contentDescription = "Tambah data")
+                            }
                         }
                     }
                     IconButton(onClick = onRefresh, enabled = !state.isLoading) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Muat ulang")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors = sppgTopAppBarColors(),
             )
         },
     ) { innerPadding ->
@@ -175,16 +164,6 @@ fun OperationalRecordListScreen(
                 message = state.errorMessage,
                 padding = innerPadding,
                 onRetry = onRefresh,
-            )
-            state.records.isEmpty() -> OperationalEmpty(
-                if (receiptHistory && !receiptDateLabel.isNullOrBlank()) {
-                    "Riwayat penerimaan tanggal $receiptDateLabel"
-                } else if (receiptHistory) {
-                    "Riwayat penerimaan"
-                } else {
-                    moduleLabel
-                },
-                innerPadding,
             )
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -199,28 +178,49 @@ fun OperationalRecordListScreen(
                 item {
                     OperationalModuleHeader(
                         module = module,
-                        label = when {
-                            receiptHistory && !receiptDateLabel.isNullOrBlank() -> "Riwayat · $receiptDateLabel"
-                            receiptHistory -> "Riwayat Penerimaan"
-                            else -> moduleLabel
-                        },
-                        count = state.records.size,
+                        label = if (showHistory) "Riwayat · $selectedDateLabel" else moduleLabel,
+                        count = displayedRecords.size,
                     )
                 }
                 item {
-                    Text(
-                        if (receiptHistory) "PENERIMAAN SELESAI" else "BELUM DIPROSES",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    WorkHistoryTabs(showHistory) { history ->
+                        showHistory = history
+                        onFilterChange(null, if (module == "gudang-stok" && !history) null else {
+                            (if (history) historyDate else LocalDate.now()).format(apiDateFormatter)
+                        })
+                    }
                 }
-                items(state.records, key = { it.id }) { record ->
-                    OperationalRecordCard(
-                        module = module,
-                        record = record,
-                        onClick = { onRecordClick(record.id) },
-                    )
+                if (showHistory) {
+                    item { HistoryDateSelector(selectedDateLabel, ::selectHistoryDate) }
+                }
+                if (!showHistory && module == "distribusi") {
+                    item {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                            shape = RoundedCornerShape(18.dp),
+                        ) {
+                            Text(
+                                "Pilih rute, lengkapi kendaraan, lalu ikuti perjalanan sampai kembali ke SPPG.",
+                                modifier = Modifier.padding(16.dp),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
+                    }
+                }
+                if (displayedRecords.isEmpty()) {
+                    item {
+                        if (showHistory) HistoryEmptyState()
+                        else OperationalEmptyCard("Belum ada pekerjaan untuk hari ini")
+                    }
+                } else {
+                    item { OperationalListSectionTitle(if (showHistory) "PEKERJAAN SELESAI" else "PERLU DIKERJAKAN") }
+                    items(displayedRecords, key = { it.id }) { record ->
+                        OperationalRecordCard(
+                            module = module,
+                            record = record,
+                            onClick = { onRecordClick(record.id) },
+                        )
+                    }
                 }
                 if (state.currentPage < state.lastPage) {
                     item(key = "load-more-$module-${state.currentPage}") {
@@ -244,6 +244,31 @@ fun OperationalRecordListScreen(
             }
         }
     }
+}
+
+@Composable
+private fun OperationalEmptyCard(message: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Text(
+            message,
+            modifier = Modifier.padding(22.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun OperationalListSectionTitle(label: String) {
+    Text(
+        label,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+    )
 }
 
 @Composable
@@ -277,7 +302,12 @@ private fun OperationalRecordCard(module: String, record: OperationalRecord, onC
                 }
             }
             Spacer(Modifier.height(12.dp))
-            SppgStatusPill(record.stateLabel ?: record.statusLabel ?: "-")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SppgStatusPill(record.stateLabel ?: record.statusLabel ?: "-")
+                if (!record.statusLabel.isNullOrBlank() && record.statusLabel != record.stateLabel) {
+                    SppgStatusPill(record.statusLabel)
+                }
+            }
             if (!record.subtitle.isNullOrBlank()) {
                 Spacer(Modifier.height(5.dp))
                 Text(
@@ -323,23 +353,23 @@ private fun OperationalModuleHeader(module: String, label: String, count: Int) {
     val visual = moduleVisual(module)
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = visual.container),
     ) {
         Row(
-            modifier = Modifier.padding(20.dp),
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ModuleIcon(module, Modifier.size(56.dp))
-            Spacer(Modifier.width(16.dp))
+            ModuleIcon(module, Modifier.size(44.dp))
+            Spacer(Modifier.width(13.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     label,
                     color = visual.color,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(2.dp))
                 Text(
                     "$count pekerjaan ditampilkan",
                     color = visual.color.copy(alpha = 0.78f),
@@ -367,7 +397,14 @@ fun OperationalRecordDetailScreen(
     onRelationCreate: (OperationalSection) -> Unit,
     onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
-    onRelationAction: (OperationalSection, OperationalSectionItem, String) -> Unit,
+    onRelationAction: (
+        OperationalSection,
+        OperationalSectionItem,
+        String,
+        String?,
+        Map<String, String?>,
+        Map<String, String>,
+    ) -> Unit,
 ) {
     LaunchedEffect(module, recordId) { onLoad(module, recordId) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -375,6 +412,12 @@ fun OperationalRecordDetailScreen(
     var actionNotes by remember { mutableStateOf("") }
     var actionValues by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
     var actionFiles by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var selectedRelationAction by remember {
+        mutableStateOf<Triple<OperationalSection, OperationalSectionItem, OperationalRelationAction>?>(null)
+    }
+    var relationActionNotes by remember { mutableStateOf("") }
+    var relationActionValues by remember { mutableStateOf<Map<String, String?>>(emptyMap()) }
+    var relationActionFiles by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var relationToDelete by remember {
         mutableStateOf<Pair<OperationalSection, OperationalSectionItem>?>(null)
     }
@@ -424,14 +467,16 @@ fun OperationalRecordDetailScreen(
                             onSelectFile = { data -> actionFiles = actionFiles + (field.key to data) },
                         )
                     }
-                    item {
-                        OutlinedTextField(
-                            value = actionNotes,
-                            onValueChange = { actionNotes = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text(if (action.notesRequired) "Alasan *" else "Catatan (opsional)") },
-                            minLines = 3,
-                        )
+                    if (action.notesRequired || action.fields.orEmpty().none { it.key == "notes" }) {
+                        item {
+                            OutlinedTextField(
+                                value = actionNotes,
+                                onValueChange = { actionNotes = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text(if (action.notesRequired) "Alasan *" else "Catatan (opsional)") },
+                                minLines = 3,
+                            )
+                        }
                     }
                 }
             },
@@ -463,6 +508,77 @@ fun OperationalRecordDetailScreen(
             },
         )
     }
+    selectedRelationAction?.let { (section, item, action) ->
+        val requiredReady = action.fields.orEmpty().all { field ->
+            if (!field.required) true
+            else if (field.type == "file") {
+                relationActionFiles[field.key].isNullOrBlank().not() || !field.value.isNullOrBlank()
+            } else relationActionValues[field.key].isNullOrBlank().not()
+        }
+        AlertDialog(
+            onDismissRequest = { selectedRelationAction = null },
+            title = { Text(action.label) },
+            text = {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 560.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    item {
+                        Text(
+                            item.title,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    items(action.fields.orEmpty(), key = { "relation-action-${it.key}" }) { field ->
+                        OperationalFormInput(
+                            field = field,
+                            value = relationActionValues[field.key],
+                            onValueChange = { value ->
+                                relationActionValues = relationActionValues + (field.key to value)
+                            },
+                            hasSelectedFile = relationActionFiles.containsKey(field.key),
+                            watermarkProfile = watermarkProfile,
+                            onSelectFile = { data ->
+                                relationActionFiles = relationActionFiles + (field.key to data)
+                            },
+                        )
+                    }
+                    if (action.notesRequired) {
+                        item {
+                            OutlinedTextField(
+                                value = relationActionNotes,
+                                onValueChange = { relationActionNotes = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Catatan *") },
+                                minLines = 3,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !state.isSaving && requiredReady
+                        && (!action.notesRequired || relationActionNotes.isNotBlank()),
+                    onClick = {
+                        onRelationAction(
+                            section,
+                            item,
+                            action.key,
+                            relationActionNotes.trim().ifBlank { null },
+                            relationActionValues,
+                            relationActionFiles,
+                        )
+                        selectedRelationAction = null
+                    },
+                ) { Text("Simpan") }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedRelationAction = null }) { Text("Batal") }
+            },
+        )
+    }
     relationToDelete?.let { (section, item) ->
         AlertDialog(
             onDismissRequest = { relationToDelete = null },
@@ -490,9 +606,7 @@ fun OperationalRecordDetailScreen(
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors = sppgTopAppBarColors(),
             )
         },
     ) { innerPadding ->
@@ -522,10 +636,172 @@ fun OperationalRecordDetailScreen(
                 onRelationCreate = onRelationCreate,
                 onRelationEdit = onRelationEdit,
                 onRelationDelete = { section, item -> relationToDelete = section to item },
-                onRelationAction = onRelationAction,
+                onRelationAction = { section, item, action ->
+                    if (action.fields.isNullOrEmpty() && !action.notesRequired) {
+                        onRelationAction(section, item, action.key, null, emptyMap(), emptyMap())
+                    } else {
+                        selectedRelationAction = Triple(section, item, action)
+                        relationActionNotes = ""
+                        relationActionValues = action.fields.orEmpty().associate { field ->
+                            field.key to field.value
+                        }
+                        relationActionFiles = emptyMap()
+                    }
+                },
             )
         }
     }
+}
+
+@Composable
+private fun DistributionProgressCard(record: OperationalRecord) {
+    val steps = listOf(
+        "Pilih rute",
+        "Rute dipilih",
+        "Memuat",
+        "Dalam perjalanan",
+        "Semua tujuan selesai",
+        "Kembali ke SPPG",
+    )
+    val currentIndex = when (record.state) {
+        "planned" -> 0
+        "assigned" -> 1
+        "loaded" -> 2
+        "departed" -> 3
+        "destinations_completed" -> 4
+        "returned" -> 5
+        else -> 0
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("PROGRES PERJALANAN", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            steps.forEachIndexed { index, label ->
+                val completed = index < currentIndex || record.state == "returned"
+                val current = index == currentIndex && record.state != "returned"
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        when {
+                            completed -> "✓"
+                            current -> "●"
+                            else -> "○"
+                        },
+                        color = if (completed || current) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        label,
+                        fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
+                        color = if (current) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun distributionActionHint(action: String): String = when (action) {
+    "claim" -> "Isi kendaraan dan nama kernet untuk mengambil rute ini. Nama driver mengikuti akun yang sedang digunakan."
+    "load" -> "Pastikan seluruh porsi pada rute sudah masuk kendaraan sebelum mulai memuat."
+    "depart" -> "Catat waktu dan suhu makanan saat kendaraan berangkat."
+    "finish" -> "Gunakan setelah seluruh tujuan selesai dan kendaraan benar-benar tiba kembali di SPPG."
+    "submit" -> "Seluruh rute sudah kembali. Ajukan laporan distribusi untuk diperiksa."
+    else -> "Periksa data rute sebelum melanjutkan tahap berikutnya."
+}
+
+@Composable
+private fun WashingProgressCard(record: OperationalRecord) {
+    val steps = listOf("Terima ompreng", "Catat sisa makanan", "Proses pencucian", "Siap digunakan")
+    val currentIndex = when (record.state) {
+        "planned" -> 0
+        "received" -> 1
+        "washing", "completed" -> 2
+        "ready" -> 3
+        else -> 0
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("PROGRES PENCUCIAN", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            steps.forEachIndexed { index, label ->
+                val completed = index < currentIndex || record.state == "ready"
+                val current = index == currentIndex && record.state != "ready"
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        when {
+                            completed -> "✓"
+                            current -> "●"
+                            else -> "○"
+                        },
+                        color = if (completed || current) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        label,
+                        fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
+                        color = if (current) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WashingNextStepCard(
+    actions: List<OperationalAction>,
+    isSaving: Boolean,
+    onAction: (OperationalAction) -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("LANGKAH BERIKUTNYA", fontWeight = FontWeight.Bold)
+            Text(
+                washingActionHint(actions.first().key),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            actions.forEach { action ->
+                Button(
+                    onClick = { onAction(action) },
+                    enabled = !isSaving,
+                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    shape = RoundedCornerShape(16.dp),
+                ) { Text(action.label, fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
+private fun washingActionHint(action: String): String = when (action) {
+    "receive" -> "Hitung ompreng yang benar-benar diterima. Catatan wajib jika jumlah atau kondisi berbeda."
+    "waste_none", "waste_present" -> "Pilih kondisi sisa makanan pada ompreng sebelum pencucian dimulai."
+    "waste" -> "Tambahkan rincian limbah dan fotonya, lalu lengkapi identitas kedua pihak untuk berita acara."
+    "start" -> "Pencatatan sisa makanan sudah selesai. Mulai proses untuk membuka checklist dan dokumentasi hasil."
+    "complete" -> "Pastikan seluruh checklist wajib selesai dan minimal satu foto hasil sudah tersedia."
+    "submit" -> "Seluruh sesi Pencucian tanggal ini sudah siap untuk diajukan."
+    else -> "Periksa seluruh data sebelum melanjutkan tahap Pencucian."
 }
 
 @Composable
@@ -543,11 +819,26 @@ private fun OperationalDetailContent(
     onRelationCreate: (OperationalSection) -> Unit,
     onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
-    onRelationAction: (OperationalSection, OperationalSectionItem, String) -> Unit,
+    onRelationAction: (OperationalSection, OperationalSectionItem, OperationalRelationAction) -> Unit,
 ) {
     val capabilities = record.capabilities
-    val receiptActions = capabilities?.actions.orEmpty().filter { it.key == "receive" }
-    val remainingActions = capabilities?.actions.orEmpty().filterNot { it.key == "receive" }
+    val preparationReturnSection = record.sections.orEmpty()
+        .firstOrNull { module == "persiapan" && it.key == "returns" }
+    val receiptActions = if (module == "gudang") {
+        capabilities?.actions.orEmpty().filter { it.key == "receive" }
+    } else emptyList()
+    val leftoverActions = capabilities?.actions.orEmpty().filter {
+        it.key == "set_leftover_none" || it.key == "set_leftover_present"
+    }
+    val remainingActions = capabilities?.actions.orEmpty().filterNot {
+        it.key == "receive" || it.key == "set_leftover_none" || it.key == "set_leftover_present"
+    }
+    val washingEarlyActions = capabilities?.actions.orEmpty().filter {
+        it.key in setOf("receive", "waste_none", "waste_present", "start")
+    }
+    val washingFinalActions = capabilities?.actions.orEmpty().filterNot {
+        it.key in setOf("receive", "waste_none", "waste_present", "start")
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -594,8 +885,32 @@ private fun OperationalDetailContent(
                 }
             }
         }
+        if (module == "distribusi") {
+            item { DistributionProgressCard(record) }
+        }
+        if (module == "pencucian") {
+            item { WashingProgressCard(record) }
+        }
         if (!record.fields.isNullOrEmpty()) {
-            item { OperationalFieldCard("Informasi pekerjaan", record.fields) }
+            if (module == "pemorsian") {
+                item { PortioningProgressCard(record.fields) }
+            }
+            item {
+                OperationalFieldCard(
+                    if (module == "distribusi") "Informasi rute" else "Informasi pekerjaan",
+                    record.fields,
+                )
+            }
+        }
+        if (module == "pemorsian" && leftoverActions.isNotEmpty()) {
+            item {
+                PortioningLeftoverChoiceCard(
+                    fields = record.fields.orEmpty(),
+                    actions = leftoverActions,
+                    isSaving = isSaving,
+                    onAction = onAction,
+                )
+            }
         }
         if (!successMessage.isNullOrBlank()) {
             item {
@@ -613,6 +928,14 @@ private fun OperationalDetailContent(
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
                 }
+            }
+        }
+        if (preparationReturnSection?.canCreate == true) {
+            item {
+                PreparationReturnCallout(
+                    returnCount = preparationReturnSection.items.size,
+                    onCreate = { onRelationCreate(preparationReturnSection) },
+                )
             }
         }
         if (receiptActions.isNotEmpty()) {
@@ -642,6 +965,42 @@ private fun OperationalDetailContent(
                 }
             }
         }
+        if (module == "distribusi" && remainingActions.isNotEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    shape = RoundedCornerShape(20.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text("LANGKAH BERIKUTNYA", fontWeight = FontWeight.Bold)
+                        Text(
+                            distributionActionHint(remainingActions.first().key),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        remainingActions.forEach { action ->
+                            Button(
+                                onClick = { onAction(action) },
+                                enabled = !isSaving,
+                                modifier = Modifier.fillMaxWidth().height(54.dp),
+                                shape = RoundedCornerShape(16.dp),
+                            ) { Text(action.label, fontWeight = FontWeight.Bold) }
+                        }
+                    }
+                }
+            }
+        }
+        if (module == "pencucian" && washingEarlyActions.isNotEmpty()) {
+            item {
+                WashingNextStepCard(
+                    actions = washingEarlyActions,
+                    isSaving = isSaving,
+                    onAction = onAction,
+                )
+            }
+        }
         val sections = record.sections.orEmpty()
         if (sections.isEmpty()) {
             item {
@@ -661,7 +1020,16 @@ private fun OperationalDetailContent(
                 )
             }
         }
-        if (remainingActions.isNotEmpty()) {
+        if (module == "pencucian" && washingFinalActions.isNotEmpty()) {
+            item {
+                WashingNextStepCard(
+                    actions = washingFinalActions,
+                    isSaving = isSaving,
+                    onAction = onAction,
+                )
+            }
+        }
+        if (remainingActions.isNotEmpty() && module != "distribusi" && module != "pencucian") {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("LANGKAH BERIKUTNYA", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -732,12 +1100,50 @@ private fun OperationalDetailContent(
     }
 }
 
+@Composable
+private fun PreparationReturnCallout(returnCount: Int, onCreate: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("ADA BAHAN YANG TIDAK DIGUNAKAN?", fontWeight = FontWeight.Bold)
+            Text(
+                "Catat retur sebelum menyelesaikan Persiapan. Gudang akan memeriksa jumlah fisik sebelum stok dikembalikan.",
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (returnCount > 0) {
+                Text(
+                    "$returnCount retur sudah dicatat pada pekerjaan ini.",
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
+            Button(
+                onClick = onCreate,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                shape = RoundedCornerShape(15.dp),
+            ) {
+                Icon(Icons.Outlined.Add, contentDescription = null)
+                Spacer(Modifier.width(7.dp))
+                Text("Catat Retur Bahan", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OperationalRecordEditScreen(
     state: OperationalUiState,
     moduleLabel: String,
     isCreate: Boolean,
+    createActionLabel: String? = null,
     watermarkProfile: PhotoWatermarkProfile,
     onBack: () -> Unit,
     onPrepare: () -> Unit,
@@ -753,12 +1159,20 @@ fun OperationalRecordEditScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(if (isCreate) "Tambah $moduleLabel" else "Ubah $moduleLabel", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        if (isCreate && createActionLabel != null) createActionLabel
+                        else if (isCreate) "Tambah $moduleLabel"
+                        else "Ubah $moduleLabel",
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
                     }
                 },
+                colors = sppgTopAppBarColors(),
             )
         },
     ) { padding ->
@@ -783,10 +1197,23 @@ fun OperationalRecordEditScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                 ) {
                     Column(Modifier.padding(18.dp)) {
-                        Text("Isi hanya data yang perlu diubah", fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isCreate && createActionLabel == "Mulai Pemorsian") "Pilih rencana distribusi aktif"
+                            else if (isCreate && createActionLabel != null) "Pilih rencana produksi aktif"
+                            else "Isi hanya data yang perlu diubah",
+                            fontWeight = FontWeight.Bold,
+                        )
                         Spacer(Modifier.height(5.dp))
                         Text(
-                            "Kolom status dikunci agar alur kerja tetap aman.",
+                            if (isCreate && createActionLabel != null) {
+                                if (createActionLabel == "Mulai Pemorsian") {
+                                    "Pemorsian langsung dimulai setelah rencana dipilih. Barang dapat diambil sesudahnya."
+                                } else {
+                                    "Produksi langsung dimulai setelah rencana dipilih. Bahan dapat diambil sesudahnya."
+                                }
+                            } else {
+                                "Kolom status dikunci agar alur kerja tetap aman."
+                            },
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -825,7 +1252,12 @@ fun OperationalRecordEditScreen(
                             color = MaterialTheme.colorScheme.onPrimary,
                         )
                     } else {
-                        Text(if (isCreate) "Simpan data baru" else "Simpan perubahan", fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isCreate && createActionLabel != null) createActionLabel
+                            else if (isCreate) "Simpan data baru"
+                            else "Simpan perubahan",
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
             }
@@ -1034,6 +1466,16 @@ private fun OperationalFormInput(
                 }
             }
         }
+        field.type == "select" -> OutlinedTextField(
+            value = "",
+            onValueChange = {},
+            readOnly = true,
+            enabled = false,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(label) },
+            placeholder = { Text("Belum ada pekerjaan aktif") },
+            shape = RoundedCornerShape(16.dp),
+        )
         else -> OutlinedTextField(
             value = value.orEmpty(),
             onValueChange = onValueChange,
@@ -1433,6 +1875,129 @@ private fun OperationalDatePickerInput(
 }
 
 @Composable
+private fun PortioningLeftoverChoiceCard(
+    fields: List<OperationalField>,
+    actions: List<OperationalAction>,
+    isSaving: Boolean,
+    onAction: (OperationalAction) -> Unit,
+) {
+    val current = fields.firstOrNull { it.key == "leftover_mode" }?.value.orEmpty()
+    val noneSelected = current.contains("Tidak ada", ignoreCase = true)
+    val presentSelected = current.contains("Ada sisa", ignoreCase = true)
+    val noneAction = actions.firstOrNull { it.key == "set_leftover_none" }
+    val presentAction = actions.firstOrNull { it.key == "set_leftover_present" }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("SISA MAKANAN SETELAH PEMORSIAN", fontWeight = FontWeight.ExtraBold)
+            Text(
+                "Pilih kondisi sisa makanan sebelum menyelesaikan Pemorsian.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { noneAction?.let(onAction) },
+                    enabled = !isSaving && noneAction != null,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (noneSelected) "✓ Tidak ada sisa" else "Tidak ada sisa")
+                }
+                Button(
+                    onClick = { presentAction?.let(onAction) },
+                    enabled = !isSaving && presentAction != null,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (presentSelected) "✓ Ada sisa" else "Ada sisa makanan")
+                }
+            }
+            if (presentSelected) {
+                Text(
+                    "Tambahkan nama makanan, jumlah, satuan, dan foto pada bagian Sisa makanan di bawah.",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            } else if (noneSelected) {
+                Text("Tercatat tidak ada sisa makanan.", color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PortioningProgressCard(fields: List<OperationalField>) {
+    fun value(key: String): Int = fields.firstOrNull { it.key == key }
+        ?.value
+        ?.replace(".", "")
+        ?.replace(",", ".")
+        ?.toDoubleOrNull()
+        ?.toInt()
+        ?: 0
+
+    val targetSmall = value("target_small_portions")
+    val targetLarge = value("target_large_portions")
+    val actualSmall = value("actual_small_portions")
+    val actualLarge = value("actual_large_portions")
+    val targetMet = actualSmall >= targetSmall && actualLarge >= targetLarge
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("OMPRENG YANG SUDAH DIPORSIKAN", fontWeight = FontWeight.ExtraBold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                PortioningProgressItem("Kecil", actualSmall, targetSmall, Modifier.weight(1f))
+                PortioningProgressItem("Besar", actualLarge, targetLarge, Modifier.weight(1f))
+            }
+            Text(
+                if (targetMet) "Target Pemorsian sudah terpenuhi."
+                else "Target belum terpenuhi. Lanjutkan pencatatan ompreng per rute.",
+                color = if (targetMet) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PortioningProgressItem(
+    label: String,
+    actual: Int,
+    target: Int,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Text("Ompreng $label", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(5.dp))
+            Text("$actual / $target", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                if (actual >= target) "Terpenuhi" else "Kurang ${(target - actual).coerceAtLeast(0)}",
+                color = if (actual >= target) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
 private fun OperationalFieldCard(title: String, fields: List<OperationalField>) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1460,7 +2025,7 @@ private fun OperationalSectionCard(
     onCreate: () -> Unit,
     onEdit: (OperationalSectionItem) -> Unit,
     onDelete: (OperationalSectionItem) -> Unit,
-    onAction: (OperationalSectionItem, String) -> Unit,
+    onAction: (OperationalSectionItem, OperationalRelationAction) -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1530,7 +2095,7 @@ private fun OperationalSectionCard(
                         ) {
                             item.actions.orEmpty().forEach { action ->
                                 OutlinedButton(
-                                    onClick = { onAction(item, action.key) },
+                                    onClick = { onAction(item, action) },
                                     modifier = Modifier.fillMaxWidth(),
                                 ) { Text(action.label, fontWeight = FontWeight.SemiBold) }
                             }

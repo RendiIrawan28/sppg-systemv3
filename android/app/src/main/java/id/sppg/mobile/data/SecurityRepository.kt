@@ -15,8 +15,8 @@ class SecurityRepository(
     private val sessionStore: SessionStore,
     private val errorHandler: ApiErrorHandler,
 ) {
-    suspend fun overview(): Result<SecurityOverview> = safeApiCall(errorHandler) {
-        val response = api.securityOverview(authorization())
+    suspend fun overview(date: String? = null): Result<SecurityOverview> = safeApiCall(errorHandler) {
+        val response = api.securityOverview(authorization(), date)
         if (!response.isSuccessful) {
             throw apiException(response.code(), response.errorBody()?.string(), "Data keamanan belum dapat dimuat.")
         }

@@ -8,6 +8,7 @@ use App\Enums\UserRole;
 use App\Models\DistributionRun;
 use App\Models\PortioningSession;
 use App\Models\User;
+use App\Models\WarehouseWithdrawal;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -69,6 +70,64 @@ class PortioningWorkflow
 
             return $session->refresh();
         });
+    }
+
+    public function cancel(PortioningSession $session, User $actor, string $reason): PortioningSession
+    {
+        abort_unless($actor->can('portioning.update'), 403);
+
+        if (blank($reason)) {
+            throw ValidationException::withMessages(['reason' => 'Alasan pembatalan wajib diisi.']);
+        }
+
+        return DB::transaction(function () use ($session, $actor, $reason): PortioningSession {
+            $session = $this->lockedSession($session);
+            if (! $this->canCancel($session)) {
+                throw ValidationException::withMessages([
+                    'state' => 'Pemorsian tidak dapat dibatalkan karena sudah memiliki barang, hasil rute, atau sisa makanan.',
+                ]);
+            }
+
+            $previousState = $session->state->value;
+            $reason = trim($reason);
+            $session->update([
+                'state' => PortioningSessionState::Cancelled,
+                'completed_at' => now(),
+                'notes' => filled($session->notes)
+                    ? trim((string) $session->notes)."\n\nPembatalan: {$reason}"
+                    : "Pembatalan: {$reason}",
+                'updated_by' => $actor->getKey(),
+            ]);
+            $this->writeHistory(
+                $session,
+                $actor,
+                'portioning_cancelled',
+                $previousState,
+                PortioningSessionState::Cancelled->value,
+                $reason,
+            );
+
+            return $session->refresh();
+        });
+    }
+
+    public function canCancel(PortioningSession $session): bool
+    {
+        if (! in_array($session->state, [PortioningSessionState::Planned, PortioningSessionState::InProgress], true)
+            || ! $session->isReportEditable()) {
+            return false;
+        }
+
+        return ! $session->supplies()->exists()
+            && ! $session->preparationOutputWithdrawals()->exists()
+            && ! $session->routeRecords()->exists()
+            && ! $session->leftoverRecords()->exists()
+            && ! WarehouseWithdrawal::query()
+                ->where('division_code', 'pemorsian')
+                ->where('reference_type', 'portioning_session')
+                ->where('reference_id', $session->getKey())
+                ->whereHas('items')
+                ->exists();
     }
 
     private function syncDistributionRun(
@@ -292,6 +351,10 @@ class PortioningWorkflow
     {
         $errors = [];
 
+        if (! $this->hasMaterialInput($session)) {
+            $errors['supplies'] = 'Minimal satu barang dari Gudang atau hasil Persiapan harus tersedia sebelum Pemorsian diselesaikan.';
+        }
+
         if ($session->routeRecords->isEmpty()) {
             $errors['routeRecords'] = 'Minimal satu rute Pemorsian wajib disimpan.';
         }
@@ -339,9 +402,21 @@ class PortioningWorkflow
                 'routeRecords',
                 'leftoverRecords',
                 'supplies',
+                'preparationOutputWithdrawals',
             ])
             ->lockForUpdate()
             ->findOrFail($session->getKey());
+    }
+
+    private function hasMaterialInput(PortioningSession $session): bool
+    {
+        if ($session->supplies->isNotEmpty()) {
+            return true;
+        }
+
+        return $session->preparationOutputWithdrawals
+            ->contains(fn ($withdrawal): bool => in_array($withdrawal->status, ['waiting_verification', 'verified'], true)
+                && (float) ($withdrawal->verified_quantity ?: $withdrawal->requested_quantity) > 0);
     }
 
     private function hasMeaningfulSessionNotes(PortioningSession $session): bool

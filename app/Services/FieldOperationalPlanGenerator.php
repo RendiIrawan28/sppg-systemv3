@@ -19,9 +19,15 @@ class FieldOperationalPlanGenerator
 {
     public function generateProcessingBatch(FieldDistributionPlan $plan, User $actor): ProcessingBatch
     {
-        $plan->load('menuCycleDay');
-
         return DB::transaction(function () use ($plan, $actor): ProcessingBatch {
+            $plan = FieldDistributionPlan::query()
+                ->with('menuCycleDay')
+                ->lockForUpdate()
+                ->findOrFail($plan->getKey());
+            if ($this->enumValue($plan->status) !== 'activated') {
+                throw new RuntimeException('Rencana produksi belum aktif.');
+            }
+
             $batch = $this->syncProcessingBatch($plan, $actor);
             if (! $batch) {
                 throw new RuntimeException('Modul Pengolahan belum tersedia.');
@@ -38,17 +44,18 @@ class FieldOperationalPlanGenerator
 
     public function generatePortioningSession(FieldDistributionPlan $plan, User $actor): PortioningSession
     {
-        $plan->load(['destinations', 'menuCycleDay']);
-
-        if ($this->enumValue($plan->status) !== 'activated') {
-            throw new RuntimeException('Rencana distribusi belum aktif.');
-        }
-
-        if ($plan->destinations->isEmpty()) {
-            throw new RuntimeException('Rencana tidak memiliki tujuan distribusi.');
-        }
-
         return DB::transaction(function () use ($plan, $actor): PortioningSession {
+            $plan = FieldDistributionPlan::query()
+                ->with(['destinations', 'menuCycleDay'])
+                ->lockForUpdate()
+                ->findOrFail($plan->getKey());
+            if ($this->enumValue($plan->status) !== 'activated') {
+                throw new RuntimeException('Rencana distribusi belum aktif.');
+            }
+            if ($plan->destinations->isEmpty()) {
+                throw new RuntimeException('Rencana tidak memiliki tujuan distribusi.');
+            }
+
             $batch = $this->syncProcessingBatch($plan, $actor);
             $session = $this->syncPortioningSession($plan, $batch, $actor);
 

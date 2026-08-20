@@ -61,6 +61,13 @@ class WarehouseWithdrawalService
         };
 
         if ($selectionType === 'plan') {
+            if (in_array($divisionCode, ['pengolahan', 'pemorsian'], true)) {
+                throw ValidationException::withMessages([
+                    'fields.reference_selection' => $divisionCode === 'pengolahan'
+                        ? 'Mulai produksi dari modul Pengolahan sebelum mengambil bahan Gudang.'
+                        : 'Mulai proses dari modul Pemorsian sebelum mengambil barang Gudang.',
+                ]);
+            }
             $plan = FieldDistributionPlan::query()
                 ->where('sppg_unit_id', $unitId)
                 ->where('status', 'activated')
@@ -457,8 +464,8 @@ class WarehouseWithdrawalService
             if (! $batch) {
                 return;
             }
-            if ($batch->state !== ProcessingBatchState::Planned) {
-                throw ValidationException::withMessages(['decisionNotes' => 'Pengolahan sudah dimulai. Catat jumlah aktual dan verifikasi agar stok tetap sesuai.']);
+            if (! in_array($batch->state, [ProcessingBatchState::Planned, ProcessingBatchState::InProgress], true)) {
+                throw ValidationException::withMessages(['decisionNotes' => 'Pengolahan sudah ditutup. Koreksi bahan tidak dapat dilakukan.']);
             }
             $batch->materialUsages()
                 ->where('source_type', 'warehouse_withdrawal')
@@ -473,8 +480,8 @@ class WarehouseWithdrawalService
             if (! $session) {
                 return;
             }
-            if ($session->state !== PortioningSessionState::Planned) {
-                throw ValidationException::withMessages(['decisionNotes' => 'Pemorsian sudah dimulai. Catat jumlah aktual dan verifikasi agar stok tetap sesuai.']);
+            if (! in_array($session->state, [PortioningSessionState::Planned, PortioningSessionState::InProgress], true)) {
+                throw ValidationException::withMessages(['decisionNotes' => 'Pemorsian sudah ditutup. Koreksi barang tidak dapat dilakukan.']);
             }
             $session->supplies()
                 ->where('source_type', 'warehouse_withdrawal')
@@ -545,8 +552,8 @@ class WarehouseWithdrawalService
     {
         $definition = match ($divisionCode) {
             'persiapan' => [FieldDistributionPlan::class, 'field_plan', 'plan_number', 'status', ['activated']],
-            'pengolahan' => [ProcessingBatch::class, 'processing_batch', 'batch_number', 'state', ['planned', 'in_progress']],
-            'pemorsian' => [PortioningSession::class, 'portioning_session', 'session_number', 'state', ['planned', 'in_progress']],
+            'pengolahan' => [ProcessingBatch::class, 'processing_batch', 'batch_number', 'state', ['in_progress']],
+            'pemorsian' => [PortioningSession::class, 'portioning_session', 'session_number', 'state', ['in_progress']],
             default => throw ValidationException::withMessages(['reference' => 'Divisi tidak memiliki referensi produksi yang valid.']),
         };
 

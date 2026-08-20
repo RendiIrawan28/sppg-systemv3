@@ -26,6 +26,8 @@ interface MobileApi {
     @GET("field-plans")
     suspend fun fieldPlans(
         @Header("Authorization") authorization: String,
+        @Query("date_from") dateFrom: String? = null,
+        @Query("date_to") dateTo: String? = null,
         @Query("per_page") perPage: Int = 50,
         @Query("page") page: Int = 1,
     ): Response<PaginatedFieldPlans>
@@ -240,6 +242,7 @@ interface MobileApi {
     @GET("security/overview")
     suspend fun securityOverview(
         @Header("Authorization") authorization: String,
+        @Query("date") date: String? = null,
     ): Response<SecurityOverviewResponse>
 
     @POST("security/shifts")
@@ -332,7 +335,8 @@ data class FieldPlanOption(
 )
 
 data class CreateFieldPlanRequest(
-    @SerializedName("menu_cycle_day_id") val menuCycleDayId: Long,
+    @SerializedName("distribution_date") val distributionDate: String,
+    @SerializedName("menu_cycle_day_id") val menuCycleDayId: Long? = null,
     @SerializedName("confirmation_deadline_at") val confirmationDeadlineAt: String? = null,
     @SerializedName("general_notes") val generalNotes: String? = null,
 )
@@ -440,7 +444,18 @@ data class ActivateFieldPlanResponse(
     val data: FieldPlan,
 )
 
-data class OperationalModulesResponse(val data: List<OperationalModule>)
+data class OperationalModulesResponse(
+    val data: List<OperationalModule>,
+    @SerializedName("daily_summary") val dailySummary: MobileDailySummary? = null,
+)
+
+data class MobileDailySummary(
+    val date: String,
+    @SerializedName("menu_names") val menuNames: List<String> = emptyList(),
+    val beneficiaries: Int = 0,
+    val portions: Int = 0,
+    val destinations: Int = 0,
+)
 
 data class OperationalModule(
     val slug: String,
@@ -448,6 +463,7 @@ data class OperationalModule(
     val description: String,
     val permission: String,
     @SerializedName("record_count") val recordCount: Int,
+    @SerializedName("today_count") val todayCount: Int = 0,
     @SerializedName("can_create") val canCreate: Boolean,
     @SerializedName("form_fields") val formFields: List<OperationalFormField>?,
 )
@@ -469,6 +485,7 @@ data class OperationalRecord(
     @SerializedName("state_label") val stateLabel: String?,
     val status: String?,
     @SerializedName("status_label") val statusLabel: String?,
+    @SerializedName("is_history") val isHistory: Boolean = false,
     val assignee: String?,
     val metrics: List<OperationalMetric>,
     val fields: List<OperationalField>?,
@@ -551,7 +568,12 @@ data class OperationalSectionItem(
     val actions: List<OperationalRelationAction>?,
 )
 
-data class OperationalRelationAction(val key: String, val label: String)
+data class OperationalRelationAction(
+    val key: String,
+    val label: String,
+    @SerializedName("notes_required") val notesRequired: Boolean = false,
+    val fields: List<OperationalFormField>? = emptyList(),
+)
 
 
 data class RegisterDeviceTokenRequest(

@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +30,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
@@ -40,6 +47,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -56,7 +66,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -69,11 +81,16 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.sppg.mobile.core.notification.NotificationNavigationStore
 import id.sppg.mobile.core.notification.NotificationRefreshBus
+import id.sppg.mobile.R
 import id.sppg.mobile.data.session.UserSession
+import id.sppg.mobile.data.remote.MobileDailySummary
+import id.sppg.mobile.data.remote.OperationalModule
 import id.sppg.mobile.ui.theme.SppgTheme
 import id.sppg.mobile.ui.theme.ForestDark
 import id.sppg.mobile.ui.theme.Leaf
+import id.sppg.mobile.ui.theme.Navy
 import kotlinx.coroutines.flow.collect
+import java.time.LocalDate
 
 private sealed interface AppScreen {
     data object Dashboard : AppScreen
@@ -221,7 +238,7 @@ private fun AuthenticatedContent(
             noticeMessage = noticeMessage,
             onDismissNotice = onDismissNotice,
             onLogout = onLogout,
-            pendingTaskCount = notificationState.tasks.size,
+            unreadNotificationCount = notificationState.unreadCount,
             onOpenTasks = { screen = AppScreen.Tasks },
             onOpenFieldPlans = { screen = AppScreen.FieldPlans },
             onLoadOperationalModules = operationalViewModel::loadModules,
@@ -254,6 +271,7 @@ private fun AuthenticatedContent(
             onBack = { screen = AppScreen.Dashboard },
             onLoad = { securityViewModel.load() },
             onRefresh = { securityViewModel.load(force = true) },
+            onDateChange = securityViewModel::filterHistory,
             onStartShift = securityViewModel::startShift,
             onSubmitReport = securityViewModel::submitReport,
             onClearFeedback = securityViewModel::clearFeedback,
@@ -264,6 +282,7 @@ private fun AuthenticatedContent(
             onRefresh = { fieldPlanViewModel.loadPlans(force = true) },
             onLoad = fieldPlanViewModel::loadPlans,
             onLoadMore = fieldPlanViewModel::loadMorePlans,
+            onDateChange = fieldPlanViewModel::filterPlans,
             onPlanClick = { screen = AppScreen.FieldPlanDetail(it) },
             onCreate = {
                 fieldPlanViewModel.clearFeedback()
@@ -275,8 +294,8 @@ private fun AuthenticatedContent(
             state = fieldPlanState,
             onBack = { screen = AppScreen.FieldPlans },
             onLoadOptions = fieldPlanViewModel::loadOptions,
-            onCreate = { optionId, notes ->
-                fieldPlanViewModel.createPlan(optionId, notes) { id ->
+            onCreate = { distributionDate, notes ->
+                fieldPlanViewModel.createPlan(distributionDate, notes) { id ->
                     fieldPlanViewModel.clearFeedback()
                     screen = AppScreen.FieldPlanEdit(id)
                 }
@@ -355,7 +374,7 @@ private fun AuthenticatedContent(
                 } else {
                     operationalViewModel.loadRecords(
                         it,
-                        status = if (it == "gudang") "draft" else null,
+                        date = if (it == "gudang-stok") null else LocalDate.now().toString(),
                     )
                 }
             },
@@ -366,13 +385,15 @@ private fun AuthenticatedContent(
                 screen = AppScreen.OperationalDetail(current.slug, current.label, it)
             },
             onCreate = {
-                operationalViewModel.prepareCreate(current.slug)
                 if (current.slug == "keamanan") {
+                    operationalViewModel.prepareCreate(current.slug)
                     operationalViewModel.createRecord(current.slug) { id ->
                         screen = AppScreen.OperationalDetail(current.slug, current.label, id)
                     }
                 } else {
-                    screen = AppScreen.OperationalCreate(current.slug, current.label)
+                    operationalViewModel.prepareCreateFresh(current.slug) {
+                        screen = AppScreen.OperationalCreate(current.slug, current.label)
+                    }
                 }
             },
         )
@@ -443,9 +464,9 @@ private fun AuthenticatedContent(
             onRelationDelete = { section, item ->
                 operationalViewModel.deleteRelation(current.slug, current.id, section.key, item.id)
             },
-            onRelationAction = { section, item, action ->
+            onRelationAction = { section, item, action, notes, fields, files ->
                 operationalViewModel.runRelationAction(
-                    current.slug, current.id, section.key, item.id, action,
+                    current.slug, current.id, section.key, item.id, action, notes, fields, files,
                 )
             },
         )
@@ -472,6 +493,11 @@ private fun AuthenticatedContent(
             state = operationalState,
             moduleLabel = current.label,
             isCreate = true,
+            createActionLabel = when (current.slug) {
+                "pengolahan" -> "Mulai produksi"
+                "pemorsian" -> "Mulai Pemorsian"
+                else -> null
+            },
             watermarkProfile = watermarkProfile,
             onBack = {
                 operationalViewModel.clearFeedback()
@@ -547,139 +573,113 @@ private fun LoginScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                        MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.background,
-                    ),
-                ),
-            )
+            .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing),
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 32.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 28.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         item {
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .background(
-                        Brush.linearGradient(listOf(Leaf, ForestDark)),
-                        RoundedCornerShape(22.dp),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    Icons.Outlined.Restaurant,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(34.dp),
-                )
-            }
-            Spacer(Modifier.height(30.dp))
-            Text(
-                text = "Kerja baik,\ndari dapur hingga tujuan.",
-                style = MaterialTheme.typography.displaySmall,
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = "Masuk ke SPPG Mobile untuk melanjutkan pekerjaan hari ini.",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(28.dp))
-            Text(
-                "MASUK KE AKUN",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = login,
-                onValueChange = {
-                    login = it
-                    if (errorMessage != null) onDismissError()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Email atau nomor pegawai") },
-                shape = RoundedCornerShape(16.dp),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Email,
-                    imeAction = ImeAction.Next,
-                ),
-            )
-            Spacer(Modifier.height(16.dp))
-            OutlinedTextField(
-                value = password,
-                onValueChange = {
-                    password = it
-                    if (errorMessage != null) onDismissError()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Kata sandi") },
-                shape = RoundedCornerShape(16.dp),
-                singleLine = true,
-                visualTransformation = if (passwordVisible) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation()
-                },
-                trailingIcon = {
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            imageVector = if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                            contentDescription = if (passwordVisible) "Sembunyikan kata sandi" else "Tampilkan kata sandi",
+            Column {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Navy),
+                    shape = RoundedCornerShape(24.dp),
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(24.dp)) {
+                        Box(
+                            modifier = Modifier.size(52.dp).background(Color.White, RoundedCornerShape(16.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.logo_bgn),
+                                contentDescription = "Logo Badan Gizi Nasional",
+                                modifier = Modifier.fillMaxSize().padding(3.dp),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                        Spacer(Modifier.height(22.dp))
+                        Text("SPPG Mobile", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Sistem operasional terpadu Program Makan Bergizi Gratis.",
+                            color = Color.White.copy(alpha = .7f),
+                            style = MaterialTheme.typography.bodyMedium,
                         )
                     }
-                },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(onDone = {
-                    focusManager.clearFocus()
-                    if (!isSubmitting) onLogin(login, password)
-                }),
-            )
-            if (errorMessage != null) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = errorMessage,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            Spacer(Modifier.height(24.dp))
-            Button(
-                onClick = {
-                    focusManager.clearFocus()
-                    onLogin(login, password)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                enabled = !isSubmitting,
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                if (isSubmitting) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Text("Masuk", fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(24.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(22.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                ) {
+                    Column(Modifier.padding(20.dp)) {
+                        Text("Masuk ke akun", style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(5.dp))
+                        Text("Gunakan akun yang sama dengan website SPPG.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(20.dp))
+                        OutlinedTextField(
+                            value = login,
+                            onValueChange = {
+                                login = it
+                                if (errorMessage != null) onDismissError()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Email atau nomor pegawai") },
+                            shape = RoundedCornerShape(14.dp),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = {
+                                password = it
+                                if (errorMessage != null) onDismissError()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Kata sandi") },
+                            shape = RoundedCornerShape(14.dp),
+                            singleLine = true,
+                            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                    Icon(
+                                        if (passwordVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                                        contentDescription = if (passwordVisible) "Sembunyikan kata sandi" else "Tampilkan kata sandi",
+                                    )
+                                }
+                            },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(onDone = {
+                                focusManager.clearFocus()
+                                if (!isSubmitting) onLogin(login, password)
+                            }),
+                        )
+                        if (errorMessage != null) {
+                            Spacer(Modifier.height(12.dp))
+                            Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Spacer(Modifier.height(20.dp))
+                        Button(
+                            onClick = {
+                                focusManager.clearFocus()
+                                onLogin(login, password)
+                            },
+                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            enabled = !isSubmitting,
+                            shape = RoundedCornerShape(14.dp),
+                        ) {
+                            if (isSubmitting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else Text("Masuk", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.height(24.dp))
-            Text(
-                text = "Gunakan akun yang sama dengan sistem SPPG V3.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
@@ -694,6 +694,16 @@ private data class FeatureItem(
     val visualSlug: String = operationalSlug ?: "field-plans",
 )
 
+private data class FeatureGroup(
+    val key: String,
+    val title: String,
+    val description: String,
+    val visualSlug: String,
+    val items: List<FeatureItem>,
+)
+
+private enum class DashboardTab { Home, Modules, Account }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DashboardScreen(
@@ -703,12 +713,13 @@ private fun DashboardScreen(
     noticeMessage: String?,
     onDismissNotice: () -> Unit,
     onLogout: () -> Unit,
-    pendingTaskCount: Int,
+    unreadNotificationCount: Int,
     onOpenTasks: () -> Unit,
     onOpenFieldPlans: () -> Unit,
     onLoadOperationalModules: (Boolean) -> Unit,
     onOpenOperational: (String, String) -> Unit,
 ) {
+    var selectedTab by remember { mutableStateOf(DashboardTab.Home) }
     val isFieldAssistant = session.role == "asisten_lapangan"
     val features = buildList {
         if (isFieldAssistant) {
@@ -728,22 +739,78 @@ private fun DashboardScreen(
         )
     }
 
+    val groups = remember(features) { dashboardFeatureGroups(features) }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = {
-                    Text("SPPG", fontWeight = FontWeight.ExtraBold)
-                },
-                actions = {
-                    IconButton(onClick = onLogout, enabled = !isLoggingOut) {
-                        Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = "Keluar")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .background(Color.White, RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Image(
+                                painter = painterResource(R.drawable.logo_bgn),
+                                contentDescription = "Logo Badan Gizi Nasional",
+                                modifier = Modifier.fillMaxSize().padding(2.dp),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                        Spacer(Modifier.width(11.dp))
+                        Column {
+                            Text("SPPG", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                session.unitName.ifBlank { "Operasional MBG" },
+                                color = Color.White.copy(alpha = 0.68f),
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                actions = {
+                    Box {
+                        IconButton(onClick = onOpenTasks) {
+                            Icon(Icons.Outlined.Notifications, contentDescription = "Notifikasi")
+                        }
+                        if (unreadNotificationCount > 0) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 9.dp, end = 9.dp)
+                                    .size(9.dp)
+                                    .background(MaterialTheme.colorScheme.secondary, CircleShape),
+                            )
+                        }
+                    }
+                },
+                colors = sppgTopAppBarColors(),
             )
+        },
+        bottomBar = {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                listOf(
+                    Triple(DashboardTab.Home, "Beranda", Icons.Outlined.Home),
+                    Triple(DashboardTab.Modules, "Modul", Icons.Outlined.Dashboard),
+                    Triple(DashboardTab.Account, "Akun", Icons.Outlined.AccountCircle),
+                ).forEach { (tab, label, icon) ->
+                    NavigationBarItem(
+                        selected = selectedTab == tab,
+                        onClick = { selectedTab = tab },
+                        icon = { Icon(icon, contentDescription = null) },
+                        label = { Text(label) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        ),
+                    )
+                }
+            }
         },
     ) { innerPadding ->
         LazyColumn(
@@ -756,57 +823,18 @@ private fun DashboardScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item {
-                DashboardHero(session)
-                if (!noticeMessage.isNullOrBlank()) {
-                    Spacer(Modifier.height(14.dp))
+            if (!noticeMessage.isNullOrBlank()) {
+                item {
                     Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        ),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
                         shape = RoundedCornerShape(16.dp),
                     ) {
-                        Column(Modifier.padding(16.dp)) {
-                            Text(
-                                "Koneksi belum diverifikasi",
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
-                            Spacer(Modifier.height(5.dp))
-                            Text(
-                                noticeMessage,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            )
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(noticeMessage, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                             TextButton(onClick = onDismissNotice) { Text("Tutup") }
                         }
                     }
                 }
-                Spacer(Modifier.height(26.dp))
-                Text(
-                    text = "Ruang kerja Anda",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(Modifier.height(5.dp))
-                Text(
-                    "Pilih modul untuk melihat pekerjaan hari ini.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-
-            item {
-                FeatureCard(
-                    feature = FeatureItem(
-                        title = "Tugas Saya",
-                        description = "Lihat pekerjaan yang jatuh tempo dan riwayat notifikasi.",
-                        status = "$pendingTaskCount tugas aktif",
-                        isAvailable = true,
-                        visualSlug = "tasks",
-                    ),
-                    onClick = onOpenTasks,
-                )
             }
 
             if (operationalState.isLoading && operationalState.modules.isEmpty()) {
@@ -829,23 +857,246 @@ private fun DashboardScreen(
                         }
                     }
                 }
-            } else if (features.isEmpty()) {
+            } else if (features.isEmpty() && selectedTab != DashboardTab.Account) {
                 item { UnsupportedRoleCard() }
             } else {
-                items(features) { feature ->
-                    FeatureCard(
-                        feature = feature,
-                        onClick = when {
-                            !feature.isAvailable -> null
-                            feature.operationalSlug != null -> {
-                                { onOpenOperational(feature.operationalSlug, feature.operationalLabel.orEmpty()) }
-                            }
-                            else -> onOpenFieldPlans
-                        },
-                    )
+                when (selectedTab) {
+                    DashboardTab.Home -> {
+                        item {
+                            DashboardGreeting(session)
+                            Spacer(Modifier.height(16.dp))
+                            DashboardDailySummary(
+                                summary = operationalState.dailySummary,
+                                session = session,
+                                modules = operationalState.modules,
+                            )
+                            Spacer(Modifier.height(22.dp))
+                            DashboardSectionHeader("MENU SESUAI AKSES ANDA", "Pilih kelompok untuk membuka pekerjaan.")
+                        }
+                        items(groups, key = { "home-group-${it.key}" }) { group ->
+                            DashboardModuleGroup(
+                                group = group,
+                                onOpenFeature = { feature ->
+                                    openDashboardFeature(feature, onOpenFieldPlans, onOpenOperational)
+                                },
+                            )
+                        }
+                    }
+                    DashboardTab.Modules -> {
+                        item { DashboardSectionHeader("SELURUH MODUL", "Modul dikelompokkan berdasarkan fungsi pekerjaan.") }
+                        items(groups, key = { "module-group-${it.key}" }) { group ->
+                            DashboardModuleGroup(
+                                group = group,
+                                initiallyExpanded = true,
+                                onOpenFeature = { feature ->
+                                    openDashboardFeature(feature, onOpenFieldPlans, onOpenOperational)
+                                },
+                            )
+                        }
+                    }
+                    DashboardTab.Account -> {
+                        item { DashboardAccount(session, isLoggingOut, onLogout) }
+                    }
                 }
             }
         }
+    }
+}
+
+private fun dashboardFeatureGroups(features: List<FeatureItem>): List<FeatureGroup> {
+    fun groupFor(feature: FeatureItem): String = when {
+        feature.visualSlug == "field-plans" || feature.operationalSlug?.startsWith("lapangan") == true -> "field"
+        feature.operationalSlug?.startsWith("gizi") == true -> "nutrition"
+        feature.operationalSlug?.startsWith("gudang") == true || feature.operationalSlug in setOf("penerimaan", "kartu-stok", "kontrol-stok") -> "warehouse"
+        feature.operationalSlug in setOf("persiapan", "pengolahan", "pemorsian") -> "kitchen"
+        feature.operationalSlug in setOf("distribusi", "pengambilan-ompreng") -> "distribution"
+        feature.operationalSlug in setOf("pencucian", "kebersihan") -> "sanitation"
+        feature.operationalSlug == "keamanan" -> "security"
+        feature.operationalSlug?.contains("presensi") == true -> "attendance"
+        else -> "other"
+    }
+    val metadata = linkedMapOf(
+        "nutrition" to Triple("Ahli Gizi", "Perencanaan menu, gizi, dan kebutuhan bahan", "field-plans"),
+        "warehouse" to Triple("Gudang", "Penerimaan, pengambilan, dan kontrol stok", "gudang"),
+        "kitchen" to Triple("Operasional Dapur", "Persiapan, pengolahan, dan pemorsian", "pengolahan"),
+        "field" to Triple("Asisten Lapangan", "Rencana distribusi, laporan, dan insiden", "lapangan-laporan"),
+        "distribution" to Triple("Distribusi", "Pengantaran dan pengambilan ompreng", "distribusi"),
+        "sanitation" to Triple("Sanitasi", "Pencucian ompreng dan kebersihan", "pencucian"),
+        "security" to Triple("Keamanan", "Laporan situasi dan insiden", "keamanan"),
+        "attendance" to Triple("Presensi", "Kehadiran relawan", "presensi"),
+        "other" to Triple("Lainnya", "Fungsi pendukung operasional", "tasks"),
+    )
+    return features.groupBy(::groupFor).mapNotNull { (key, items) ->
+        val data = metadata[key] ?: return@mapNotNull null
+        FeatureGroup(key, data.first, data.second, data.third, items)
+    }
+}
+
+private fun openDashboardFeature(
+    feature: FeatureItem,
+    onOpenFieldPlans: () -> Unit,
+    onOpenOperational: (String, String) -> Unit,
+) {
+    if (!feature.isAvailable) return
+    if (feature.operationalSlug != null) {
+        onOpenOperational(feature.operationalSlug, feature.operationalLabel.orEmpty())
+    } else {
+        onOpenFieldPlans()
+    }
+}
+
+@Composable
+private fun DashboardGreeting(session: UserSession) {
+    Column {
+        Text("Selamat bekerja,", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(session.userName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(session.roleLabel, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+    }
+}
+
+@Composable
+private fun DashboardDailySummary(
+    summary: MobileDailySummary?,
+    session: UserSession,
+    modules: List<OperationalModule>,
+) {
+    val role = session.role.lowercase()
+    val focusModule = when {
+        role.contains("gudang") -> modules.firstOrNull { it.slug == "gudang" }
+        role.contains("persiapan") -> modules.firstOrNull { it.slug == "persiapan" }
+        role.contains("pengolahan") -> modules.firstOrNull { it.slug == "pengolahan" }
+        role.contains("pemorsian") -> modules.firstOrNull { it.slug == "pemorsian" }
+        role.contains("pencucian") -> modules.firstOrNull { it.slug == "pencucian" }
+        role.contains("keamanan") || role.contains("satpam") -> modules.firstOrNull { it.slug == "keamanan" }
+        else -> null
+    }
+    val menuText = summary?.menuNames?.joinToString(", ")?.ifBlank { null } ?: "Belum ada menu aktif"
+    val thirdLabel = focusModule?.label ?: "Tujuan distribusi"
+    val thirdValue = focusModule?.todayCount ?: (summary?.destinations ?: 0)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Navy),
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text("RINGKASAN HARI INI", color = Color.White.copy(alpha = .68f), style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(7.dp))
+            Text(menuText, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            Text("Menu yang diolah hari ini", color = Color.White.copy(alpha = .68f), style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                DailyMetric("Penerima", summary?.beneficiaries ?: 0, Modifier.weight(1f))
+                DailyMetric("Porsi", summary?.portions ?: 0, Modifier.weight(1f))
+                DailyMetric(thirdLabel, thirdValue, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DailyMetric(label: String, value: Int, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.background(Color.White.copy(alpha = .09f), RoundedCornerShape(14.dp)).padding(11.dp),
+    ) {
+        Text(value.toString(), color = Color.White, fontWeight = FontWeight.Bold)
+        Text(label, color = Color.White.copy(alpha = .7f), style = MaterialTheme.typography.labelSmall, maxLines = 2)
+    }
+}
+
+@Composable
+private fun DashboardSectionHeader(title: String, subtitle: String) {
+    Column {
+        Text(title, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun DashboardModuleGroup(
+    group: FeatureGroup,
+    initiallyExpanded: Boolean = false,
+    onOpenFeature: (FeatureItem) -> Unit,
+) {
+    var expanded by remember(group.key) { mutableStateOf(initiallyExpanded) }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(18.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(15.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ModuleIcon(group.visualSlug, Modifier.size(42.dp))
+                Spacer(Modifier.width(13.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(group.title, fontWeight = FontWeight.SemiBold)
+                    Text(group.description, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+                Icon(
+                    if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = if (expanded) "Tutup" else "Buka",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (expanded) {
+                group.items.forEach { feature ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = feature.isAvailable) { onOpenFeature(feature) }
+                            .padding(start = 70.dp, top = 13.dp, end = 15.dp, bottom = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(feature.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text(feature.status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardAccount(session: UserSession, isLoggingOut: Boolean, onLogout: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        DashboardSectionHeader("AKUN", "Identitas pengguna yang sedang aktif.")
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(20.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Text(session.userName, style = MaterialTheme.typography.titleLarge)
+                Text(session.roleLabel, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(18.dp))
+                AccountRow("Unit", session.unitName.ifBlank { "-" })
+                AccountRow("Nomor pegawai", session.employeeNumber.ifBlank { "-" })
+                AccountRow("Email", session.email.ifBlank { "-" })
+                Spacer(Modifier.height(18.dp))
+                Button(onClick = onLogout, enabled = !isLoggingOut, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Keluar dari akun")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 9.dp)) {
+        Text(label, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, modifier = Modifier.weight(1.2f), fontWeight = FontWeight.Medium)
     }
 }
 

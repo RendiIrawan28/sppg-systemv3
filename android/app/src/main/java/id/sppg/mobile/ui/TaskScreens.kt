@@ -57,7 +57,7 @@ fun TaskListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Tugas Saya", fontWeight = FontWeight.Bold) },
+                title = { Text("Notifikasi & Tugas", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
@@ -73,9 +73,7 @@ fun TaskListScreen(
                         Icon(Icons.Outlined.Refresh, contentDescription = "Muat ulang")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors = sppgTopAppBarColors(),
             )
         },
     ) { innerPadding ->

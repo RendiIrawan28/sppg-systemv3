@@ -7,6 +7,7 @@ enum ProcessingBatchState: string
     case Planned = 'planned';
     case InProgress = 'in_progress';
     case Completed = 'completed';
+    case Cancelled = 'cancelled';
 
     public function label(): string
     {
@@ -14,6 +15,7 @@ enum ProcessingBatchState: string
             self::Planned => 'Direncanakan',
             self::InProgress => 'Sedang Diproses',
             self::Completed => 'Produksi Selesai',
+            self::Cancelled => 'Dibatalkan',
         };
     }
 
@@ -23,6 +25,7 @@ enum ProcessingBatchState: string
             self::Planned => 'gray',
             self::InProgress => 'warning',
             self::Completed => 'info',
+            self::Cancelled => 'danger',
         };
     }
 

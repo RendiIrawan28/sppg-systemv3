@@ -6,8 +6,10 @@ use App\Enums\OperationalReportStatus;
 use App\Enums\ProcessingBatchState;
 use App\Enums\ProcessingTemperatureCheckpoint;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Models\FieldDistributionPlan;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingDocumentation;
+use App\Services\FieldOperationalPlanGenerator;
 use App\Services\ProcessingReturnService;
 use App\Services\ProcessingWorkflow;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +26,10 @@ class Index extends Component
     use WithFileUploads;
 
     public ?int $selectedId = null;
+
+    public string $selectedPlanId = '';
+
+    public string $cancellationReason = '';
 
     public string $notes = '';
 
@@ -318,6 +324,48 @@ class Index extends Component
         $this->select($batch->id);
     }
 
+    public function startSelectedPlan(
+        FieldOperationalPlanGenerator $generator,
+        ProcessingWorkflow $workflow,
+    ): void {
+        abort_unless($this->allowed('processing.update'), 403);
+        $data = $this->validate([
+            'selectedPlanId' => ['required', 'integer'],
+        ], [], ['selectedPlanId' => 'rencana produksi']);
+        $plan = FieldDistributionPlan::query()
+            ->where('sppg_unit_id', $this->currentUnit()->getKey())
+            ->where('status', 'activated')
+            ->findOrFail((int) $data['selectedPlanId']);
+        $batch = $generator->generateProcessingBatch($plan, auth()->user());
+        if ($batch->state === ProcessingBatchState::Planned) {
+            $batch = $workflow->start($batch, auth()->user());
+        } elseif ($batch->state !== ProcessingBatchState::InProgress) {
+            throw ValidationException::withMessages([
+                'selectedPlanId' => 'Rencana ini sudah memiliki batch Pengolahan yang tidak dapat dimulai kembali.',
+            ]);
+        }
+
+        $this->selectedPlanId = '';
+        $this->select($batch->getKey());
+        session()->flash('v3.status', 'Produksi dimulai. Silakan ambil bahan dari Gudang atau Hasil Persiapan.');
+    }
+
+    public function cancel(ProcessingWorkflow $workflow): void
+    {
+        abort_unless($this->allowed('processing.update'), 403);
+        $this->validate([
+            'cancellationReason' => ['required', 'string', 'max:2000'],
+        ], [], ['cancellationReason' => 'alasan pembatalan']);
+        $batch = $workflow->cancel(
+            $this->record($this->selectedId),
+            auth()->user(),
+            $this->cancellationReason,
+        );
+        $this->cancellationReason = '';
+        $this->select($batch->getKey());
+        session()->flash('v3.status', 'Produksi berhasil dibatalkan.');
+    }
+
     public function complete(ProcessingWorkflow $workflow): void
     {
         $this->save();
@@ -391,14 +439,33 @@ class Index extends Component
             ->latest('production_date')
             ->latest('id')
             ->get();
+        $activePlans = FieldDistributionPlan::query()
+            ->with('processingBatch')
+            ->where('sppg_unit_id', $unit->id)
+            ->where('status', 'activated')
+            ->latest('production_date')
+            ->latest('id')
+            ->get()
+            ->filter(fn (FieldDistributionPlan $plan): bool => ! $plan->processingBatch
+                || in_array($plan->processingBatch->state, [
+                    ProcessingBatchState::Planned,
+                    ProcessingBatchState::InProgress,
+                ], true))
+            ->values();
         $selected = $this->selectedId
             ? $records->firstWhere('id', $this->selectedId)
             : null;
+        $cancellableBatchIds = $records
+            ->filter(fn (ProcessingBatch $batch): bool => app(ProcessingWorkflow::class)->canCancel($batch))
+            ->pluck('id')
+            ->all();
 
         return view('livewire.v3.processing.index', [
             ...$this->shellData($unit),
             'records' => $records,
+            'activePlans' => $activePlans,
             'selected' => $selected,
+            'cancellableBatchIds' => $cancellableBatchIds,
             'canEdit' => $this->allowed('processing.update'),
             'canSubmit' => $this->allowed('processing.submit'),
             'canApprove' => $this->allowed('processing.approve'),

@@ -22,13 +22,23 @@ it('routes the approved preparation report through the mobile document controlle
         ->toContain('PreparationSessionCalculationPdfController');
 });
 
-it('locks automatically generated operational sessions from generic mobile creation', function (): void {
+it('only allows processing and portioning to be started from their active plans on mobile', function (): void {
     $definitions = app(MobileWorkspaceRegistry::class)->definitions();
 
-    foreach (['pengolahan', 'pemorsian', 'distribusi', 'pencucian', 'kebersihan'] as $slug) {
+    expect($definitions['pengolahan']['allow_create'])->toBeTrue()
+        ->and(collect($definitions['pengolahan']['fields'])->firstWhere('name', 'field_distribution_plan_id'))
+        ->not->toBeNull()
+        ->and($definitions['pemorsian']['allow_create'])->toBeTrue()
+        ->and(collect($definitions['pemorsian']['fields'])->firstWhere('name', 'field_distribution_plan_id'))
+        ->not->toBeNull();
+
+    foreach (['distribusi', 'pencucian', 'kebersihan'] as $slug) {
         expect($definitions[$slug]['allow_create'] ?? true)->toBeFalse()
             ->and($definitions[$slug]['allow_delete'] ?? true)->toBeFalse();
     }
+
+    expect($definitions['pengolahan']['allow_delete'] ?? true)->toBeFalse()
+        ->and($definitions['pemorsian']['allow_delete'] ?? true)->toBeFalse();
 });
 
 it('exposes workflow modules needed by field operations', function (): void {

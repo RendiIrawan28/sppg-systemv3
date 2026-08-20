@@ -103,6 +103,11 @@ return new class extends Migration
             return;
         }
 
+        if (preg_match('/(notes|description|address|summary|action|reason|remarks|instruction|evaluation|obstacles|recommendations|resolution|root_cause|caption|payload|exception|body|content|complaints)/', $column)) {
+            $table->text($column)->nullable();
+            return;
+        }
+
         if (preg_match('/(quantity|weight|grams|kg|unit_price|total_price|amount|percent|temperature|ph|ppm|multiplier|rate|score|ratio|minimum|maximum|estimated|accepted|rejected|buffer)/', $column)) {
             $table->decimal($column, 14, 4)->nullable()->default(null);
             return;
@@ -110,11 +115,6 @@ return new class extends Migration
 
         if (preg_match('/(count|total|rows|year|minutes|duration|sequence|sort_order|attempts|containers|portions|beneficiaries|members|destinations|records|items|jobs|sample)/', $column)) {
             $table->unsignedInteger($column)->nullable()->default(0)->index($this->shortIndexName($tableName, $column));
-            return;
-        }
-
-        if (preg_match('/(notes|description|address|summary|action|reason|remarks|instruction|evaluation|obstacles|recommendations|resolution|root_cause|caption|payload|exception|body|content|complaints)/', $column)) {
-            $table->text($column)->nullable();
             return;
         }
 
@@ -212,5 +212,4 @@ return new class extends Migration
         }
     }
 };
-
 

@@ -22,21 +22,35 @@ class Index extends Component
     use WithFileUploads;
 
     public ?int $sessionId = null;
+
     public ?int $itemId = null;
+
     public string $outputName = '';
+
     public string $quantity = '';
+
     public string $unitSnapshot = '';
+
     public string $targetDivision = 'processing';
+
     public string $storageLocation = '';
+
     public string $expiresAt = '';
+
     public string $outputNotes = '';
+
     public mixed $outputPhoto = null;
 
     public array $requestQuantities = [];
+
     public array $requestDivisions = [];
+
     public array $targetDivisions = [];
+
     public array $processingBatchIds = [];
+
     public array $portioningSessionIds = [];
+
     public array $requestNotes = [];
 
     public function mount(): void
@@ -192,13 +206,13 @@ class Index extends Component
 
         $processingBatches = ProcessingBatch::query()
             ->where('sppg_unit_id', $unit->getKey())
-            ->whereIn('state', [ProcessingBatchState::Planned->value, ProcessingBatchState::InProgress->value])
+            ->where('state', ProcessingBatchState::InProgress->value)
             ->latest('production_date')
             ->limit(50)
             ->get();
         $portioningSessions = PortioningSession::query()
             ->where('sppg_unit_id', $unit->getKey())
-            ->whereIn('state', [PortioningSessionState::Planned->value, PortioningSessionState::InProgress->value])
+            ->where('state', PortioningSessionState::InProgress->value)
             ->latest('portioning_date')
             ->limit(50)
             ->get();

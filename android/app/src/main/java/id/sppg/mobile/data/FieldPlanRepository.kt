@@ -27,8 +27,8 @@ class FieldPlanRepository(
     private val errorHandler: ApiErrorHandler,
     private val context: Context,
 ) {
-    suspend fun getPlans(page: Int = 1): Result<FieldPlanPage> = safeApiCall(errorHandler) {
-        val response = api.fieldPlans(authorization(), page = page)
+    suspend fun getPlans(page: Int = 1, date: String? = null): Result<FieldPlanPage> = safeApiCall(errorHandler) {
+        val response = api.fieldPlans(authorization(), dateFrom = date, dateTo = date, page = page)
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
         val body = response.body() ?: throw IOException("Daftar rencana tidak tersedia.")
         FieldPlanPage(
@@ -50,10 +50,10 @@ class FieldPlanRepository(
         response.body()?.data ?: throw IOException("Pilihan menu distribusi tidak tersedia.")
     }
 
-    suspend fun createPlan(menuCycleDayId: Long, notes: String?): Result<FieldPlan> = safeApiCall(errorHandler) {
+    suspend fun createPlan(distributionDate: String, notes: String?): Result<FieldPlan> = safeApiCall(errorHandler) {
         val response = api.createFieldPlan(
             authorization(),
-            CreateFieldPlanRequest(menuCycleDayId = menuCycleDayId, generalNotes = notes?.trim()?.ifBlank { null }),
+            CreateFieldPlanRequest(distributionDate = distributionDate, generalNotes = notes?.trim()?.ifBlank { null }),
         )
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
         response.body()?.data ?: throw IOException("Rencana distribusi gagal dibuat.")

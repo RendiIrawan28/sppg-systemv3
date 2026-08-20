@@ -1,9 +1,12 @@
 <?php
 
 use App\Models\Ingredient;
+use App\Models\InventoryLot;
 use App\Models\MeasurementUnit;
+use App\Models\PreparationReturn;
 use App\Models\PreparationSession;
 use App\Models\SppgUnit;
+use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
 use App\Services\PreparationSessionService;
@@ -220,4 +223,120 @@ it('creates a preparation output from a dropdown item without manual name or uni
         ->and($output->unit_snapshot)->toBe('kg')
         ->and($output->storage_location)->toBe('langsung_digunakan')
         ->and((float) $output->quantity)->toBe(5.0);
+});
+
+it('submits a preparation return on mobile and restores stock only after warehouse verification', function (): void {
+    $unit = SppgUnit::query()->create([
+        'code' => 'SPPG-PREP-RETURN',
+        'name' => 'SPPG Retur Persiapan',
+        'slug' => 'sppg-retur-persiapan',
+        'is_active' => true,
+    ]);
+    $preparationUser = User::query()->create([
+        'name' => 'Petugas Retur Persiapan',
+        'email' => 'retur-persiapan@example.test',
+        'password' => 'password',
+        'is_active' => true,
+        'is_super_admin' => true,
+    ]);
+    $warehouseUser = User::query()->create([
+        'name' => 'Petugas Verifikasi Gudang',
+        'email' => 'verifikasi-retur@example.test',
+        'password' => 'password',
+        'is_active' => true,
+        'is_super_admin' => true,
+    ]);
+    $measurementUnit = MeasurementUnit::query()->create([
+        'code' => 'kg-return',
+        'name' => 'Kilogram Retur',
+        'symbol' => 'kg',
+        'unit_type' => 'weight',
+        'to_base_factor' => 1000,
+        'is_active' => true,
+    ]);
+    $ingredient = Ingredient::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'measurement_unit_id' => $measurementUnit->id,
+        'code' => 'TEMPE-RETURN',
+        'name' => 'Tempe Retur',
+        'category' => 'plant_protein',
+        'edible_portion_percent' => 100,
+        'loss_factor' => 1,
+        'rounding_mode' => 'up',
+        'nutrition_reference_grams' => 100,
+        'is_active' => true,
+    ]);
+    $lot = InventoryLot::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'ingredient_id' => $ingredient->id,
+        'unit_snapshot' => 'kg',
+        'initial_quantity' => 10,
+        'balance_quantity' => 4,
+        'initial_quantity_kg' => 10,
+        'balance_quantity_kg' => 4,
+        'lot_number' => 'LOT-RETUR-01',
+        'storage_type' => 'dry',
+        'status' => InventoryLot::AVAILABLE,
+    ]);
+    $withdrawal = WarehouseWithdrawal::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'withdrawal_date' => today(),
+        'division_code' => 'persiapan',
+        'status' => WarehouseWithdrawal::WAITING,
+        'taken_by' => $preparationUser->id,
+    ]);
+    $session = PreparationSession::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'warehouse_withdrawal_id' => $withdrawal->id,
+        'session_number' => 'PS/RETURN/0001',
+        'preparation_date' => today(),
+        'state' => 'in_progress',
+        'status' => 'draft',
+        'petugas_id' => $preparationUser->id,
+        'started_at' => now(),
+    ]);
+    $item = $session->items()->create([
+        'ingredient_id' => $ingredient->id,
+        'inventory_lot_id' => $lot->id,
+        'ingredient_name_snapshot' => $ingredient->name,
+        'unit_snapshot' => 'kg',
+        'received_quantity' => 5,
+        'received_weight_kg' => 5,
+    ]);
+    $photo = 'data:image/png;base64,'.base64_encode(base64_decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+    ));
+
+    Sanctum::actingAs($preparationUser, ['mobile']);
+    $this->postJson("/api/mobile/operational-modules/persiapan/records/{$session->id}/relations/returns", [
+        'fields' => [
+            'preparation_session_item_id' => $item->id,
+            'requested_quantity' => 2.5,
+            'condition_status' => 'good',
+            'reason' => 'Tidak digunakan dalam proses persiapan.',
+        ],
+        'files' => ['photo_path' => $photo],
+    ])->assertCreated()
+        ->assertJsonPath('message', 'Retur berhasil diajukan dan menunggu verifikasi Gudang.');
+
+    $return = PreparationReturn::query()->sole();
+    expect($return->status)->toBe(PreparationReturn::WAITING)
+        ->and((float) $lot->refresh()->balance_quantity)->toBe(4.0);
+    Storage::disk('public')->assertExists($return->photo_path);
+
+    Sanctum::actingAs($warehouseUser, ['mobile']);
+    $this->postJson("/api/mobile/operational-modules/gudang-retur/records/{$return->id}/actions/verify", [
+        'notes' => 'Jumlah dan kondisi sesuai pemeriksaan fisik.',
+        'fields' => [
+            'actual_quantity' => 2.5,
+            'warehouse_disposition' => 'available',
+        ],
+        'files' => [],
+    ])->assertOk()
+        ->assertJsonPath('data.status', PreparationReturn::VERIFIED);
+
+    expect((float) $return->refresh()->actual_quantity)->toBe(2.5)
+        ->and((float) $lot->refresh()->balance_quantity)->toBe(6.5)
+        ->and(StockMovement::query()->where('source_type', PreparationReturn::class)
+            ->where('source_id', $return->id)->exists())->toBeTrue();
 });

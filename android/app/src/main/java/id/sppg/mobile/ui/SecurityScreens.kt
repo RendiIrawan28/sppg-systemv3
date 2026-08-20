@@ -1,5 +1,6 @@
 package id.sppg.mobile.ui
 
+import android.app.DatePickerDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -56,7 +57,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import id.sppg.mobile.data.remote.SecurityReportItem
+import id.sppg.mobile.data.remote.SecurityShiftSummary
 import java.io.File
+import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +69,7 @@ fun SecurityScreen(
     onBack: () -> Unit,
     onLoad: () -> Unit,
     onRefresh: () -> Unit,
+    onDateChange: (String) -> Unit,
     onStartShift: () -> Unit,
     onSubmitReport: (
         situation: String,
@@ -92,6 +96,21 @@ fun SecurityScreen(
     var pendingCameraTarget by remember { mutableStateOf<CameraCaptureTarget?>(null) }
     var photoError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
+    var showHistory by remember { mutableStateOf(false) }
+    var historyDate by remember { mutableStateOf(LocalDate.now()) }
+
+    fun chooseHistoryDate() {
+        DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                historyDate = LocalDate.of(year, month + 1, day)
+                onDateChange(historyDate.toString())
+            },
+            historyDate.year,
+            historyDate.monthValue - 1,
+            historyDate.dayOfMonth,
+        ).show()
+    }
 
     fun applyProcessedPhoto(bitmap: Bitmap, dataUri: String) {
         preview = bitmap
@@ -180,9 +199,7 @@ fun SecurityScreen(
                         Icon(Icons.Outlined.Refresh, contentDescription = "Muat ulang")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors = sppgTopAppBarColors(),
             )
         },
     ) { innerPadding ->
@@ -212,6 +229,23 @@ fun SecurityScreen(
             }
 
             if (overview != null) {
+                item {
+                    WorkHistoryTabs(showHistory) { history ->
+                        showHistory = history
+                        onDateChange((if (history) historyDate else LocalDate.now()).toString())
+                    }
+                }
+                if (showHistory) {
+                    item { HistoryDateSelector(formatMobileDate(state.dateFilter), ::chooseHistoryDate) }
+                    val completedShifts = overview.recentShifts.filter { it.status != "active" }
+                    if (completedShifts.isEmpty()) {
+                        item { HistoryEmptyState() }
+                    } else {
+                        items(completedShifts, key = { "security-history-${it.id}" }) { shift ->
+                            SecurityShiftHistoryCard(shift)
+                        }
+                    }
+                } else {
                 val shift = overview.activeShift
                 if (shift == null) {
                     item {
@@ -417,7 +451,27 @@ fun SecurityScreen(
                         }
                     }
                 }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun SecurityShiftHistoryCard(shift: SecurityShiftSummary) {
+    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Shift keamanan", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                SppgStatusPill(shift.status.replaceFirstChar { it.uppercase() })
+            }
+            Spacer(Modifier.height(8.dp))
+            Text("Mulai: ${formatMobileDate(shift.startedAt)}")
+            Text("Selesai: ${formatMobileDate(shift.completedAt)}")
+            Text(
+                "${shift.reportsCount}/${shift.reportsExpected} laporan situasi",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

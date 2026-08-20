@@ -7,6 +7,7 @@ import id.sppg.mobile.data.OperationalRepository
 import id.sppg.mobile.data.remote.OperationalModule
 import id.sppg.mobile.data.remote.OperationalFormField
 import id.sppg.mobile.data.remote.OperationalRecord
+import id.sppg.mobile.data.remote.MobileDailySummary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +21,7 @@ data class OperationalUiState(
     val isLoading: Boolean = false,
     val activeModule: String? = null,
     val modules: List<OperationalModule> = emptyList(),
+    val dailySummary: MobileDailySummary? = null,
     val records: List<OperationalRecord> = emptyList(),
     val currentPage: Int = 1,
     val lastPage: Int = 1,
@@ -48,7 +50,9 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             repository.getModules()
-                .onSuccess { modules -> _uiState.update { it.copy(modules = modules) } }
+                .onSuccess { workspace ->
+                    _uiState.update { it.copy(modules = workspace.modules, dailySummary = workspace.dailySummary) }
+                }
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isLoading = false) }
         }
@@ -185,6 +189,30 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                 errorMessage = null,
                 successMessage = null,
             )
+        }
+    }
+
+    fun prepareCreateFresh(module: String, onReady: () -> Unit) {
+        if (_uiState.value.isLoading) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null, successMessage = null) }
+            repository.getModules()
+                .onSuccess { workspace ->
+                    val fields = workspace.modules.firstOrNull { it.slug == module }?.formFields.orEmpty()
+                    _uiState.update { state ->
+                        state.copy(
+                            modules = workspace.modules,
+                            dailySummary = workspace.dailySummary,
+                            activeFormFields = fields,
+                            editValues = fields.filter { it.editable }
+                                .associate { it.key to defaultFormValue(it) },
+                            editFiles = emptyMap(),
+                        )
+                    }
+                    onReady()
+                }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            _uiState.update { it.copy(isLoading = false) }
         }
     }
 
@@ -361,11 +389,14 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         sectionKey: String,
         itemId: Long,
         action: String,
+        notes: String? = null,
+        fields: Map<String, String?> = emptyMap(),
+        files: Map<String, String> = emptyMap(),
     ) {
         if (_uiState.value.isSaving) return
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, errorMessage = null) }
-            repository.runRelationAction(module, recordId, sectionKey, itemId, action)
+            repository.runRelationAction(module, recordId, sectionKey, itemId, action, notes, fields, files)
                 .onSuccess { message ->
                     repository.getRecord(module, recordId)
                         .onSuccess { record -> _uiState.update { state -> state.copy(selectedRecord = record) } }

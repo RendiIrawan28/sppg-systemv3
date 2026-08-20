@@ -30,9 +30,37 @@ class MobileOperationalRecordTransformer
             'state_label' => $this->displayValue($record->getAttribute('state')),
             'status' => $this->rawValue($record->getAttribute('status')),
             'status_label' => $this->displayValue($record->getAttribute('status')),
+            'is_history' => $this->isHistory($slug, $record),
             'assignee' => $this->assignee($slug, $record),
             'metrics' => $this->metrics($slug, $record),
         ];
+    }
+
+    private function isHistory(string $slug, Model $record): bool
+    {
+        $state = strtolower((string) ($this->rawValue($record->getAttribute('state')) ?? ''));
+        $status = strtolower((string) ($this->rawValue($record->getAttribute('status')) ?? ''));
+
+        $terminalStates = match ($slug) {
+            'distribusi' => ['returned', 'cancelled'],
+            'pencucian' => ['completed', 'ready', 'cancelled'],
+            'pengolahan', 'pemorsian', 'persiapan' => ['completed', 'cancelled'],
+            'pengambilan-ompreng' => ['returned', 'completed', 'cancelled'],
+            'pengambilan-ompreng-tugas' => ['collected', 'completed', 'cancelled'],
+            default => [
+                'completed', 'finished', 'returned', 'received', 'verified', 'approved',
+                'resolved', 'closed', 'collected', 'cancelled', 'expired', 'rejected',
+                'submitted', 'delivered', 'failed', 'ready',
+            ],
+        };
+        $terminalStatuses = [
+            'completed', 'finished', 'returned', 'received', 'verified', 'approved',
+            'resolved', 'closed', 'collected', 'cancelled', 'expired', 'rejected',
+            'submitted', 'delivered', 'failed', 'ready',
+        ];
+
+        return in_array($state, $terminalStates, true)
+            || in_array($status, $terminalStatuses, true);
     }
 
     /** @param array<string, mixed> $definition
@@ -140,7 +168,9 @@ class MobileOperationalRecordTransformer
             'lapangan-laporan' => ['operational_summary', 'report_number'],
             'keamanan' => ['officer_name_snapshot'],
             'pengolahan' => ['product_name', 'menu_name_snapshot'],
-            'pemorsian', 'distribusi', 'pencucian' => ['menu_name_snapshot'],
+            'pemorsian' => ['menu_name_snapshot'],
+            'distribusi' => ['route_name', 'menu_name_snapshot'],
+            'pencucian' => ['route_name', 'menu_name_snapshot'],
             'kebersihan' => ['before_condition'],
             default => [],
         };
@@ -172,8 +202,14 @@ class MobileOperationalRecordTransformer
             'lapangan-laporan' => 'Ringkasan otomatis kegiatan lapangan',
             'keamanan' => filled($record->getAttribute('scheduled_end_at')) ? 'Shift keamanan 12 jam' : null,
             'pengolahan' => filled($record->getAttribute('menu_name_snapshot')) ? (string) $record->getAttribute('menu_name_snapshot') : null,
-            'distribusi' => filled($record->getAttribute('vehicle_plate')) ? 'Kendaraan '.$record->getAttribute('vehicle_plate') : null,
-            'pencucian' => filled($record->getAttribute('washing_area')) ? (string) $record->getAttribute('washing_area') : null,
+            'distribusi' => collect([
+                $record->getAttribute('menu_name_snapshot'),
+                filled($record->getAttribute('vehicle_plate')) ? 'Kendaraan '.$record->getAttribute('vehicle_plate') : null,
+            ])->filter()->implode(' · ') ?: null,
+            'pencucian' => collect([
+                $record->getAttribute('menu_name_snapshot'),
+                filled($record->getAttribute('petugas_name_snapshot')) ? 'Petugas '.$record->getAttribute('petugas_name_snapshot') : null,
+            ])->filter()->implode(' · ') ?: null,
             'kebersihan' => filled($record->getAttribute('shift')) ? 'Shift '.Str::title((string) $record->getAttribute('shift')) : null,
             default => null,
         };

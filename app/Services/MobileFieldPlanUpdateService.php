@@ -50,7 +50,7 @@ class MobileFieldPlanUpdateService
                     $group = $destination->recipientGroups()->findOrFail($groupData['id']);
                     $group->update([
                         'confirmed_beneficiaries' => (int) $groupData['confirmed_beneficiaries'],
-                        'menu_audience' => $groupData['menu_audience'],
+                        'menu_audience' => $groupData['menu_audience'] ?? ($group->menu_audience ?: 'student'),
                         'portion_size' => $groupData['portion_size'],
                         'notes' => filled($groupData['notes'] ?? null)
                             ? trim((string) $groupData['notes'])

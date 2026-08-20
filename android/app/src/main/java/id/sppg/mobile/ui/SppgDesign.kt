@@ -23,6 +23,8 @@ import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarColors
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +36,9 @@ import androidx.compose.ui.unit.dp
 import id.sppg.mobile.ui.theme.Amber
 import id.sppg.mobile.ui.theme.Forest
 import id.sppg.mobile.ui.theme.Leaf
+import id.sppg.mobile.ui.theme.Navy
+import id.sppg.mobile.ui.theme.NavyMedium
+import id.sppg.mobile.ui.theme.NavySoft
 
 data class ModuleVisual(
     val icon: ImageVector,
@@ -43,19 +48,28 @@ data class ModuleVisual(
 
 @Composable
 fun moduleVisual(slug: String): ModuleVisual = when {
-    slug == "field-plans" -> ModuleVisual(Icons.Outlined.Map, Forest, MaterialTheme.colorScheme.primaryContainer)
-    slug == "tasks" -> ModuleVisual(Icons.Outlined.Notifications, Color(0xFF2F6F8F), Color(0xFFDCEFFA))
-    slug.startsWith("lapangan") -> ModuleVisual(Icons.AutoMirrored.Outlined.Assignment, Color(0xFF266E91), Color(0xFFDCEFFA))
-    slug.startsWith("gudang") -> ModuleVisual(Icons.Outlined.Inventory2, Color(0xFF9B5C12), Color(0xFFFFE9C9))
-    slug == "persiapan" -> ModuleVisual(Icons.Outlined.SetMeal, Color(0xFF6A65A8), Color(0xFFEAE7FF))
-    slug == "pengolahan" -> ModuleVisual(Icons.Outlined.Restaurant, Color(0xFFC05A35), Color(0xFFFFE3D9))
-    slug == "pemorsian" -> ModuleVisual(Icons.AutoMirrored.Outlined.Assignment, Color(0xFF9A4773), Color(0xFFFFE0EF))
-    slug == "distribusi" -> ModuleVisual(Icons.Outlined.LocalShipping, Color(0xFF3272A8), Color(0xFFDDEEFF))
-    slug == "pencucian" -> ModuleVisual(Icons.Outlined.WaterDrop, Color(0xFF167F89), Color(0xFFD8F3F3))
-    slug == "kebersihan" -> ModuleVisual(Icons.Outlined.CleaningServices, Color(0xFF4B7C45), Color(0xFFE0F0DC))
-    slug == "keamanan" -> ModuleVisual(Icons.Outlined.Security, Color(0xFF455A64), Color(0xFFE4EBEF))
-    else -> ModuleVisual(Icons.AutoMirrored.Outlined.Assignment, Forest, MaterialTheme.colorScheme.primaryContainer)
+    slug == "field-plans" -> ModuleVisual(Icons.Outlined.Map, NavyMedium, NavySoft)
+    slug == "tasks" -> ModuleVisual(Icons.Outlined.Notifications, NavyMedium, NavySoft)
+    slug.startsWith("lapangan") -> ModuleVisual(Icons.AutoMirrored.Outlined.Assignment, NavyMedium, NavySoft)
+    slug.startsWith("gudang") -> ModuleVisual(Icons.Outlined.Inventory2, NavyMedium, NavySoft)
+    slug == "persiapan" -> ModuleVisual(Icons.Outlined.SetMeal, NavyMedium, NavySoft)
+    slug == "pengolahan" -> ModuleVisual(Icons.Outlined.Restaurant, NavyMedium, NavySoft)
+    slug == "pemorsian" -> ModuleVisual(Icons.AutoMirrored.Outlined.Assignment, NavyMedium, NavySoft)
+    slug == "distribusi" -> ModuleVisual(Icons.Outlined.LocalShipping, NavyMedium, NavySoft)
+    slug == "pencucian" -> ModuleVisual(Icons.Outlined.WaterDrop, NavyMedium, NavySoft)
+    slug == "kebersihan" -> ModuleVisual(Icons.Outlined.CleaningServices, NavyMedium, NavySoft)
+    slug == "keamanan" -> ModuleVisual(Icons.Outlined.Security, NavyMedium, NavySoft)
+    else -> ModuleVisual(Icons.AutoMirrored.Outlined.Assignment, NavyMedium, NavySoft)
 }
+
+@Composable
+fun sppgTopAppBarColors(): TopAppBarColors = TopAppBarDefaults.topAppBarColors(
+    containerColor = Navy,
+    scrolledContainerColor = Navy,
+    navigationIconContentColor = Color.White,
+    titleContentColor = Color.White,
+    actionIconContentColor = Color.White,
+)
 
 @Composable
 fun SppgStatusPill(

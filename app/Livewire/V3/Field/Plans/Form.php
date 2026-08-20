@@ -2,10 +2,8 @@
 
 namespace App\Livewire\V3\Field\Plans;
 
-use App\Enums\NutritionRecordStatus;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\FieldDistributionPlan;
-use App\Models\MenuCycleDay;
 use App\Services\FieldDistributionPlanWorkflow;
 use App\Services\FieldPlanActualConfirmationService;
 use App\Services\NutritionRequirementFromFieldPlanService;
@@ -46,7 +44,7 @@ class Form extends Component
             $this->planId = $plan->getKey();
             $this->fillFromPlan($plan);
         } else {
-            $this->distributionDate = now()->addDays(3)->toDateString();
+            $this->distributionDate = now()->toDateString();
             $this->confirmationDeadlineAt = now()->addDay()->format('Y-m-d\TH:i');
         }
     }
@@ -130,13 +128,8 @@ class Form extends Component
         $unit = $this->currentUnit();
         abort_unless($this->allowed('field_planning.view') || ! $this->planId, 403);
         $plan = $this->planId ? $this->plan()->load(['processingBatch', 'portioningSession', 'distributionRun', 'distributionRuns']) : null;
-        $cycleDays = MenuCycleDay::query()->with(['cycle', 'menu'])
-            ->whereNotNull('menu_id')
-            ->whereHas('cycle', fn ($query) => $query->where('sppg_unit_id', $unit->getKey())->whereIn('status', [NutritionRecordStatus::Approved->value, NutritionRecordStatus::Active->value]))
-            ->whereDate('delivery_date', '>=', now()->subDays(7))->orderBy('delivery_date')->limit(120)->get();
-
         return view('livewire.v3.field.plans.form', [
-            ...$this->shellData($unit), 'plan' => $plan, 'cycleDays' => $cycleDays,
+            ...$this->shellData($unit), 'plan' => $plan, 'cycleDays' => collect(),
             'editable' => ! $plan || $plan->isEditable(),
             'canUpdate' => $this->allowed('field_planning.update'),
             'canSubmit' => $this->allowed('field_planning.submit'),
@@ -149,7 +142,7 @@ class Form extends Component
         abort_unless($this->allowed($this->planId ? 'field_planning.update' : 'field_planning.create'), 403);
         abort_unless(! $plan->exists || $plan->isEditable(), 403);
         $data = $this->validate([
-            'distributionDate' => ['required', 'date'], 'menuCycleDayId' => ['required', 'integer'],
+            'distributionDate' => ['required', 'date', 'after_or_equal:today'], 'menuCycleDayId' => ['nullable', 'integer'],
             'confirmationDeadlineAt' => ['nullable', 'date'],
             'generalNotes' => ['nullable', 'string', 'max:5000'],
             'destinations' => ['array'], 'destinations.*.route_name' => ['nullable', 'string', 'max:255'],
@@ -158,30 +151,22 @@ class Form extends Component
             'destinations.*.special_notes' => ['nullable', 'string', 'max:2000'],
             'destinations.*.no_service_reason' => ['nullable', 'string', 'max:1000'],
             'destinations.*.groups' => ['array'], 'destinations.*.groups.*.confirmed_beneficiaries' => ['required', 'integer', 'min:0'],
-            'destinations.*.groups.*.menu_audience' => ['required', 'string', 'max:100'],
+            'destinations.*.groups.*.menu_audience' => ['nullable', 'string', 'max:100'],
             'destinations.*.groups.*.portion_size' => ['required', 'in:small,large'],
             'destinations.*.groups.*.notes' => ['nullable', 'string', 'max:1000'],
         ]);
-        $cycleDay = MenuCycleDay::query()->with(['cycle', 'menu'])->whereKey($data['menuCycleDayId'])
-            ->whereNotNull('menu_id')->whereHas('cycle', fn ($query) => $query->where('sppg_unit_id', $this->currentUnit()->getKey())->whereIn('status', [NutritionRecordStatus::Approved->value, NutritionRecordStatus::Active->value]))->firstOrFail();
-        $deliveryDate = $cycleDay->delivery_date?->toDateString() ?: $cycleDay->service_date?->toDateString();
-        if ($deliveryDate !== $data['distributionDate']) {
-            throw ValidationException::withMessages(['menuCycleDayId' => 'Menu siklus tidak sesuai dengan tanggal distribusi.']);
-        }
-
-        return DB::transaction(function () use ($plan, $data, $cycleDay): FieldDistributionPlan {
+        return DB::transaction(function () use ($plan, $data): FieldDistributionPlan {
             try {
-                $period = app(FieldPlanActualConfirmationService::class)->readyPeriod($this->currentUnit()->getKey(), $cycleDay->service_date?->toDateString() ?: $data['distributionDate']);
+                $period = app(FieldPlanActualConfirmationService::class)->readyPeriod($this->currentUnit()->getKey(), $data['distributionDate']);
             } catch (DomainException $exception) {
                 throw ValidationException::withMessages(['distributionDate' => $exception->getMessage()]);
             }
             $plan->fill([
                 'sppg_unit_id' => $this->currentUnit()->getKey(), 'beneficiary_period_id' => $period->getKey(),
-                'menu_cycle_day_id' => $cycleDay->getKey(), 'distribution_date' => $data['distributionDate'],
-                'service_date' => $cycleDay->service_date?->toDateString() ?: $data['distributionDate'],
-                'production_date' => $cycleDay->production_date?->toDateString() ?: $cycleDay->delivery_date?->toDateString() ?: $data['distributionDate'],
-                'is_rapel' => (bool) $cycleDay->is_rapel, 'menu_id' => $cycleDay->menu_id,
-                'menu_name_snapshot' => $cycleDay->menu?->name ?: 'Menu Siklus', 'meal_type' => 'lunch',
+                'menu_cycle_day_id' => $plan->menu_cycle_day_id, 'distribution_date' => $data['distributionDate'],
+                'service_date' => $data['distributionDate'], 'production_date' => $data['distributionDate'],
+                'is_rapel' => (bool) $plan->is_rapel, 'menu_id' => $plan->menu_id,
+                'menu_name_snapshot' => $plan->menu_name_snapshot, 'meal_type' => 'lunch',
                 'shift' => $plan->shift ?: 'morning', 'confirmation_deadline_at' => $data['confirmationDeadlineAt'] ?: null,
                 'general_notes' => trim((string) $data['generalNotes']) ?: null, 'updated_by' => auth()->id(),
                 'source_system' => 'web_v3',
@@ -217,7 +202,7 @@ class Form extends Component
                     $group = $destination->recipientGroups()->whereKey($groupId)->first();
                     $group?->update([
                         'confirmed_beneficiaries' => (int) $groupRow['confirmed_beneficiaries'],
-                        'menu_audience' => $groupRow['menu_audience'],
+                        'menu_audience' => $groupRow['menu_audience'] ?? ($group->menu_audience ?: 'student'),
                         'portion_size' => $groupRow['portion_size'],
                         'notes' => trim((string) ($groupRow['notes'] ?? '')) ?: null,
                     ]);

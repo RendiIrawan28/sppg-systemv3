@@ -10,8 +10,31 @@
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
             <p class="text-xs font-bold uppercase tracking-widest text-cyan-200">Kontrol Pengolahan</p>
             <h2 class="mt-2 text-2xl font-bold">Catat makanan matang dan tekan Selesai.</h2>
-            <p class="mt-2 max-w-3xl text-sm text-slate-300">Bahan muncul langsung setelah diambil dari Gudang. Lengkapi dokumentasi suhu serta dokumentasi berat atau jumlah makanan jadi.</p>
+            <p class="mt-2 max-w-3xl text-sm text-slate-300">Pilih rencana aktif dan mulai produksi terlebih dahulu. Setelah itu ambil bahan dari Gudang atau Hasil Persiapan, lalu lengkapi dokumentasi hasil.</p>
         </section>
+
+        @if($canEdit)
+            <section class="rounded-2xl border border-sky-200 bg-white p-5 shadow-sm">
+                <div class="grid items-end gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+                    <label>
+                        <span class="mb-1 block text-xs font-bold uppercase tracking-wide text-sky-700">Rencana produksi aktif</span>
+                        <select wire:model="selectedPlanId" class="h-12 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                            <option value="">Pilih rencana produksi</option>
+                            @foreach($activePlans as $plan)
+                                <option value="{{ $plan->id }}">
+                                    {{ $plan->plan_number }} · {{ $plan->menu_name_snapshot }} · {{ ($plan->production_date ?: $plan->distribution_date)?->format('d-m-Y') }}{{ $plan->processingBatch?->state === \App\Enums\ProcessingBatchState::InProgress ? ' · sedang diproses' : '' }}
+                                </option>
+                            @endforeach
+                        </select>
+                        @error('selectedPlanId') <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
+                    </label>
+                    <button wire:click="startSelectedPlan" class="h-12 rounded-xl bg-sky-600 px-5 text-xs font-bold text-white">Mulai produksi</button>
+                </div>
+                @if($activePlans->isEmpty())
+                    <p class="mt-2 text-xs text-slate-500">Belum ada rencana produksi aktif yang dapat dimulai.</p>
+                @endif
+            </section>
+        @endif
 
         <div class="grid gap-5 xl:grid-cols-[350px_minmax(0,1fr)]">
             <section class="space-y-2">
@@ -56,7 +79,22 @@
                         @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::Planned)
                             <button wire:click="start" class="mt-4 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white">Mulai Pengolahan</button>
                         @endif
+                        @if($canEdit && in_array($selected->id, $cancellableBatchIds, true))
+                            <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3">
+                                <label class="block text-xs font-semibold text-rose-800">Alasan pembatalan</label>
+                                <textarea wire:model="cancellationReason" rows="2" class="mt-2 w-full rounded-lg border border-rose-200 bg-white p-2 text-sm" placeholder="Wajib diisi"></textarea>
+                                @error('cancellationReason') <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
+                                <button wire:click="cancel" wire:confirm="Batalkan produksi ini?" class="mt-2 rounded-lg px-3 py-2 text-xs font-bold text-rose-700">Batalkan produksi</button>
+                            </div>
+                        @endif
                     </div>
+
+                    @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <a href="{{ route('v3.warehouse.withdrawals.index') }}" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-center text-sm font-bold text-sky-700">Ambil bahan dari Gudang</a>
+                            <a href="{{ route('v3.preparation-outputs.index') }}" class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-700">Ambil hasil Persiapan</a>
+                        </div>
+                    @endif
 
                     <div class="rounded-2xl border border-slate-200 bg-white p-5">
                         <h3 class="font-bold">Bahan dari Gudang</h3>
@@ -98,10 +136,16 @@
                             <a wire:navigate href="{{ route('v3.preparation-outputs.index') }}" class="rounded-xl border border-sky-200 px-4 py-2 text-xs font-bold text-sky-700">Ambil hasil Persiapan</a>
                         </div>
                         <div class="mt-4 grid gap-3 md:grid-cols-2">
-                            @forelse($selected->preparationOutputWithdrawals->where('status', \App\Models\PreparationOutputWithdrawal::VERIFIED) as $withdrawal)
-                                <div class="rounded-xl bg-slate-50 p-4"><b>{{ $withdrawal->output?->output_name }}</b><p class="mt-1 text-xs text-slate-500">{{ number_format((float) $withdrawal->verified_quantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }} · {{ $withdrawal->output?->storage_location ?: 'Lokasi tidak dicatat' }}</p></div>
+                            @forelse($selected->preparationOutputWithdrawals->whereIn('status', [\App\Models\PreparationOutputWithdrawal::WAITING, \App\Models\PreparationOutputWithdrawal::VERIFIED]) as $withdrawal)
+                                @php($usedQuantity = $withdrawal->status === \App\Models\PreparationOutputWithdrawal::VERIFIED ? $withdrawal->verified_quantity : $withdrawal->requested_quantity)
+                                <div class="rounded-xl bg-slate-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div><b>{{ $withdrawal->output?->output_name }}</b><p class="mt-1 text-xs text-slate-500">{{ number_format((float) $usedQuantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }} · {{ $withdrawal->output?->storage_location ?: 'Lokasi tidak dicatat' }}</p></div>
+                                        <span class="rounded-full px-2 py-1 text-[10px] font-bold {{ $withdrawal->status === \App\Models\PreparationOutputWithdrawal::VERIFIED ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">{{ $withdrawal->status === \App\Models\PreparationOutputWithdrawal::VERIFIED ? 'Sesuai' : 'Menunggu pengecekan' }}</span>
+                                    </div>
+                                </div>
                             @empty
-                                <div class="rounded-xl border border-dashed p-5 text-sm text-slate-500 md:col-span-2">Belum ada hasil Persiapan yang diverifikasi untuk batch ini.</div>
+                                <div class="rounded-xl border border-dashed p-5 text-sm text-slate-500 md:col-span-2">Belum ada hasil Persiapan yang diambil untuk batch ini.</div>
                             @endforelse
                         </div>
                     </div>

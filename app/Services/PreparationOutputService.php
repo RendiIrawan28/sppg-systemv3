@@ -3,12 +3,12 @@
 namespace App\Services;
 
 use App\Enums\UserRole;
+use App\Models\PortioningSession;
 use App\Models\PreparationOutput;
 use App\Models\PreparationOutputWithdrawal;
 use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
 use App\Models\ProcessingBatch;
-use App\Models\PortioningSession;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -168,12 +168,12 @@ class PreparationOutputService
             if ($division === 'processing') {
                 ProcessingBatch::query()
                     ->where('sppg_unit_id', $output->sppg_unit_id)
-                    ->whereIn('state', ['planned', 'in_progress'])
+                    ->where('state', 'in_progress')
                     ->findOrFail((int) $data['processing_batch_id']);
             } else {
                 PortioningSession::query()
                     ->where('sppg_unit_id', $output->sppg_unit_id)
-                    ->whereIn('state', ['planned', 'in_progress'])
+                    ->where('state', 'in_progress')
                     ->findOrFail((int) $data['portioning_session_id']);
             }
 

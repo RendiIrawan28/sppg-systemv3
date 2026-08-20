@@ -42,7 +42,7 @@ class MobileWorkspaceRegistry
             'lapangan-insiden', 'lapangan-laporan',
         ],
         UserRole::AsistenLapangan->value => ['lapangan-insiden', 'lapangan-laporan'],
-        UserRole::StafGudang->value => ['gudang', 'gudang-pengambilan', 'gudang-stok', 'gudang-penyesuaian'],
+        UserRole::StafGudang->value => ['gudang', 'gudang-pengambilan', 'gudang-retur', 'gudang-stok', 'gudang-penyesuaian'],
         UserRole::KepalaDivisiPersiapan->value => ['pengambilan-gudang-persiapan', 'persiapan', 'hasil-persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
         UserRole::PetugasPersiapan->value => ['pengambilan-gudang-persiapan', 'persiapan', 'hasil-persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
         UserRole::KepalaDivisiPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengolahan', 'hasil-persiapan-pengolahan', 'lapangan-insiden'],
@@ -93,21 +93,40 @@ class MobileWorkspaceRegistry
             }
 
             if ($slug === 'pengolahan') {
-                $definition['description'] = 'Bahan otomatis dari Gudang atau hasil Persiapan. Catat suhu makanan matang dan jumlah hasil selama pekerjaan berlangsung.';
+                $definition['allow_create'] = true;
+                $definition['description'] = 'Pilih rencana aktif dan mulai produksi. Setelah berjalan, ambil bahan dari Gudang atau hasil Persiapan.';
                 $definition['fields'] = collect($definition['fields'])
                     ->map(function (array $field): array {
                         if ($field['name'] !== 'notes') {
                             $field['editable'] = false;
                         }
+                        $field['detail_only'] = true;
 
                         return $field;
                     })->all();
+                array_unshift($definition['fields'], [
+                    ...$this->field('field_distribution_plan_id', 'Rencana produksi aktif', 'select', true, 'processing_active_plans'),
+                    'create_only' => true,
+                ]);
                 $definition['relations']['materialUsages']['fields'] = collect($definition['relations']['materialUsages']['fields'])
                     ->map(function (array $field): array {
                         $field['editable'] = false;
 
                         return $field;
                     })->all();
+                $definition['relations']['preparationOutputWithdrawals'] = $this->relation('Hasil Persiapan digunakan', [
+                    [...$this->field('output_name', 'Nama hasil Persiapan'), 'editable' => false],
+                    [...$this->field('used_quantity', 'Jumlah digunakan', 'number'), 'editable' => false],
+                    [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
+                    [...$this->field('verification_status_label', 'Status pengecekan'), 'editable' => false],
+                    [...$this->field('taken_at', 'Waktu diambil', 'datetime'), 'editable' => false],
+                    [...$this->field('notes', 'Catatan'), 'editable' => false],
+                    [...$this->field('review_notes', 'Catatan pemeriksaan'), 'editable' => false],
+                ]);
+                $definition['with'] = array_values(array_unique([
+                    ...((array) ($definition['with'] ?? [])),
+                    'preparationOutputWithdrawals.output',
+                ]));
                 $definition['relations']['documentations']['fields'] = collect($definition['relations']['documentations']['fields'])
                     ->map(function (array $field): array {
                         if ($field['name'] === 'output_unit') {
@@ -117,6 +136,135 @@ class MobileWorkspaceRegistry
 
                         return $field;
                     })->all();
+            }
+
+            if ($slug === 'pemorsian') {
+                $definition['allow_create'] = true;
+                $definition['description'] = 'Pilih rencana distribusi aktif dan mulai Pemorsian. Setelah berjalan, ambil barang dari Gudang atau hasil Persiapan.';
+                $definition['fields'] = collect($definition['fields'])
+                    ->map(function (array $field): array {
+                        $field['detail_only'] = true;
+                        if ($field['name'] !== 'notes') {
+                            $field['editable'] = false;
+                        }
+
+                        return $field;
+                    })->all();
+                array_unshift($definition['fields'], [
+                    ...$this->field('field_distribution_plan_id', 'Rencana distribusi aktif', 'select', true, 'portioning_active_plans'),
+                    'create_only' => true,
+                ]);
+                foreach ([
+                    'target_small_portions' => 'Target ompreng kecil',
+                    'target_large_portions' => 'Target ompreng besar',
+                ] as $fieldName => $label) {
+                    $definition['fields'] = collect($definition['fields'])
+                        ->map(function (array $field) use ($fieldName, $label): array {
+                            if ($field['name'] === $fieldName) {
+                                $field['label'] = $label;
+                            }
+
+                            return $field;
+                        })->all();
+                }
+                $definition['fields'][] = [
+                    ...$this->field('actual_small_portions', 'Ompreng kecil sudah diporsikan', 'number'),
+                    'editable' => false,
+                    'detail_only' => true,
+                ];
+                $definition['fields'][] = [
+                    ...$this->field('actual_large_portions', 'Ompreng besar sudah diporsikan', 'number'),
+                    'editable' => false,
+                    'detail_only' => true,
+                ];
+                $definition['relations']['routeRecords']['label'] = 'Ompreng yang sudah diporsikan per rute';
+                $definition['relations']['routeRecords']['fields'] = collect($definition['relations']['routeRecords']['fields'])
+                    ->map(function (array $field): array {
+                        $field['label'] = match ($field['name']) {
+                            'small_portions' => 'Ompreng kecil',
+                            'large_portions' => 'Ompreng besar',
+                            default => $field['label'],
+                        };
+
+                        return $field;
+                    })->all();
+                $definition['relations']['supplies']['fields'] = collect($definition['relations']['supplies']['fields'])
+                    ->map(function (array $field): array {
+                        $field['editable'] = false;
+
+                        return $field;
+                    })->all();
+                $definition['relations']['preparationOutputWithdrawals'] = $this->relation('Hasil Persiapan digunakan', [
+                    [...$this->field('output_name', 'Nama hasil Persiapan'), 'editable' => false],
+                    [...$this->field('used_quantity', 'Jumlah digunakan', 'number'), 'editable' => false],
+                    [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
+                    [...$this->field('verification_status_label', 'Status pengecekan'), 'editable' => false],
+                    [...$this->field('taken_at', 'Waktu diambil', 'datetime'), 'editable' => false],
+                    [...$this->field('notes', 'Catatan'), 'editable' => false],
+                    [...$this->field('review_notes', 'Catatan pemeriksaan'), 'editable' => false],
+                ]);
+                $definition['with'] = array_values(array_unique([
+                    ...((array) ($definition['with'] ?? [])),
+                    'preparationOutputWithdrawals.output',
+                ]));
+            }
+
+            if ($slug === 'distribusi') {
+                // Rute dan target berasal dari rencana Asisten Lapangan. Driver hanya
+                // menjalankan aksi perjalanan; identitas rute tidak boleh diedit lewat
+                // formulir generik mobile.
+                $definition['allow_update'] = false;
+                $definition['fields'] = collect($definition['fields'])
+                    ->map(fn (array $field): array => [
+                        ...$field,
+                        'editable' => false,
+                        'detail_only' => true,
+                    ])->all();
+
+                $lockedStopFields = [
+                    'route_name', 'destination_name', 'sequence_order', 'planned_arrival_at',
+                    'address', 'contact_name', 'contact_phone', 'small_portions',
+                    'large_portions', 'status',
+                ];
+                $definition['relations']['stops']['fields'] = collect($definition['relations']['stops']['fields'])
+                    ->map(function (array $field) use ($lockedStopFields): array {
+                        if (in_array($field['name'], $lockedStopFields, true)) {
+                            $field['editable'] = false;
+                        }
+
+                        return $field;
+                    })->all();
+            }
+
+            if ($slug === 'pencucian') {
+                // Sesi dibuat otomatis saat pengambilan ompreng kembali. Mobile hanya
+                // menjalankan tahapan yang sama dengan halaman Pencucian website.
+                $definition['allow_update'] = false;
+                $definition['fields'] = collect($definition['fields'])
+                    ->map(fn (array $field): array => [
+                        ...$field,
+                        'editable' => false,
+                        'detail_only' => true,
+                    ])->all();
+                $definition['relations']['checklistItems']['fields'] = collect(
+                    $definition['relations']['checklistItems']['fields'],
+                )->map(fn (array $field): array => [
+                    ...$field,
+                    'editable' => false,
+                ])->all();
+                $definition['relations']['documentations']['fields'] = collect(
+                    $definition['relations']['documentations']['fields'],
+                )->map(function (array $field): array {
+                    if (in_array($field['name'], ['phase', 'captured_at', 'sort_order'], true)) {
+                        $field['editable'] = false;
+                    }
+
+                    return $field;
+                })->all();
+                $definition['with'] = array_values(array_unique([
+                    ...((array) ($definition['with'] ?? [])),
+                    'containerCollectionRun', 'distributionRun', 'wasteHandoverReport',
+                ]));
             }
 
             $definitions[$slug] = $definition;
@@ -175,6 +323,48 @@ class MobileWorkspaceRegistry
 
     public function options(mixed $source, int $unitId): array
     {
+        if ($source === 'processing_active_plans') {
+            return FieldDistributionPlan::query()
+                ->with('processingBatch')
+                ->where('sppg_unit_id', $unitId)
+                ->where('status', 'activated')
+                ->latest('production_date')
+                ->latest('id')
+                ->get()
+                ->filter(fn (FieldDistributionPlan $plan): bool => ! $plan->processingBatch
+                    || in_array((string) $plan->processingBatch->state->value, ['planned', 'in_progress'], true))
+                ->mapWithKeys(fn (FieldDistributionPlan $plan): array => [
+                    (string) $plan->getKey() => implode(' · ', array_filter([
+                        $plan->plan_number,
+                        $plan->menu_name_snapshot,
+                        ($plan->production_date ?: $plan->distribution_date)?->format('d-m-Y'),
+                        $plan->processingBatch?->state?->value === 'in_progress' ? 'sedang diproses' : null,
+                    ])),
+                ])->all();
+        }
+
+        if ($source === 'portioning_active_plans') {
+            return FieldDistributionPlan::query()
+                ->with(['portioningSession', 'destinations'])
+                ->where('sppg_unit_id', $unitId)
+                ->where('status', 'activated')
+                ->where('planned_total_portions', '>', 0)
+                ->latest('distribution_date')
+                ->latest('id')
+                ->get()
+                ->filter(fn (FieldDistributionPlan $plan): bool => $plan->destinations->isNotEmpty()
+                    && (! $plan->portioningSession
+                        || in_array($plan->portioningSession->state->value, ['planned', 'in_progress'], true)))
+                ->mapWithKeys(fn (FieldDistributionPlan $plan): array => [
+                    (string) $plan->getKey() => implode(' · ', array_filter([
+                        $plan->plan_number,
+                        $plan->menu_name_snapshot,
+                        $plan->distribution_date?->format('d-m-Y'),
+                        $plan->portioningSession?->state?->value === 'in_progress' ? 'sedang diporsikan' : null,
+                    ])),
+                ])->all();
+        }
+
         if ($source === 'processing_output_units') {
             $defaults = collect([
                 'pack' => 'Pack',
@@ -328,11 +518,11 @@ class MobileWorkspaceRegistry
             }
 
             $records = $division === 'pengolahan'
-                ? ProcessingBatch::query()->where('sppg_unit_id', $unitId)->whereIn('state', ['planned', 'in_progress'])
+                ? ProcessingBatch::query()->where('sppg_unit_id', $unitId)->where('state', 'in_progress')
                     ->latest('production_date')->limit(100)->get()->mapWithKeys(fn (ProcessingBatch $record): array => [
                         'record:'.$record->getKey() => $record->batch_number.' · '.$record->product_name,
                     ])
-                : PortioningSession::query()->where('sppg_unit_id', $unitId)->whereIn('state', ['planned', 'in_progress'])
+                : PortioningSession::query()->where('sppg_unit_id', $unitId)->where('state', 'in_progress')
                     ->latest('portioning_date')->limit(100)->get()->mapWithKeys(fn (PortioningSession $record): array => [
                         'record:'.$record->getKey() => $record->session_number.' · '.$record->menu_name_snapshot,
                     ]);
@@ -341,7 +531,7 @@ class MobileWorkspaceRegistry
                 ? ProcessingBatch::query()->where('sppg_unit_id', $unitId)->whereNotNull('field_distribution_plan_id')->pluck('field_distribution_plan_id')
                 : PortioningSession::query()->where('sppg_unit_id', $unitId)->whereNotNull('field_distribution_plan_id')->pluck('field_distribution_plan_id');
 
-            $fallback = $plans->whereNotIn('id', $linkedPlanIds)->mapWithKeys(fn (FieldDistributionPlan $plan): array => [
+            $fallback = in_array($division, ['pengolahan', 'pemorsian'], true) ? collect() : $plans->whereNotIn('id', $linkedPlanIds)->mapWithKeys(fn (FieldDistributionPlan $plan): array => [
                 'plan:'.$plan->getKey() => $plan->plan_number.' · '.$plan->menu_name_snapshot.' (buat otomatis)',
             ]);
 

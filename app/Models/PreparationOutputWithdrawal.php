@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class PreparationOutputWithdrawal extends Model
 {
     public const WAITING = 'waiting_verification';
+
     public const VERIFIED = 'verified';
+
     public const REJECTED = 'rejected';
 
     protected $fillable = [
@@ -50,5 +52,28 @@ class PreparationOutputWithdrawal extends Model
     public function verifier(): BelongsTo
     {
         return $this->belongsTo(User::class, 'verified_by');
+    }
+
+    public function getOutputNameAttribute(): ?string
+    {
+        return $this->output?->output_name;
+    }
+
+    public function getUsedQuantityAttribute(): float
+    {
+        return match ($this->status) {
+            self::VERIFIED => (float) $this->verified_quantity,
+            self::REJECTED => 0.0,
+            default => (float) $this->requested_quantity,
+        };
+    }
+
+    public function getVerificationStatusLabelAttribute(): string
+    {
+        return match ($this->status) {
+            self::VERIFIED => 'Sesuai',
+            self::REJECTED => 'Tidak sesuai',
+            default => 'Menunggu pengecekan',
+        };
     }
 }

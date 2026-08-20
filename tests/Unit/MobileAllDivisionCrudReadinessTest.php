@@ -42,6 +42,22 @@ it('keeps processing identity and material sources automatic on mobile', functio
         ->and($documentationFields['output_unit']['options'])->toBe('processing_output_units');
 });
 
+it('keeps portioning identity and material sources automatic on mobile', function (): void {
+    $definition = app(MobileWorkspaceRegistry::class)->definitions()['pemorsian'];
+    $fields = collect($definition['fields'])->keyBy('name');
+
+    expect($fields)->toHaveKey('field_distribution_plan_id')
+        ->and($fields['portioning_date']['editable'])->toBeFalse()
+        ->and($fields['menu_name_snapshot']['editable'])->toBeFalse()
+        ->and($fields['target_small_portions']['editable'])->toBeFalse()
+        ->and($fields['target_large_portions']['editable'])->toBeFalse()
+        ->and($definition['relations'])->toHaveKey('preparationOutputWithdrawals');
+
+    foreach ($definition['relations']['supplies']['fields'] as $field) {
+        expect($field['editable'])->toBeFalse();
+    }
+});
+
 it('offers both processing reports on android', function (): void {
     $screen = file_get_contents(base_path('android/app/src/main/java/id/sppg/mobile/ui/OperationalScreens.kt'));
     $documentController = file_get_contents(app_path('Http/Controllers/Api/MobileDocumentController.php'));
@@ -89,7 +105,8 @@ it('routes distribution corrections and processing returns through domain workfl
         ->toContain('ProcessingReturnService::class')
         ->toContain('gudang-retur-pengolahan')
         ->toContain('->reviseStop(')
-        ->toContain("'incidents' => ['create', 'update', 'delete']");
+        ->toContain("'incidents' => \$parent?->isReportEditable()")
+        ->toContain("'mobile/distribusi/stops'");
 });
 
 it('uses the supported cleaning shift value for automatic handover', function (): void {
@@ -126,8 +143,8 @@ it('publishes incident reporting for field divisions and limits the warehouse mo
     }
 
     expect($roleModules[UserRole::StafGudang->value])
-        ->toBe(['gudang', 'gudang-pengambilan', 'gudang-stok', 'gudang-penyesuaian'])
-        ->not->toContain('gudang-stok-awal', 'gudang-retur', 'gudang-retur-pengolahan', 'lapangan-insiden');
+        ->toBe(['gudang', 'gudang-pengambilan', 'gudang-retur', 'gudang-stok', 'gudang-penyesuaian'])
+        ->not->toContain('gudang-stok-awal', 'gudang-retur-pengolahan', 'lapangan-insiden');
 
     expect($definitions['gudang-stok-awal']['allow_create'])->toBeTrue()
         ->and(collect($definitions['gudang-stok-awal']['fields'])->pluck('name'))

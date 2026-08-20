@@ -262,10 +262,6 @@ final class AccessControl
             'dashboard.view', 'reports.view', 'reports.export',
             ...self::module('finance', ['view', 'verify', 'approve', 'export']),
             ...self::module('attendance', ['view', 'correct', 'export']),
-            // Akuntan/Pengawas Keuangan dapat mengoreksi daftar bahan, jumlah,
-            // satuan, dan catatan sampai proses Verifikasi Keuangan dilakukan.
-            // Permission submit/create tidak diberikan agar pemisahan pengajuan
-            // dan pemeriksaan keuangan tetap terjaga.
             ...self::module('procurement', ['view', 'update', 'price_input', 'approve', 'export', 'submit']),
             ...self::module('stock', ['view']),
             ...self::module('suppliers', ['view']),

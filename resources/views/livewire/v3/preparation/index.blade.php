@@ -71,14 +71,15 @@
                                         </div>
                                     @endif
                                     @if($canEdit && $selected->state === 'in_progress')
-                                        <details class="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-                                            <summary class="cursor-pointer text-xs font-bold text-amber-700">Ada bahan yang dikembalikan ke Gudang</summary>
+                                        <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                                            <p class="text-xs font-bold text-amber-800">Ada bahan yang tidak digunakan?</p>
+                                            <p class="mt-1 text-[11px] text-amber-700">Catat retur sebelum menyelesaikan Persiapan. Stok baru bertambah setelah diperiksa Gudang.</p>
                                             <div class="mt-3 grid gap-2 md:grid-cols-2">
                                                 <input wire:model="returnQuantities.{{ $item->id }}" type="number" min="0" step=".001" class="rounded-lg border p-2 text-sm" placeholder="Jumlah retur ({{ $item->unit_snapshot }})">
                                                 <input wire:model="returnReasons.{{ $item->id }}" class="rounded-lg border p-2 text-sm" placeholder="Catatan retur (opsional)">
-                                                <button wire:click="submitReturn({{ $item->id }})" class="rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-white md:col-span-2">Kembalikan ke Gudang</button>
+                                                <button wire:click="submitReturn({{ $item->id }})" class="rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-white md:col-span-2">Catat Retur ke Gudang</button>
                                             </div>
-                                        </details>
+                                        </div>
                                     @endif
                                 </div>
                             @endforeach

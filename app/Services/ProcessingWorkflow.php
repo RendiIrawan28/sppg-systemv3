@@ -7,6 +7,7 @@ use App\Enums\ProcessingBatchState;
 use App\Enums\ProcessingTemperatureCheckpoint;
 use App\Models\ProcessingBatch;
 use App\Models\User;
+use App\Models\WarehouseWithdrawal;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -23,12 +24,6 @@ class ProcessingWorkflow
                     'state' => 'Batch tidak dapat dimulai pada status saat ini.',
                 ]);
             }
-            if (! $this->hasMaterialInput($batch)) {
-                throw ValidationException::withMessages([
-                    'materialUsages' => 'Batch belum menerima bahan dari Gudang atau hasil Persiapan yang sudah diverifikasi.',
-                ]);
-            }
-
             $fromState = $batch->state->value;
             $batch->update([
                 'state' => ProcessingBatchState::InProgress,
@@ -47,6 +42,70 @@ class ProcessingWorkflow
 
             return $batch->refresh();
         });
+    }
+
+    public function cancel(ProcessingBatch $batch, User $actor, string $reason): ProcessingBatch
+    {
+        abort_unless($actor->can('processing.update'), 403);
+
+        if (blank($reason)) {
+            throw ValidationException::withMessages([
+                'reason' => 'Alasan pembatalan produksi wajib diisi.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($batch, $actor, $reason): ProcessingBatch {
+            $batch = $this->lockedBatch($batch);
+            if (! in_array($batch->state, [ProcessingBatchState::Planned, ProcessingBatchState::InProgress], true)
+                || ! $batch->isReportEditable()) {
+                throw ValidationException::withMessages([
+                    'state' => 'Produksi tidak dapat dibatalkan pada status saat ini.',
+                ]);
+            }
+
+            if (! $this->canCancel($batch)) {
+                throw ValidationException::withMessages([
+                    'state' => 'Produksi sudah memiliki pengambilan bahan. Selesaikan atau retur bahan terlebih dahulu.',
+                ]);
+            }
+
+            $fromState = $batch->state->value;
+            $reason = trim($reason);
+            $existingNotes = trim((string) $batch->notes);
+            $batch->update([
+                'state' => ProcessingBatchState::Cancelled,
+                'completed_at' => now(),
+                'notes' => trim($existingNotes."\nProduksi dibatalkan: {$reason}"),
+                'updated_by' => $actor->getKey(),
+            ]);
+            $this->writeHistory(
+                $batch,
+                $actor,
+                'production_cancelled',
+                $fromState,
+                ProcessingBatchState::Cancelled->value,
+                $reason,
+            );
+
+            return $batch->refresh();
+        });
+    }
+
+    public function canCancel(ProcessingBatch $batch): bool
+    {
+        if (! in_array($batch->state, [ProcessingBatchState::Planned, ProcessingBatchState::InProgress], true)
+            || ! $batch->isReportEditable()) {
+            return false;
+        }
+
+        return ! $batch->materialUsages()->exists()
+            && ! $batch->preparationOutputWithdrawals()->exists()
+            && ! WarehouseWithdrawal::query()
+                ->where('division_code', 'pengolahan')
+                ->where('reference_type', 'processing_batch')
+                ->where('reference_id', $batch->getKey())
+                ->whereHas('items')
+                ->exists();
     }
 
     public function complete(ProcessingBatch $batch, User $actor): ProcessingBatch
@@ -241,7 +300,7 @@ class ProcessingWorkflow
     {
         $errors = [];
         if (! $this->hasMaterialInput($batch)) {
-            $errors['materialUsages'] = 'Minimal satu bahan dari Gudang atau hasil Persiapan terverifikasi harus tersedia.';
+            $errors['materialUsages'] = 'Minimal satu bahan dari Gudang atau hasil Persiapan harus tersedia sebelum Pengolahan diselesaikan.';
         }
         $finalTemperatures = $batch->temperatureLogs
             ->where('checkpoint', ProcessingTemperatureCheckpoint::Final);
@@ -283,7 +342,6 @@ class ProcessingWorkflow
         }
     }
 
-
     private function hasMaterialInput(ProcessingBatch $batch): bool
     {
         if ($batch->materialUsages->isNotEmpty()) {
@@ -291,8 +349,8 @@ class ProcessingWorkflow
         }
 
         return $batch->preparationOutputWithdrawals
-            ->contains(fn ($withdrawal): bool => $withdrawal->status === 'verified'
-                && (float) $withdrawal->verified_quantity > 0);
+            ->contains(fn ($withdrawal): bool => in_array($withdrawal->status, ['waiting', 'verified'], true)
+                && (float) ($withdrawal->verified_quantity ?: $withdrawal->requested_quantity) > 0);
     }
 
     private function writeHistory(

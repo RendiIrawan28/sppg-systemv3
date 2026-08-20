@@ -5,6 +5,7 @@ import id.sppg.mobile.data.remote.ApiErrorHandler
 import id.sppg.mobile.data.remote.MobileApi
 import id.sppg.mobile.data.remote.OperationalActionRequest
 import id.sppg.mobile.data.remote.OperationalModule
+import id.sppg.mobile.data.remote.MobileDailySummary
 import id.sppg.mobile.data.remote.OperationalRecord
 import id.sppg.mobile.data.remote.OperationalRelationSaveRequest
 import id.sppg.mobile.data.remote.OperationalSaveRequest
@@ -20,16 +21,22 @@ data class OperationalPage(
     val lastPage: Int,
 )
 
+data class OperationalWorkspace(
+    val modules: List<OperationalModule>,
+    val dailySummary: MobileDailySummary?,
+)
+
 class OperationalRepository(
     private val api: MobileApi,
     private val sessionStore: SessionStore,
     private val errorHandler: ApiErrorHandler,
     private val context: Context,
 ) {
-    suspend fun getModules(): Result<List<OperationalModule>> = safeApiCall(errorHandler) {
+    suspend fun getModules(): Result<OperationalWorkspace> = safeApiCall(errorHandler) {
         val response = api.operationalModules(authorization())
         if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
-        response.body()?.data ?: throw IOException("Ruang kerja tidak tersedia.")
+        val body = response.body() ?: throw IOException("Ruang kerja tidak tersedia.")
+        OperationalWorkspace(body.data, body.dailySummary)
     }
 
     suspend fun getRecords(
@@ -158,9 +165,12 @@ class OperationalRepository(
         relation: String,
         item: Long,
         action: String,
+        notes: String? = null,
+        fields: Map<String, String?> = emptyMap(),
+        files: Map<String, String> = emptyMap(),
     ): Result<String> = safeApiCall(errorHandler) {
         val response = api.runOperationalRelationAction(
-            authorization(), module, id, relation, item, action, OperationalActionRequest(null),
+            authorization(), module, id, relation, item, action, OperationalActionRequest(notes, fields, files),
         )
         if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
         response.body()?.message ?: "Status tujuan berhasil diperbarui."

@@ -10,11 +10,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 data class SecurityUiState(
     val isLoading: Boolean = false,
     val isSubmitting: Boolean = false,
     val overview: SecurityOverview? = null,
+    val dateFilter: String = LocalDate.now().toString(),
     val errorMessage: String? = null,
     val successMessage: String? = null,
 )
@@ -23,11 +25,11 @@ class SecurityViewModel(private val repository: SecurityRepository) : ViewModel(
     private val _uiState = MutableStateFlow(SecurityUiState())
     val uiState: StateFlow<SecurityUiState> = _uiState.asStateFlow()
 
-    fun load(force: Boolean = false) {
+    fun load(force: Boolean = false, date: String = _uiState.value.dateFilter) {
         if (_uiState.value.isLoading && !force) return
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
-            repository.overview()
+            _uiState.update { it.copy(isLoading = true, dateFilter = date, errorMessage = null) }
+            repository.overview(date)
                 .onSuccess { overview -> _uiState.update { it.copy(overview = overview) } }
                 .onFailure { error ->
                     _uiState.update { it.copy(errorMessage = error.message ?: "Data keamanan belum dapat dimuat.") }
@@ -35,6 +37,8 @@ class SecurityViewModel(private val repository: SecurityRepository) : ViewModel(
             _uiState.update { it.copy(isLoading = false) }
         }
     }
+
+    fun filterHistory(date: String) = load(force = true, date = date)
 
     fun startShift() {
         if (_uiState.value.isSubmitting) return

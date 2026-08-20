@@ -33,7 +33,7 @@ class PortioningInputService
                 ->whereIn('source_item_id', $sourceItemIds)
                 ->pluck('source_item_id');
             if ($sourceItemIds->diff($knownItemIds)->isNotEmpty()
-                && ! in_array($session->state, [PortioningSessionState::Planned, PortioningSessionState::InProgress], true)) {
+                && $session->state !== PortioningSessionState::InProgress) {
                 throw ValidationException::withMessages(['reference' => 'Sesi Pemorsian sudah ditutup dan tidak dapat menerima bahan tambahan.']);
             }
             foreach ($withdrawal->items as $index => $item) {

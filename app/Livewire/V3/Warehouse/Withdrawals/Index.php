@@ -8,7 +8,6 @@ use App\Models\InventoryLot;
 use App\Models\PortioningSession;
 use App\Models\ProcessingBatch;
 use App\Models\WarehouseWithdrawal;
-use App\Services\FieldOperationalPlanGenerator;
 use App\Services\WarehouseWithdrawalService;
 use App\Support\DivisionRole;
 use Illuminate\Support\Facades\DB;
@@ -222,8 +221,7 @@ class Index extends Component
     {
         $batches = ProcessingBatch::query()
             ->where('sppg_unit_id', $unitId)
-            ->whereIn('state', ['planned', 'in_progress'])
-            ->orderByRaw("CASE WHEN state = 'in_progress' THEN 0 ELSE 1 END")
+            ->where('state', 'in_progress')
             ->orderByDesc('production_date')
             ->orderByDesc('id')
             ->get();
@@ -231,20 +229,8 @@ class Index extends Component
             'value' => "record:{$batch->id}",
             'label' => "{$batch->batch_number} · {$batch->product_name} · {$batch->production_date?->format('d-m-Y')}",
         ]);
-        $batchPlanIds = $batches->pluck('field_distribution_plan_id')->filter()->map(fn ($id): int => (int) $id);
-        $plans = FieldDistributionPlan::query()
-            ->where('sppg_unit_id', $unitId)
-            ->where('status', 'activated')
-            ->when($batchPlanIds->isNotEmpty(), fn ($query) => $query->whereNotIn('id', $batchPlanIds))
-            ->orderByDesc('production_date')
-            ->orderByDesc('id')
-            ->get()
-            ->map(fn (FieldDistributionPlan $plan): array => [
-                'value' => "plan:{$plan->id}",
-                'label' => "{$plan->plan_number} · {$plan->menu_name_snapshot} · {$plan->production_date?->format('d-m-Y')} (buat batch Pengolahan)",
-            ]);
 
-        return $references->concat($plans)->values()->all();
+        return $references->values()->all();
     }
 
     /** @return array<int, array{value: string, label: string}> */
@@ -252,8 +238,7 @@ class Index extends Component
     {
         $sessions = PortioningSession::query()
             ->where('sppg_unit_id', $unitId)
-            ->whereIn('state', ['planned', 'in_progress'])
-            ->orderByRaw("CASE WHEN state = 'in_progress' THEN 0 ELSE 1 END")
+            ->where('state', 'in_progress')
             ->orderByDesc('portioning_date')
             ->orderByDesc('id')
             ->get();
@@ -261,23 +246,8 @@ class Index extends Component
             'value' => "record:{$session->id}",
             'label' => "{$session->session_number} · {$session->menu_name_snapshot} · {$session->portioning_date?->format('d-m-Y')}",
         ]);
-        $linkedPlanIds = PortioningSession::query()
-            ->where('sppg_unit_id', $unitId)
-            ->whereNotNull('field_distribution_plan_id')
-            ->pluck('field_distribution_plan_id');
-        $plans = FieldDistributionPlan::query()
-            ->where('sppg_unit_id', $unitId)
-            ->where('status', 'activated')
-            ->when($linkedPlanIds->isNotEmpty(), fn ($query) => $query->whereNotIn('id', $linkedPlanIds))
-            ->orderByDesc('production_date')
-            ->orderByDesc('id')
-            ->get()
-            ->map(fn (FieldDistributionPlan $plan): array => [
-                'value' => "plan:{$plan->id}",
-                'label' => "{$plan->plan_number} · {$plan->menu_name_snapshot} · {$plan->distribution_date?->format('d-m-Y')} (buat sesi Pemorsian)",
-            ]);
 
-        return $references->concat($plans)->values()->all();
+        return $references->values()->all();
     }
 
     private function resolveManualReference(string $selection): int
@@ -287,7 +257,14 @@ class Index extends Component
             return (int) $id;
         }
         $division = $this->divisionCode();
-        if ($type !== 'plan' || ! in_array($division, ['pengolahan', 'pemorsian'], true)) {
+        if (in_array($division, ['pengolahan', 'pemorsian'], true)) {
+            throw ValidationException::withMessages([
+                'referenceId' => $division === 'pengolahan'
+                    ? 'Mulai produksi dari modul Pengolahan sebelum mengambil bahan Gudang.'
+                    : 'Mulai proses dari modul Pemorsian sebelum mengambil barang Gudang.',
+            ]);
+        }
+        if ($type !== 'plan' || $division !== 'persiapan') {
             throw ValidationException::withMessages([
                 'referenceId' => 'Rencana/batch yang dipilih tidak sesuai dengan divisi.',
             ]);
@@ -302,11 +279,6 @@ class Index extends Component
             ]);
         }
 
-        $generator = app(FieldOperationalPlanGenerator::class);
-
-        return match ($division) {
-            'pengolahan' => $generator->generateProcessingBatch($plan, auth()->user())->getKey(),
-            'pemorsian' => $generator->generatePortioningSession($plan, auth()->user())->getKey(),
-        };
+        return $plan->getKey();
     }
 }

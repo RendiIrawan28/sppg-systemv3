@@ -1,4 +1,4 @@
-<x-v3.shell :$unit :$navigation :$roleLabel title="Rencana Lapangan" eyebrow="Rencana H-3 dan kebutuhan operasional">
+<x-v3.shell :$unit :$navigation :$roleLabel title="Rencana Lapangan" eyebrow="Rencana distribusi dan kebutuhan operasional">
     <div class="mx-auto max-w-[1450px] space-y-5">
         @if(session('v3.status'))<div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ session('v3.status') }}</div>@endif
         <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-end"><div><p class="text-xs font-bold uppercase tracking-[.18em] text-sky-700">Lapangan</p><h2 class="mt-2 text-2xl font-bold text-slate-950">Rencana distribusi</h2><p class="mt-1 text-sm text-slate-500">Pilih menu aktif, muat jumlah penerima, konfirmasi rute, lalu aktifkan rencana. Dokumen tiap divisi dibuat manual pada modul masing-masing.</p></div>@if($canCreate)<a wire:navigate href="{{ route('v3.field.plans.create') }}" class="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-sky-600 px-5 text-sm font-bold text-white"><x-v3.icon name="plus" class="size-4" /> Buat rencana</a>@endif</div>

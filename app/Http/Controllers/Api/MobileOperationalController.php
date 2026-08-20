@@ -9,6 +9,9 @@ use App\Http\Controllers\Controller;
 use App\Models\CleaningSession;
 use App\Models\ContainerCollectionRun;
 use App\Models\ContainerCollectionTask;
+use App\Models\DistributionRun;
+use App\Models\DistributionStop;
+use App\Models\FieldDistributionPlan;
 use App\Models\InventoryLot;
 use App\Models\PortioningSession;
 use App\Models\PreparationOutputWithdrawal;
@@ -27,6 +30,7 @@ use App\Services\ContainerCollectionWorkflow;
 use App\Services\DistributionWorkflow;
 use App\Services\FieldDailyReportGenerator;
 use App\Services\FieldDailyReportWorkflow;
+use App\Services\FieldOperationalPlanGenerator;
 use App\Services\MobileDailyBeneficiaryConfirmationService;
 use App\Services\OpeningStockService;
 use App\Services\PortioningWorkflow;
@@ -67,13 +71,15 @@ class MobileOperationalController extends Controller
         MobileWorkspaceRegistry $registry,
         SystemUnit $systemUnit,
     ): JsonResponse {
+        $today = now()->toDateString();
         $modules = collect($registry->forUser($request->user()))
-            ->map(function (array $definition, string $slug) use ($request, $registry, $systemUnit): array {
+            ->map(function (array $definition, string $slug) use ($request, $registry, $systemUnit, $today): array {
                 $model = $definition['model'];
                 $emptyRecord = new $model;
 
                 $query = $model::query()->where('sppg_unit_id', $systemUnit->id());
                 $this->applyDefinitionScope($query, $definition);
+                $this->applyDistributionActorScope($query, $slug, $request->user());
 
                 return [
                     'slug' => $slug,
@@ -81,6 +87,7 @@ class MobileOperationalController extends Controller
                     'description' => $definition['description'],
                     'permission' => $definition['permission'],
                     'record_count' => $query->count(),
+                    'today_count' => (clone $query)->whereDate($definition['date'], $today)->count(),
                     'can_create' => ($definition['allow_create'] ?? true)
                         && $request->user()->can($definition['permission'].'.create'),
                     'form_fields' => $this->formFields(
@@ -92,7 +99,24 @@ class MobileOperationalController extends Controller
                 ];
             })->values();
 
-        return response()->json(['data' => $modules]);
+        $plans = FieldDistributionPlan::query()
+            ->where('sppg_unit_id', $systemUnit->id())
+            ->whereDate('distribution_date', $today)
+            ->where('status', '!=', 'cancelled')
+            ->get();
+
+        return response()->json([
+            'data' => $modules,
+            'daily_summary' => [
+                'date' => $today,
+                'menu_names' => $plans->pluck('menu_name_snapshot')->filter()->unique()->values(),
+                'beneficiaries' => (int) $plans->sum(
+                    fn (FieldDistributionPlan $plan): int => (int) ($plan->confirmed_beneficiaries ?: $plan->planned_beneficiaries),
+                ),
+                'portions' => (int) $plans->sum('planned_total_portions'),
+                'destinations' => (int) $plans->sum('destination_count'),
+            ],
+        ]);
     }
 
     public function index(
@@ -113,8 +137,16 @@ class MobileOperationalController extends Controller
         $model = $definition['model'];
         $query = $model::query()
             ->where('sppg_unit_id', $systemUnit->id())
-            ->when($filters['search'] ?? null, fn (Builder $query, string $search) => $query
-                ->where($definition['number'], 'like', "%{$search}%"))
+            ->when($filters['search'] ?? null, function (Builder $query, string $search) use ($definition, $module): void {
+                $query->where(function (Builder $query) use ($definition, $module, $search): void {
+                    $query->where($definition['number'], 'like', "%{$search}%");
+                    if ($module === 'distribusi') {
+                        $query->orWhere('route_name', 'like', "%{$search}%")
+                            ->orWhere('menu_name_snapshot', 'like', "%{$search}%")
+                            ->orWhere('driver_name', 'like', "%{$search}%");
+                    }
+                });
+            })
             ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query
                 ->where('status', $status))
             ->when($filters['date_from'] ?? null, fn (Builder $query, string $date) => $query
@@ -122,8 +154,18 @@ class MobileOperationalController extends Controller
             ->when($filters['date_to'] ?? null, fn (Builder $query, string $date) => $query
                 ->whereDate($definition['date'], '<=', $date));
         $this->applyDefinitionScope($query, $definition);
+        $this->applyDistributionActorScope($query, $module, $request->user());
 
         $this->addSummaryCounts($query, $module);
+        if ($module === 'distribusi') {
+            $query->orderByRaw(
+                'CASE WHEN petugas_id = ? AND state IN (?, ?, ?, ?) THEN 0 WHEN state = ? THEN 1 ELSE 2 END',
+                [
+                    $request->user()->getKey(), 'assigned', 'loaded', 'departed',
+                    'destinations_completed', 'planned',
+                ],
+            );
+        }
         $records = $query->latest($definition['date'])->latest('id')
             ->paginate($filters['per_page'] ?? 20)
             ->withQueryString();
@@ -157,6 +199,7 @@ class MobileOperationalController extends Controller
         ));
         $query = $model::query()->where('sppg_unit_id', $systemUnit->id());
         $this->applyDefinitionScope($query, $definition);
+        $this->applyDistributionActorScope($query, $module, $request->user());
         $this->addSummaryCounts($query, $module);
         $item = $query->with($relations)->findOrFail($record);
 
@@ -348,6 +391,54 @@ class MobileOperationalController extends Controller
                         ->refresh();
                 }
 
+                if ($module === 'pengolahan') {
+                    $fields = $request->validate([
+                        'fields' => ['present', 'array'],
+                        'fields.field_distribution_plan_id' => ['required', 'integer'],
+                    ])['fields'];
+                    $plan = FieldDistributionPlan::query()
+                        ->where('sppg_unit_id', $unitId)
+                        ->where('status', 'activated')
+                        ->findOrFail((int) $fields['field_distribution_plan_id']);
+                    $batch = app(FieldOperationalPlanGenerator::class)
+                        ->generateProcessingBatch($plan, $request->user());
+
+                    if ($batch->state->value === 'planned') {
+                        return app(ProcessingWorkflow::class)->start($batch, $request->user());
+                    }
+                    if ($batch->state->value !== 'in_progress') {
+                        throw ValidationException::withMessages([
+                            'fields.field_distribution_plan_id' => 'Rencana ini sudah memiliki batch yang tidak dapat dimulai kembali.',
+                        ]);
+                    }
+
+                    return $batch;
+                }
+
+                if ($module === 'pemorsian') {
+                    $fields = $request->validate([
+                        'fields' => ['present', 'array'],
+                        'fields.field_distribution_plan_id' => ['required', 'integer'],
+                    ])['fields'];
+                    $plan = FieldDistributionPlan::query()
+                        ->where('sppg_unit_id', $unitId)
+                        ->where('status', 'activated')
+                        ->findOrFail((int) $fields['field_distribution_plan_id']);
+                    $session = app(FieldOperationalPlanGenerator::class)
+                        ->generatePortioningSession($plan, $request->user());
+
+                    if ($session->state->value === 'planned') {
+                        return app(PortioningWorkflow::class)->start($session, $request->user());
+                    }
+                    if ($session->state->value !== 'in_progress') {
+                        throw ValidationException::withMessages([
+                            'fields.field_distribution_plan_id' => 'Rencana ini sudah memiliki sesi Pemorsian yang tidak dapat dimulai kembali.',
+                        ]);
+                    }
+
+                    return $session;
+                }
+
                 if ($module === 'pengambilan-ompreng') {
                     $fields = $request->validate([
                         'fields' => ['present', 'array'],
@@ -455,6 +546,7 @@ class MobileOperationalController extends Controller
         abort_unless(($definition['allow_update'] ?? true), 422, 'Data modul ini hanya dapat diubah melalui alur kerja.');
         abort_unless($request->user()->can($definition['permission'].'.update'), 403);
         $item = $this->findRecord($definition, $record, (int) $systemUnit->id());
+        $this->assertDistributionRecordAccess($module, $item, $request->user());
         abort_unless($this->isEditable($item), 422, 'Data sudah dikunci dan tidak dapat diubah.');
 
         DB::transaction(function () use ($request, $module, $definition, $item, $systemUnit): void {
@@ -571,6 +663,7 @@ class MobileOperationalController extends Controller
     ): JsonResponse {
         $definition = $registry->authorize($request->user(), $module);
         $item = $this->findRecord($definition, $record, (int) $systemUnit->id());
+        $this->assertDistributionRecordAccess($module, $item, $request->user());
         $input = $request->validate([
             'notes' => ['nullable', 'string', 'max:2000'],
             'fields' => ['nullable', 'array'],
@@ -611,7 +704,7 @@ class MobileOperationalController extends Controller
                     'persiapan' => $this->runPreparationAction($action, $item, $actor, $notes),
                     'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => $this->runPreparationOutputAction($module, $action, $item, $actor, $fields, $notes),
                     'pengolahan' => $this->runStandardAction(app(ProcessingWorkflow::class), $action, $item, $actor, $notes),
-                    'pemorsian' => $this->runStandardAction(app(PortioningWorkflow::class), $action, $item, $actor, $notes),
+                    'pemorsian' => $this->runPortioningAction($action, $item, $actor, $notes),
                     'distribusi' => $this->runDistributionAction($action, $item, $actor, $data, $notes),
                     'pengambilan-ompreng' => $this->runContainerCollectionAction(
                         $action, $item, $actor, $fields, $notes, $storedPhoto,
@@ -980,13 +1073,33 @@ class MobileOperationalController extends Controller
         MobileWorkspaceRegistry $registry,
         SystemUnit $systemUnit,
     ): JsonResponse {
-        abort_unless($module === 'distribusi' && in_array($relation, ['stops', 'incidents'], true), 404);
+        $supported = ($module === 'distribusi' && in_array($relation, ['stops', 'incidents'], true))
+            || ($module === 'pencucian' && $relation === 'checklistItems');
+        abort_unless($supported, 404);
         [, $parent] = $this->relationContext(
-            $request, $module, $record, $relation, $registry, $systemUnit, 'update',
+            $request, $module, $record, $relation, $registry, $systemUnit, 'action',
         );
         $child = $parent->{$relation}()->whereKey($item)->firstOrFail();
         $available = collect($this->relationActions($request, $module, $parent, $relation, $child))->pluck('key');
         abort_unless($available->contains($action), 422, 'Tindakan rincian tidak tersedia.');
+
+        if ($module === 'pencucian') {
+            $fields = $request->validate([
+                'fields' => ['nullable', 'array'],
+                'fields.notes' => ['nullable', 'string', 'max:1000'],
+            ])['fields'] ?? [];
+            $passed = $action === 'check';
+            $child->forceFill([
+                'is_passed' => $passed,
+                'checked_at' => $passed ? now() : null,
+                'checked_by' => $passed ? $request->user()->getKey() : null,
+                'notes' => filled($fields['notes'] ?? null) ? trim((string) $fields['notes']) : null,
+            ])->save();
+
+            return response()->json([
+                'message' => $passed ? 'Checklist ditandai selesai.' : 'Checklist dibuka kembali.',
+            ]);
+        }
 
         if ($relation === 'incidents') {
             abort_unless($action === 'resolve', 422);
@@ -999,13 +1112,81 @@ class MobileOperationalController extends Controller
             return response()->json(['message' => 'Insiden distribusi ditandai selesai.']);
         }
 
+        if (in_array($action, ['move_up', 'move_down'], true)) {
+            DB::transaction(function () use ($parent, $child, $action): void {
+                $orderedStops = $parent->stops()->lockForUpdate()->get()->values();
+                $currentIndex = $orderedStops->search(fn (DistributionStop $stop): bool => $stop->is($child));
+                $targetIndex = $action === 'move_up' ? $currentIndex - 1 : $currentIndex + 1;
+                abort_unless($currentIndex !== false && $orderedStops->has($targetIndex), 422, 'Urutan tujuan tidak dapat dipindahkan lagi.');
+                $target = $orderedStops->get($targetIndex);
+                $currentSequence = (int) $child->sequence_order;
+                $child->update(['sequence_order' => (int) $target->sequence_order]);
+                $target->update(['sequence_order' => $currentSequence]);
+            });
+
+            return response()->json(['message' => 'Urutan pengantaran berhasil diperbarui.']);
+        }
+
+        $input = $request->validate([
+            'fields' => ['nullable', 'array'],
+            'files' => ['nullable', 'array'],
+            'files.*' => ['nullable', 'string', 'max:7500000'],
+        ]);
+        $fields = $input['fields'] ?? [];
+        $files = $input['files'] ?? [];
+
+        if ($action === 'deliver') {
+            validator(['fields' => $fields], [
+                'fields.delivered_small_portions' => ['required', 'integer', 'min:0', 'max:'.(int) $child->small_portions],
+                'fields.delivered_large_portions' => ['required', 'integer', 'min:0', 'max:'.(int) $child->large_portions],
+                'fields.containers_sent' => ['required', 'integer', 'min:1'],
+                'fields.recipient_name' => ['required', 'string', 'max:255'],
+                'fields.recipient_position' => ['nullable', 'string', 'max:255'],
+                'fields.failure_reason' => ['nullable', 'string', 'max:5000'],
+            ])->validate();
+            if (blank($child->handover_photo_path) && blank($files['handover_photo_path'] ?? null)) {
+                throw ValidationException::withMessages([
+                    'files.handover_photo_path' => 'Foto serah-terima wajib dipilih.',
+                ]);
+            }
+        }
+
+        if ($action === 'fail') {
+            validator(['fields' => $fields], [
+                'fields.failure_reason' => ['required', 'string', 'max:5000'],
+            ])->validate();
+        }
+
+        $oldPhoto = $child->handover_photo_path;
+        $storedPhoto = null;
+        if (filled($files['handover_photo_path'] ?? null)) {
+            $storedPhoto = $this->storeEncodedImage(
+                (string) $files['handover_photo_path'],
+                'mobile/distribusi/stops',
+                'files.handover_photo_path',
+            );
+        }
+
         $workflow = app(DistributionWorkflow::class);
-        $data = $child->getAttributes();
-        match ($action) {
-            'arrive' => $workflow->arriveAtStop($parent, $child, $request->user()),
-            'deliver' => $workflow->completeStop($parent, $child, $request->user(), $data),
-            'fail' => $workflow->failStop($parent, $child, $request->user(), $data),
-        };
+        $data = [...$child->getAttributes(), ...$fields];
+        if ($storedPhoto) {
+            $data['handover_photo_path'] = $storedPhoto;
+        }
+        try {
+            match ($action) {
+                'arrive' => $workflow->arriveAtStop($parent, $child, $request->user()),
+                'deliver' => $workflow->completeStop($parent, $child, $request->user(), $data),
+                'fail' => $workflow->failStop($parent, $child, $request->user(), $data),
+            };
+        } catch (\Throwable $exception) {
+            if ($storedPhoto) {
+                Storage::disk('public')->delete($storedPhoto);
+            }
+            throw $exception;
+        }
+        if ($storedPhoto && $oldPhoto && $storedPhoto !== $oldPhoto) {
+            Storage::disk('public')->delete($oldPhoto);
+        }
 
         return response()->json(['message' => 'Status tujuan berhasil diperbarui.']);
     }
@@ -1024,6 +1205,32 @@ class MobileOperationalController extends Controller
         foreach ($definition['where_in'] ?? [] as $column => $values) {
             $query->whereIn($column, (array) $values);
         }
+    }
+
+    private function applyDistributionActorScope(Builder $query, string $module, $actor): void
+    {
+        if ($module !== 'distribusi' || $actor->can('distribution.approve')) {
+            return;
+        }
+
+        $query->where(function (Builder $query) use ($actor): void {
+            $query->where('state', 'planned')
+                ->orWhere('petugas_id', $actor->getKey());
+        });
+    }
+
+    private function assertDistributionRecordAccess(string $module, Model $item, $actor): void
+    {
+        if ($module !== 'distribusi' || $actor->can('distribution.approve')) {
+            return;
+        }
+
+        $state = $this->scalarValue($item->getAttribute('state'));
+        abort_unless(
+            $state === 'planned' || (int) $item->getAttribute('petugas_id') === (int) $actor->getKey(),
+            403,
+            'Rute ini sedang atau sudah dikerjakan oleh driver lain.',
+        );
     }
 
     private function addSummaryCounts(Builder $query, string $module): void
@@ -1128,29 +1335,31 @@ class MobileOperationalController extends Controller
         int $unitId,
         bool $relationMode = false,
     ): array {
-        return collect($definition['fields'] ?? [])->map(function (array $field) use ($item, $registry, $unitId, $relationMode): array {
-            $name = $field['name'];
-            $editable = ($field['editable'] ?? true)
-                && ! (($field['create_only'] ?? false) && $item->exists)
-                && ! in_array($name, $relationMode ? ['uuid', 'state'] : ['uuid', 'state', 'status'], true)
-                && ! in_array($name, ['sequence_number', 'due_at', 'reported_at'], true)
-                && ! in_array($name, ['created_by', 'updated_by', 'submitted_by', 'verified_by'], true);
+        return collect($definition['fields'] ?? [])
+            ->reject(fn (array $field): bool => ($field['detail_only'] ?? false) && ! $item->exists)
+            ->map(function (array $field) use ($item, $registry, $unitId, $relationMode): array {
+                $name = $field['name'];
+                $editable = ($field['editable'] ?? true)
+                    && ! (($field['create_only'] ?? false) && $item->exists)
+                    && ! in_array($name, $relationMode ? ['uuid', 'state'] : ['uuid', 'state', 'status'], true)
+                    && ! in_array($name, ['sequence_number', 'due_at', 'reported_at'], true)
+                    && ! in_array($name, ['created_by', 'updated_by', 'submitted_by', 'verified_by'], true);
 
-            return [
-                'key' => $name,
-                'label' => $field['label'],
-                'type' => $field['type'] ?? 'text',
-                'value' => $this->formValue($item->getAttribute($name), $field['type'] ?? 'text'),
-                'file_url' => ($field['type'] ?? null) === 'file' && filled($item->getAttribute($name))
-                    ? url(Storage::disk('public')->url($item->getAttribute($name)))
-                    : null,
-                'required' => (bool) ($field['required'] ?? false),
-                'editable' => $editable,
-                'options' => isset($field['options'])
-                    ? $registry->options($field['options'], $unitId)
-                    : [],
-            ];
-        })->values()->all();
+                return [
+                    'key' => $name,
+                    'label' => $field['label'],
+                    'type' => $field['type'] ?? 'text',
+                    'value' => $this->formValue($item->getAttribute($name), $field['type'] ?? 'text'),
+                    'file_url' => ($field['type'] ?? null) === 'file' && filled($item->getAttribute($name))
+                        ? url(Storage::disk('public')->url($item->getAttribute($name)))
+                        : null,
+                    'required' => (bool) ($field['required'] ?? false),
+                    'editable' => $editable,
+                    'options' => isset($field['options'])
+                        ? $registry->options($field['options'], $unitId)
+                        : [],
+                ];
+            })->values()->all();
     }
 
     /** @param array<string, mixed> $definition */
@@ -1190,7 +1399,7 @@ class MobileOperationalController extends Controller
             return $request->user()->can($definition['permission'].'.view');
         }
 
-        if (in_array($module, ['persiapan', 'pengolahan'], true)
+        if (in_array($module, ['persiapan', 'pengolahan', 'pencucian'], true)
             && $this->scalarValue($item->getAttribute('status')) !== OperationalReportStatus::Verified->value) {
             return false;
         }
@@ -1327,13 +1536,13 @@ class MobileOperationalController extends Controller
             $targetOptions = $division === 'processing'
                 ? ProcessingBatch::query()
                     ->where('sppg_unit_id', $item->sppg_unit_id)
-                    ->whereIn('state', ['planned', 'in_progress'])
+                    ->where('state', 'in_progress')
                     ->latest('production_date')->limit(100)->pluck('batch_number', 'id')->mapWithKeys(
                         fn ($label, $id): array => [(string) $id => (string) $label],
                     )->all()
                 : PortioningSession::query()
                     ->where('sppg_unit_id', $item->sppg_unit_id)
-                    ->whereIn('state', ['planned', 'in_progress'])
+                    ->where('state', 'in_progress')
                     ->latest('portioning_date')->limit(100)->pluck('session_number', 'id')->mapWithKeys(
                         fn ($label, $id): array => [(string) $id => (string) $label],
                     )->all();
@@ -1461,10 +1670,30 @@ class MobileOperationalController extends Controller
             $actions = match ($module) {
                 'persiapan', 'pengolahan', 'pemorsian' => match ($state) {
                     'planned' => [$this->actionDefinition('start', 'Mulai pekerjaan')],
-                    'in_progress' => [$this->actionDefinition('complete', 'Selesaikan pekerjaan')],
+                    'in_progress' => $module === 'pengolahan'
+                        ? array_values(array_filter([
+                            $this->actionDefinition('complete', 'Selesaikan pekerjaan'),
+                            app(ProcessingWorkflow::class)->canCancel($item)
+                                ? $this->actionDefinition('cancel', 'Batalkan produksi', true)
+                                : null,
+                        ]))
+                        : ($module === 'pemorsian'
+                            ? array_values(array_filter([
+                                $this->actionDefinition('set_leftover_none', 'Tidak ada sisa makanan'),
+                                $this->actionDefinition('set_leftover_present', 'Ada sisa makanan'),
+                                $this->actionDefinition('complete', 'Selesaikan pekerjaan'),
+                                app(PortioningWorkflow::class)->canCancel($item)
+                                    ? $this->actionDefinition('cancel', 'Batalkan Pemorsian', true)
+                                    : null,
+                            ]))
+                            : [$this->actionDefinition('complete', 'Selesaikan pekerjaan')]),
                     default => [],
                 },
-                'distribusi' => match ($state) {
+                'distribusi' => ! $actor->can('distribution.approve')
+                    && $state !== 'planned'
+                    && (int) $item->getAttribute('petugas_id') !== (int) $actor->getKey()
+                        ? []
+                        : match ($state) {
                     'planned' => [$this->actionDefinition('claim', 'Pilih rute ini', false, [
                         $this->actionField('vehicle_name', 'Jenis/nama kendaraan', 'text', true, (string) $item->vehicle_name),
                         $this->actionField('vehicle_plate', 'Nomor polisi', 'text', true, (string) $item->vehicle_plate),
@@ -1492,19 +1721,30 @@ class MobileOperationalController extends Controller
                         $this->actionField('damaged_containers', 'Jumlah rusak/tidak layak', 'number', true, (string) ($item->damaged_containers ?: 0)),
                         $this->actionField('notes', 'Catatan selisih/kondisi', 'textarea', false, (string) $item->notes),
                     ])],
-                    'received' => $item->wasteHandlingCompleted()
-                        ? [$this->actionDefinition('start', 'Mulai pencucian')]
-                        : [$this->actionDefinition('waste', 'Simpan pencatatan limbah', false, [
-                            $this->actionField('has_food_waste', 'Terdapat limbah makanan', 'boolean', true, $item->has_food_waste === null ? null : ((bool) $item->has_food_waste ? '1' : '0')),
-                            $this->actionField('no_waste_confirmed', 'Konfirmasi tidak ada limbah', 'boolean', false, (bool) $item->no_waste_confirmed ? '1' : '0'),
-                            $this->actionField('waste_first_party_name', 'Nama pihak penyerah', 'text', false, (string) $item->waste_first_party_name),
-                            $this->actionField('waste_first_party_position', 'Jabatan pihak penyerah', 'text', false, (string) $item->waste_first_party_position),
-                            $this->actionField('waste_first_party_address', 'Alamat pihak penyerah', 'textarea', false, (string) $item->waste_first_party_address),
-                            $this->actionField('waste_second_party_name', 'Nama penerima limbah', 'text', false, (string) $item->waste_second_party_name),
-                            $this->actionField('waste_second_party_position', 'Jabatan penerima limbah', 'text', false, (string) $item->waste_second_party_position),
-                            $this->actionField('waste_second_party_address', 'Alamat penerima limbah', 'textarea', false, (string) $item->waste_second_party_address),
-                            $this->actionField('waste_handover_notes', 'Catatan serah-terima', 'textarea', false, (string) $item->waste_handover_notes),
-                        ])],
+                    'received' => $item->has_food_waste === null
+                        ? [
+                            $this->actionDefinition('waste_none', 'Tidak ada sisa makanan'),
+                            $this->actionDefinition('waste_present', 'Ada sisa makanan'),
+                        ]
+                        : ($item->has_food_waste
+                            ? ($item->wasteHandlingCompleted()
+                                ? [$this->actionDefinition('start', 'Mulai pencucian')]
+                                : [
+                                    $this->actionDefinition('waste_none', 'Ubah: tidak ada sisa makanan'),
+                                    $this->actionDefinition('waste', 'Simpan data dan berita acara limbah', false, [
+                                        $this->actionField('waste_first_party_name', 'Nama pihak penyerah', 'text', true, (string) ($item->waste_first_party_name ?: $item->petugas_name_snapshot)),
+                                        $this->actionField('waste_first_party_position', 'Jabatan pihak penyerah', 'text', true, (string) $item->waste_first_party_position),
+                                        $this->actionField('waste_first_party_address', 'Alamat pihak penyerah', 'textarea', true, (string) $item->waste_first_party_address),
+                                        $this->actionField('waste_second_party_name', 'Nama penerima limbah', 'text', true, (string) $item->waste_second_party_name),
+                                        $this->actionField('waste_second_party_position', 'Jabatan penerima limbah', 'text', true, (string) $item->waste_second_party_position),
+                                        $this->actionField('waste_second_party_address', 'Alamat penerima limbah', 'textarea', true, (string) $item->waste_second_party_address),
+                                        $this->actionField('waste_handover_notes', 'Catatan serah-terima', 'textarea', false, (string) $item->waste_handover_notes),
+                                    ]),
+                                ])
+                            : [
+                                $this->actionDefinition('waste_present', 'Ubah: ada sisa makanan'),
+                                $this->actionDefinition('start', 'Mulai pencucian'),
+                            ]),
                     'washing' => [$this->actionDefinition('complete', 'Selesaikan pencucian', false, [
                         $this->actionField('clean_containers', 'Ompreng bersih dan siap', 'number', true, (string) $item->clean_containers),
                         $this->actionField('damaged_containers', 'Ompreng rusak/tidak layak', 'number', true, (string) $item->damaged_containers),
@@ -1531,7 +1771,10 @@ class MobileOperationalController extends Controller
 
         if (in_array($state, ['completed', 'ready', 'returned'], true)
             && in_array($status, ['draft', 'revision_required'], true)
-            && $actor->can($permission.'.submit')) {
+            && $actor->can($permission.'.submit')
+            && ($module !== 'distribusi' || ! ($item instanceof DistributionRun) || $item->allRoutesReturned())
+            && ($module !== 'pencucian' || ! ($item instanceof WashingSession)
+                || app(WashingWorkflow::class)->submissionIssues($item) === [])) {
             $actions[] = $this->actionDefinition('submit', 'Ajukan laporan');
         }
         if (str_starts_with($module, 'ba-limbah-')
@@ -1866,10 +2109,36 @@ class MobileOperationalController extends Controller
     {
         return match ($action) {
             'start', 'complete' => $service->{$action}($item, $actor),
+            'cancel' => $service->cancel($item, $actor, (string) $notes),
             'submit' => $service->submit($item, $actor, $notes),
             'verify' => $service->verify($item, $actor, $notes),
             'revision' => $service->requestRevision($item, $actor, (string) $notes),
         };
+    }
+
+    private function runPortioningAction(string $action, Model $item, $actor, ?string $notes): Model
+    {
+        if (in_array($action, ['set_leftover_none', 'set_leftover_present'], true)) {
+            abort_unless($item instanceof PortioningSession && $item->state->value === 'in_progress', 422);
+            $mode = $action === 'set_leftover_present' ? 'present' : 'none';
+
+            return DB::transaction(function () use ($item, $actor, $mode): Model {
+                $item = PortioningSession::query()->lockForUpdate()->findOrFail($item->getKey());
+                if ($mode === 'none') {
+                    $photos = $item->leftoverRecords()->pluck('photo_path')->filter()->all();
+                    $item->leftoverRecords()->delete();
+                    Storage::disk('public')->delete($photos);
+                }
+                $item->update([
+                    'leftover_mode' => $mode,
+                    'updated_by' => $actor->getKey(),
+                ]);
+
+                return $item->refresh();
+            });
+        }
+
+        return $this->runStandardAction(app(PortioningWorkflow::class), $action, $item, $actor, $notes);
     }
 
     private function runDistributionAction(string $action, Model $item, $actor, array $data, ?string $notes): Model
@@ -1894,11 +2163,13 @@ class MobileOperationalController extends Controller
 
         return match ($action) {
             'receive' => $service->receive($item, $actor, $data),
-            'waste' => $service->recordWaste(
-                $this->ensureWashingWasteReport($item, $actor),
-                $actor,
-                $data,
-            ),
+            'waste_present' => $this->selectWashingWasteMode($item, $actor, true),
+            'waste_none' => $service->recordWaste($item, $actor, [
+                ...$data,
+                'has_food_waste' => false,
+                'no_waste_confirmed' => true,
+            ]),
+            'waste' => $this->recordMobileWashingWaste($item, $actor, $data),
             'start' => $service->start($item, $actor, $data),
             'complete' => $service->complete($item, $actor, $data),
             'ready' => $service->markReady($item, $actor, $notes),
@@ -1906,6 +2177,48 @@ class MobileOperationalController extends Controller
             'verify' => $service->verify($item, $actor, $notes),
             'revision' => $service->requestRevision($item, $actor, (string) $notes),
         };
+    }
+
+    private function selectWashingWasteMode(Model $item, $actor, bool $hasWaste): Model
+    {
+        abort_unless($item instanceof WashingSession && $item->state->value === 'received', 422);
+        $item->forceFill([
+            'has_food_waste' => $hasWaste,
+            'no_waste_confirmed' => false,
+            'waste_recorded_at' => null,
+            'updated_by' => $actor->getKey(),
+        ])->save();
+
+        return $item->refresh();
+    }
+
+    /** @param array<string,mixed> $data */
+    private function recordMobileWashingWaste(Model $item, $actor, array $data): Model
+    {
+        abort_unless($item instanceof WashingSession && $item->state->value === 'received', 422);
+        $validated = validator($data, [
+            'waste_first_party_name' => ['required', 'string', 'max:255'],
+            'waste_first_party_position' => ['required', 'string', 'max:255'],
+            'waste_first_party_address' => ['required', 'string', 'max:2000'],
+            'waste_second_party_name' => ['required', 'string', 'max:255'],
+            'waste_second_party_position' => ['required', 'string', 'max:255'],
+            'waste_second_party_address' => ['required', 'string', 'max:2000'],
+            'waste_handover_notes' => ['nullable', 'string', 'max:2000'],
+        ])->validate();
+
+        $item->forceFill([
+            ...$validated,
+            'has_food_waste' => true,
+            'no_waste_confirmed' => false,
+            'updated_by' => $actor->getKey(),
+        ])->save();
+        $item = $this->ensureWashingWasteReport($item->refresh(), $actor);
+
+        return app(WashingWorkflow::class)->recordWaste($item, $actor, [
+            ...$validated,
+            'has_food_waste' => true,
+            'no_waste_confirmed' => false,
+        ]);
     }
 
     private function runCleaningAction(string $action, Model $item, $actor, array $data, ?string $notes): Model
@@ -2064,6 +2377,7 @@ class MobileOperationalController extends Controller
         abort_unless($request->user()->can($definition['permission'].'.update'), 403);
         abort_unless(isset($definition['relations'][$relation]), 404);
         $parent = $this->findRecord($definition, $record, (int) $systemUnit->id());
+        $this->assertDistributionRecordAccess($module, $parent, $request->user());
         if (str_starts_with($module, 'pengambilan-gudang-')) {
             abort_unless((int) $parent->taken_by === (int) $request->user()->getKey(), 403);
         }
@@ -2095,7 +2409,7 @@ class MobileOperationalController extends Controller
                 default => [],
             },
             'pengolahan' => match ($relation) {
-                'materialUsages' => [],
+                'materialUsages', 'preparationOutputWithdrawals' => [],
                 'temperatureLogs', 'documentations' => $parent instanceof ProcessingBatch
                     && $parent->isOperationalInputEditable()
                         ? ['create', 'update', 'delete'] : [],
@@ -2107,18 +2421,34 @@ class MobileOperationalController extends Controller
             'pemorsian' => match ($relation) {
                 'routeAllocations' => $parent?->getAttribute('field_distribution_plan_id')
                     ? ['update'] : ['create', 'update', 'delete'],
-                'routeRecords', 'leftoverRecords', 'supplies' => ['create', 'update', 'delete'],
+                'routeRecords' => ['create', 'update', 'delete'],
+                'leftoverRecords' => $parent?->getAttribute('leftover_mode') === 'present'
+                    ? ['create', 'update', 'delete'] : [],
+                'supplies', 'preparationOutputWithdrawals' => [],
                 default => [],
             },
             'distribusi' => match ($relation) {
-                'stops' => $parent?->getAttribute('portioning_session_id')
-                    ? ['update'] : ['create', 'update', 'delete'],
-                'incidents' => ['create', 'update', 'delete'],
+                'stops' => $this->scalarValue($parent?->getAttribute('state')) === 'returned'
+                    && $this->scalarValue($parent?->getAttribute('status')) === 'revision_required'
+                        ? ['update']
+                        : (in_array($this->scalarValue($parent?->getAttribute('state')), [
+                            'assigned', 'loaded', 'departed',
+                        ], true) ? ['action'] : []),
+                'incidents' => $parent?->isReportEditable()
+                    && in_array($this->scalarValue($parent?->getAttribute('state')), [
+                        'assigned', 'loaded', 'departed', 'destinations_completed', 'returned',
+                    ], true)
+                        ? ['create', 'update', 'delete', 'action'] : [],
                 default => [],
             },
             'pencucian' => match ($relation) {
-                'checklistItems' => ['update'],
-                'wasteRecords', 'documentations' => ['create', 'update', 'delete'],
+                'checklistItems' => $this->scalarValue($parent?->getAttribute('state')) === 'washing'
+                    ? ['action'] : [],
+                'wasteRecords' => $this->scalarValue($parent?->getAttribute('state')) === 'received'
+                    && (bool) $parent?->getAttribute('has_food_waste')
+                        ? ['create', 'update', 'delete'] : [],
+                'documentations' => $this->scalarValue($parent?->getAttribute('state')) === 'washing'
+                    ? ['create', 'update', 'delete'] : [],
                 default => [],
             },
             'kebersihan' => match ($relation) {
@@ -2303,7 +2633,12 @@ class MobileOperationalController extends Controller
                 'occurred_at' => $values['occurred_at'] ?? now(),
                 'status' => DistributionIncidentStatus::Open,
             ],
-            ['pencucian', 'documentations'], ['kebersihan', 'documentations'] => [
+            ['pencucian', 'documentations'] => [
+                'phase' => 'after',
+                'captured_at' => now(),
+                'created_by' => $request->user()->getKey(),
+            ],
+            ['kebersihan', 'documentations'] => [
                 'created_by' => $request->user()->getKey(),
             ],
             ['kebersihan', 'checklistItems'] => in_array($values['result'] ?? null, ['pass', 'fail'], true)
@@ -2514,7 +2849,7 @@ class MobileOperationalController extends Controller
         })->values()->all();
     }
 
-    /** @return array<int,array{key:string,label:string}> */
+    /** @return array<int,array<string,mixed>> */
     private function relationActions(
         Request $request,
         string $module,
@@ -2522,7 +2857,28 @@ class MobileOperationalController extends Controller
         string $relation,
         Model $item,
     ): array {
+        if ($module === 'pencucian'
+            && $relation === 'checklistItems'
+            && $request->user()?->can('washing.update')
+            && $this->scalarValue($parent->getAttribute('state')) === 'washing') {
+            $passed = (bool) $item->getAttribute('is_passed');
+
+            return [$this->actionDefinition(
+                $passed ? 'uncheck' : 'check',
+                $passed ? 'Buka kembali checklist' : 'Tandai selesai',
+                false,
+                $passed ? [] : [
+                    $this->actionField('notes', 'Catatan pemeriksaan', 'textarea', false, (string) $item->getAttribute('notes')),
+                ],
+            )];
+        }
+
         if ($module !== 'distribusi' || ! $request->user()?->can('distribution.update')) {
+            return [];
+        }
+
+        if (! $request->user()->can('distribution.approve')
+            && (int) $parent->getAttribute('petugas_id') !== (int) $request->user()->getKey()) {
             return [];
         }
 
@@ -2530,22 +2886,53 @@ class MobileOperationalController extends Controller
             $status = $this->scalarValue($item->getAttribute('status'));
 
             return in_array($status, ['open', 'in_progress'], true)
-                ? [['key' => 'resolve', 'label' => 'Tandai insiden selesai']]
+                ? [$this->actionDefinition('resolve', 'Tandai insiden selesai')]
                 : [];
         }
 
-        if ($relation !== 'stops' || $this->scalarValue($parent->getAttribute('state')) !== 'departed') {
+        if ($relation !== 'stops') {
             return [];
         }
 
+        $runState = $this->scalarValue($parent->getAttribute('state'));
+        if (in_array($runState, ['assigned', 'loaded'], true)) {
+            $minimum = (int) $parent->stops()->min('sequence_order');
+            $maximum = (int) $parent->stops()->max('sequence_order');
+            $sequence = (int) $item->getAttribute('sequence_order');
+
+            return array_values(array_filter([
+                $sequence > $minimum
+                    ? $this->actionDefinition('move_up', 'Naikkan urutan') : null,
+                $sequence < $maximum
+                    ? $this->actionDefinition('move_down', 'Turunkan urutan') : null,
+            ]));
+        }
+
+        if ($runState !== 'departed') {
+            return [];
+        }
+
+        $failureFields = [
+            $this->actionField('failure_reason', 'Alasan gagal dikirim', 'textarea', true),
+            $this->actionField('handover_photo_path', 'Foto kondisi di tujuan', 'file'),
+        ];
+
         return match ($this->scalarValue($item->getAttribute('status'))) {
             'planned', 'in_transit' => [
-                ['key' => 'arrive', 'label' => 'Tandai tiba'],
-                ['key' => 'fail', 'label' => 'Tandai gagal'],
+                $this->actionDefinition('arrive', 'Makanan tiba di tujuan'),
+                $this->actionDefinition('fail', 'Tidak dapat dikirim', false, $failureFields),
             ],
             'arrived' => [
-                ['key' => 'deliver', 'label' => 'Selesaikan pengiriman'],
-                ['key' => 'fail', 'label' => 'Tandai gagal'],
+                $this->actionDefinition('deliver', 'Simpan serah-terima', false, [
+                    $this->actionField('delivered_small_portions', 'Porsi kecil diserahkan', 'number', true, (string) $item->getAttribute('small_portions')),
+                    $this->actionField('delivered_large_portions', 'Porsi besar diserahkan', 'number', true, (string) $item->getAttribute('large_portions')),
+                    $this->actionField('containers_sent', 'Ompreng/wadah diserahkan', 'number', true, (string) ((int) $item->getAttribute('small_portions') + (int) $item->getAttribute('large_portions'))),
+                    $this->actionField('recipient_name', 'Nama penerima', 'text', true, (string) $item->getAttribute('recipient_name')),
+                    $this->actionField('recipient_position', 'Jabatan penerima', 'text', false, (string) $item->getAttribute('recipient_position')),
+                    $this->actionField('handover_photo_path', 'Foto serah-terima', 'file', blank($item->getAttribute('handover_photo_path'))),
+                    $this->actionField('failure_reason', 'Alasan jika jumlah tidak sesuai', 'textarea', false, (string) $item->getAttribute('failure_reason')),
+                ]),
+                $this->actionDefinition('fail', 'Tidak dapat dikirim', false, $failureFields),
             ],
             default => [],
         };

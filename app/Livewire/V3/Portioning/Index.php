@@ -56,6 +56,8 @@ class Index extends Component
 
     public string $reviewNotes = '';
 
+    public string $cancellationReason = '';
+
     public function mount(): void
     {
         $this->currentUnit();
@@ -115,8 +117,10 @@ class Index extends Component
         session()->flash('v3.status', 'Pemorsian dimulai. Catat rute pertama beserta jumlah dan dokumentasinya.');
     }
 
-    public function createFromProductionPlan(FieldOperationalPlanGenerator $generator): void
-    {
+    public function createFromProductionPlan(
+        FieldOperationalPlanGenerator $generator,
+        PortioningWorkflow $workflow,
+    ): void {
         abort_unless($this->allowed('portioning.create'), 403);
 
         $data = $this->validate([
@@ -145,15 +149,38 @@ class Index extends Component
             ->where('field_distribution_plan_id', $plan->getKey())
             ->first();
         $session = $generator->generatePortioningSession($plan, auth()->user());
+        if ($session->state === PortioningSessionState::Planned) {
+            $session = $workflow->start($session, auth()->user());
+        } elseif ($session->state !== PortioningSessionState::InProgress) {
+            throw ValidationException::withMessages([
+                'productionPlanId' => 'Rencana ini sudah memiliki sesi Pemorsian yang tidak dapat dimulai kembali.',
+            ]);
+        }
 
         $this->productionPlanId = '';
         $this->select($session->getKey());
         session()->flash(
             'v3.status',
             $existingSession
-                ? 'Sesi Pemorsian dari rencana produksi berhasil dibuka.'
-                : 'Sesi Pemorsian berhasil dibuat dari rencana produksi tanpa pengambilan Gudang.',
+                ? 'Sesi Pemorsian yang sedang berjalan berhasil dibuka.'
+                : 'Pemorsian dimulai. Silakan ambil barang dari Gudang atau hasil Persiapan.',
         );
+    }
+
+    public function cancel(PortioningWorkflow $workflow): void
+    {
+        abort_unless($this->allowed('portioning.update'), 403);
+        $this->validate([
+            'cancellationReason' => ['required', 'string', 'max:2000'],
+        ], [], ['cancellationReason' => 'alasan pembatalan']);
+        $session = $workflow->cancel(
+            $this->record($this->selectedId),
+            auth()->user(),
+            $this->cancellationReason,
+        );
+        $this->cancellationReason = '';
+        $this->select($session->getKey());
+        session()->flash('v3.status', 'Sesi Pemorsian berhasil dibatalkan.');
     }
 
     public function saveRoute(): void
@@ -396,6 +423,13 @@ class Index extends Component
             ->orderByDesc('distribution_date')
             ->orderByDesc('id')
             ->get();
+        $productionPlans = $productionPlans
+            ->filter(fn (FieldDistributionPlan $plan): bool => ! $plan->portioningSession
+                || in_array($plan->portioningSession->state, [
+                    PortioningSessionState::Planned,
+                    PortioningSessionState::InProgress,
+                ], true))
+            ->values();
         $selectedProductionPlan = filled($this->productionPlanId)
             ? $productionPlans->firstWhere('id', (int) $this->productionPlanId)
             : null;
@@ -406,6 +440,7 @@ class Index extends Component
                 'routeAllocations',
                 'routeRecords',
                 'leftoverRecords',
+                'supplies',
                 'petugas',
             ])
             ->where('sppg_unit_id', $unit->id)
@@ -416,6 +451,10 @@ class Index extends Component
         $routesRecorded = $this->routeRecords !== [];
         $leftoverDeclared = $this->leftoverMode === 'none'
             || ($this->leftoverMode === 'present' && $this->leftovers !== []);
+        $cancellableSessionIds = $records
+            ->filter(fn (PortioningSession $session): bool => app(PortioningWorkflow::class)->canCancel($session))
+            ->pluck('id')
+            ->all();
 
         return view('livewire.v3.portioning.index', [
             ...$this->shellData($unit),
@@ -425,6 +464,7 @@ class Index extends Component
             'selectedProductionPlan' => $selectedProductionPlan,
             'routesRecorded' => $routesRecorded,
             'leftoverDeclared' => $leftoverDeclared,
+            'cancellableSessionIds' => $cancellableSessionIds,
             'canCreate' => $this->allowed('portioning.create'),
             'canEdit' => $this->allowed('portioning.update'),
             'canSubmit' => $this->allowed('portioning.submit'),

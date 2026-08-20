@@ -85,10 +85,29 @@ fun FieldPlanListScreen(
     onRefresh: () -> Unit,
     onLoad: () -> Unit,
     onLoadMore: () -> Unit,
+    onDateChange: (String) -> Unit,
     onPlanClick: (Long) -> Unit,
     onCreate: () -> Unit,
 ) {
     LaunchedEffect(Unit) { onLoad() }
+    val context = LocalContext.current
+    var showHistory by remember { mutableStateOf(false) }
+    var historyDate by remember { mutableStateOf(LocalDate.now()) }
+    val historyStatuses = setOf("completed", "cancelled")
+    val visiblePlans = state.plans.filter { (it.status in historyStatuses) == showHistory }
+
+    fun chooseHistoryDate() {
+        DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                historyDate = LocalDate.of(year, month + 1, day)
+                onDateChange(historyDate.toString())
+            },
+            historyDate.year,
+            historyDate.monthValue - 1,
+            historyDate.dayOfMonth,
+        ).show()
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -101,16 +120,16 @@ fun FieldPlanListScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onCreate) {
-                        Icon(Icons.Outlined.Add, contentDescription = "Tambah rencana")
+                    if (!showHistory) {
+                        IconButton(onClick = onCreate) {
+                            Icon(Icons.Outlined.Add, contentDescription = "Tambah rencana")
+                        }
                     }
                     IconButton(onClick = onRefresh, enabled = !state.isLoading) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Muat ulang")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors = sppgTopAppBarColors(),
             )
         },
     ) { innerPadding ->
@@ -121,7 +140,6 @@ fun FieldPlanListScreen(
                 padding = innerPadding,
                 onRetry = onRefresh,
             )
-            state.plans.isEmpty() -> EmptyContent(innerPadding)
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
@@ -160,15 +178,37 @@ fun FieldPlanListScreen(
                     }
                 }
                 item {
+                    WorkHistoryTabs(showHistory) { history ->
+                        showHistory = history
+                        onDateChange((if (history) historyDate else LocalDate.now()).toString())
+                    }
+                }
+                if (showHistory) {
+                    item { HistoryDateSelector(formatDate(state.dateFilter), ::chooseHistoryDate) }
+                }
+                item {
                     Text(
-                        "RENCANA TERBARU",
+                        if (showHistory) "RENCANA SELESAI" else "RENCANA HARI INI",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                items(state.plans, key = { it.id }) { plan ->
-                    FieldPlanCard(plan = plan, onClick = { onPlanClick(plan.id) })
+                if (visiblePlans.isEmpty()) {
+                    item {
+                        if (showHistory) HistoryEmptyState()
+                        else Card(shape = RoundedCornerShape(18.dp)) {
+                            Text(
+                                "Belum ada rencana distribusi untuk hari ini",
+                                modifier = Modifier.padding(22.dp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                } else {
+                    items(visiblePlans, key = { it.id }) { plan ->
+                        FieldPlanCard(plan = plan, onClick = { onPlanClick(plan.id) })
+                    }
                 }
                 if (state.currentPage < state.lastPage) {
                     item(key = "field-plan-load-more-${state.currentPage}") {
@@ -266,9 +306,7 @@ fun FieldPlanDetailScreen(
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors = sppgTopAppBarColors(),
             )
         },
     ) { innerPadding ->
@@ -645,9 +683,7 @@ fun FieldPlanEditScreen(
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                ),
+                colors = sppgTopAppBarColors(),
             )
         },
     ) { innerPadding ->
@@ -980,11 +1016,10 @@ fun FieldPlanCreateScreen(
     state: FieldPlanUiState,
     onBack: () -> Unit,
     onLoadOptions: () -> Unit,
-    onCreate: (Long, String?) -> Unit,
+    onCreate: (String, String?) -> Unit,
     onClearFeedback: () -> Unit,
 ) {
     LaunchedEffect(Unit) { onLoadOptions() }
-    var selectedId by remember { mutableStateOf<Long?>(null) }
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var notes by remember { mutableStateOf("") }
     val context = LocalContext.current
@@ -999,7 +1034,7 @@ fun FieldPlanCreateScreen(
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                colors = sppgTopAppBarColors(),
             )
         },
     ) { padding ->
@@ -1009,8 +1044,7 @@ fun FieldPlanCreateScreen(
             val optionsForDate = selectedDate?.let { date ->
                 state.options.filter { it.distributionDate == date }
             }.orEmpty()
-            val available = optionsForDate.filter { it.isAvailable }
-            val unavailable = optionsForDate.filterNot { it.isAvailable }
+            val selectedOption = optionsForDate.firstOrNull()
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 12.dp, 20.dp, 32.dp),
@@ -1022,7 +1056,7 @@ fun FieldPlanCreateScreen(
                 item {
                     Text("1. Tentukan tanggal distribusi", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(6.dp))
-                    Text("Menu yang dapat dipilih akan disesuaikan dengan tanggal distribusi.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Penerima dimuat dari periode aktif. Rencana tidak terikat menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(
                         onClick = {
@@ -1031,7 +1065,6 @@ fun FieldPlanCreateScreen(
                                 context,
                                 { _, year, month, day ->
                                     selectedDate = LocalDate.of(year, month + 1, day).toString()
-                                    selectedId = null
                                 },
                                 initial.year,
                                 initial.monthValue - 1,
@@ -1048,30 +1081,24 @@ fun FieldPlanCreateScreen(
                 }
                 if (selectedDate == null) {
                     item {
-                        SectionCard("2. Pilih menu") {
+                        SectionCard("2. Ketersediaan penerima") {
                             Text("Tentukan tanggal distribusi terlebih dahulu.")
                         }
                     }
                 } else if (optionsForDate.isEmpty()) {
                     item {
                         SectionCard("Tidak ada menu pada tanggal ini") {
-                            Text("Belum ada menu siklus yang disetujui atau aktif untuk ${formatDate(requireNotNull(selectedDate))}.")
+                        Text("Belum ada periode penerima aktif untuk ${formatDate(requireNotNull(selectedDate))}.")
                         }
                     }
                 } else {
                     item {
-                        Text("2. Pilih menu", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text("2. Ketersediaan penerima", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     }
-                    items(available, key = { it.id }) { option ->
-                        FieldPlanOptionCard(option, selectedId == option.id) { selectedId = option.id }
-                    }
-                }
-                if (unavailable.isNotEmpty()) {
                     item {
-                        Text("Belum dapat digunakan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    }
-                    items(unavailable, key = { "unavailable-${it.id}" }) { option ->
-                        FieldPlanOptionCard(option, selected = false, enabled = false) {}
+                        SectionCard(if (selectedOption?.isAvailable == true) "Siap dibuat" else "Belum dapat digunakan") {
+                            Text(selectedOption?.unavailableReason ?: "Penerima dari periode aktif siap dimuat.")
+                        }
                     }
                 }
                 item {
@@ -1088,8 +1115,8 @@ fun FieldPlanCreateScreen(
                 }
                 item {
                     Button(
-                        onClick = { selectedId?.let { onCreate(it, notes.trim().ifBlank { null }) } },
-                        enabled = selectedId != null && !state.isSubmitting,
+                        onClick = { selectedDate?.let { onCreate(it, notes.trim().ifBlank { null }) } },
+                        enabled = selectedDate != null && selectedOption?.isAvailable == true && !state.isSubmitting,
                         modifier = Modifier.fillMaxWidth().height(52.dp),
                     ) {
                         if (state.isSubmitting) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -1151,7 +1178,8 @@ private fun ReadinessCard(
 ) {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (ready) Color(0xFFD8EBDD) else Color(0xFFFFE2C7),
+            containerColor = if (ready) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.secondaryContainer,
         ),
         shape = RoundedCornerShape(18.dp),
     ) {
@@ -1178,7 +1206,8 @@ private fun ReadinessCard(
 private fun FeedbackCard(message: String, isError: Boolean, onDismiss: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = if (isError) Color(0xFFFFDAD6) else Color(0xFFD8EBDD),
+            containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
+            else MaterialTheme.colorScheme.primaryContainer,
         ),
         shape = RoundedCornerShape(15.dp),
     ) {

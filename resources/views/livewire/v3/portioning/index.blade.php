@@ -19,9 +19,9 @@
             <section class="rounded-2xl border border-sky-200 bg-sky-50 p-5">
                 <div class="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
                     <div>
-                        <p class="text-xs font-bold uppercase tracking-[.14em] text-sky-700">Buat sesi manual</p>
-                        <h3 class="mt-1 text-lg font-bold text-slate-900">Akses data rencana produksi</h3>
-                        <p class="mt-1 max-w-3xl text-sm text-slate-600">Pilih rencana produksi aktif untuk membuat sesi Pemorsian tanpa mencatat pengambilan barang dari Gudang terlebih dahulu.</p>
+                        <p class="text-xs font-bold uppercase tracking-[.14em] text-sky-700">Mulai Pemorsian</p>
+                        <h3 class="mt-1 text-lg font-bold text-slate-900">Pilih rencana distribusi aktif</h3>
+                        <p class="mt-1 max-w-3xl text-sm text-slate-600">Sesi harus dimulai terlebih dahulu. Setelah berjalan, barang dapat diambil dari Gudang atau hasil Persiapan.</p>
                     </div>
                     <div class="rounded-xl bg-white px-4 py-3 text-xs text-slate-600 ring-1 ring-sky-100">
                         Menu, tanggal, target porsi, dan rute akan diambil otomatis.
@@ -45,7 +45,7 @@
                         @error('productionPlanId') <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
                     </label>
                     <button type="button" wire:click="createFromProductionPlan" wire:loading.attr="disabled" wire:target="createFromProductionPlan" @disabled(!$selectedProductionPlan) class="h-11 rounded-xl bg-sky-700 px-5 text-xs font-bold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50">
-                        {{ $selectedProductionPlan?->portioningSession ? 'Buka sesi Pemorsian' : 'Buat sesi Pemorsian' }}
+                        {{ $selectedProductionPlan?->portioningSession ? 'Buka sesi berjalan' : 'Mulai Pemorsian' }}
                     </button>
                 </div>
 
@@ -126,6 +126,14 @@
                                 @endif
                             </div>
                         </div>
+                        @if($canEdit && in_array($selected->id, $cancellableSessionIds, true))
+                            <div class="mt-4 rounded-xl border border-rose-300/30 bg-rose-300/10 p-3">
+                                <label class="block text-xs font-semibold text-rose-100">Alasan pembatalan</label>
+                                <textarea wire:model="cancellationReason" rows="2" class="mt-2 w-full rounded-lg border border-rose-200 bg-white p-2 text-sm text-slate-900" placeholder="Wajib diisi"></textarea>
+                                @error('cancellationReason') <p class="mt-1 text-xs font-semibold text-rose-200">{{ $message }}</p> @enderror
+                                <button wire:click="cancel" wire:confirm="Batalkan sesi Pemorsian ini?" class="mt-2 rounded-lg px-3 py-2 text-xs font-bold text-rose-100">Batalkan Pemorsian</button>
+                            </div>
+                        @endif
                         <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                             <div class="rounded-xl border border-white/10 bg-white/[.07] p-3">
                                 <p class="text-[10px] text-slate-400">Porsi kecil</p>
@@ -149,16 +157,40 @@
                         </div>
                     </section>
 
+                    @if($canEdit && $selected->state === \App\Enums\PortioningSessionState::InProgress)
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <a href="{{ route('v3.warehouse.withdrawals.index') }}" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-center text-sm font-bold text-sky-700">Ambil barang dari Gudang</a>
+                            <a href="{{ route('v3.preparation-outputs.index') }}" class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-700">Ambil hasil Persiapan</a>
+                        </div>
+                    @endif
+
+                    <section class="rounded-2xl border border-slate-200 bg-white p-5">
+                        <h3 class="font-bold text-slate-900">Barang dari Gudang</h3>
+                        <p class="mt-1 text-xs text-slate-500">Barang langsung masuk ke sesi. Verifikasi Gudang dilakukan terpisah untuk menyesuaikan stok sistem.</p>
+                        <div class="mt-4 grid gap-3 md:grid-cols-2">
+                            @forelse($selected->supplies as $supply)
+                                <div class="rounded-xl bg-slate-50 p-4"><b>{{ $supply->supply_name }}</b><p class="mt-1 text-xs text-slate-500">{{ number_format((float) $supply->quantity, 3, ',', '.') }} {{ $supply->unit_name }} · {{ $supply->source_reference ?: 'Pengambilan Gudang' }}</p></div>
+                            @empty
+                                <div class="rounded-xl border border-dashed p-5 text-sm text-slate-500 md:col-span-2">Belum ada barang yang diambil dari Gudang.</div>
+                            @endforelse
+                        </div>
+                    </section>
+
                     <section class="rounded-2xl border border-slate-200 bg-white p-5">
                         <div class="flex flex-wrap items-center justify-between gap-3">
                             <div><h3 class="font-bold text-slate-900">Hasil dari Divisi Persiapan</h3><p class="mt-1 text-xs text-slate-500">Buah atau bahan siap pakai yang telah diambil untuk sesi Pemorsian ini.</p></div>
                             <a wire:navigate href="{{ route('v3.preparation-outputs.index') }}" class="rounded-xl border border-sky-200 px-4 py-2 text-xs font-bold text-sky-700">Ambil hasil Persiapan</a>
                         </div>
                         <div class="mt-4 grid gap-3 md:grid-cols-2">
-                            @forelse($selected->preparationOutputWithdrawals->where('status', \App\Models\PreparationOutputWithdrawal::VERIFIED) as $withdrawal)
-                                <div class="rounded-xl bg-slate-50 p-4"><b>{{ $withdrawal->output?->output_name }}</b><p class="mt-1 text-xs text-slate-500">{{ number_format((float) $withdrawal->verified_quantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }} · {{ $withdrawal->output?->storage_location ?: 'Lokasi tidak dicatat' }}</p></div>
+                            @forelse($selected->preparationOutputWithdrawals->whereIn('status', [\App\Models\PreparationOutputWithdrawal::WAITING, \App\Models\PreparationOutputWithdrawal::VERIFIED]) as $withdrawal)
+                                <div class="rounded-xl bg-slate-50 p-4">
+                                    <div class="flex items-start justify-between gap-3">
+                                        <div><b>{{ $withdrawal->output?->output_name }}</b><p class="mt-1 text-xs text-slate-500">{{ number_format((float) $withdrawal->used_quantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }} · {{ $withdrawal->output?->storage_location ?: 'Lokasi tidak dicatat' }}</p></div>
+                                        <span class="rounded-full px-2 py-1 text-[10px] font-bold {{ $withdrawal->status === \App\Models\PreparationOutputWithdrawal::VERIFIED ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">{{ $withdrawal->verification_status_label }}</span>
+                                    </div>
+                                </div>
                             @empty
-                                <div class="rounded-xl border border-dashed p-5 text-sm text-slate-500 md:col-span-2">Belum ada hasil Persiapan yang diverifikasi untuk sesi ini.</div>
+                                <div class="rounded-xl border border-dashed p-5 text-sm text-slate-500 md:col-span-2">Belum ada hasil Persiapan yang diambil untuk sesi ini.</div>
                             @endforelse
                         </div>
                     </section>
@@ -166,7 +198,7 @@
                     @if($selected->state === \App\Enums\PortioningSessionState::Planned)
                         <section class="rounded-2xl border border-sky-200 bg-sky-50 p-5">
                             <h3 class="font-bold text-slate-900">Siap memulai Pemorsian</h3>
-                            <p class="mt-1 text-sm text-slate-600">Pemorsian dapat dimulai ketika makanan matang mulai tersedia.</p>
+                            <p class="mt-1 text-sm text-slate-600">Mulai sesi terlebih dahulu, kemudian ambil barang dari Gudang atau hasil Persiapan.</p>
                             @if($canEdit)
                                 <div class="mt-4 flex justify-end"><button type="button" wire:click="start" class="h-11 rounded-xl bg-sky-700 px-5 text-xs font-bold text-white">Mulai Pemorsian</button></div>
                             @endif

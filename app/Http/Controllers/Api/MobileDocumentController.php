@@ -30,9 +30,14 @@ class MobileDocumentController extends Controller
     ): Response {
         $definition = $registry->authorize($request->user(), $module);
         $model = $definition['model'];
-        $item = $model::query()
-            ->where('sppg_unit_id', $systemUnit->id())
-            ->findOrFail($record);
+        $query = $model::query()->where('sppg_unit_id', $systemUnit->id());
+        if ($module === 'distribusi' && ! $request->user()->can('distribution.approve')) {
+            $query->where(function ($query) use ($request): void {
+                $query->where('state', 'planned')
+                    ->orWhere('petugas_id', $request->user()->getKey());
+            });
+        }
+        $item = $query->findOrFail($record);
 
         return match ($module) {
             'lapangan-laporan' => app(FieldDailyReportPdfController::class)($item),
