@@ -5,9 +5,11 @@ namespace App\Livewire\V3\Procurement;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\Ingredient;
 use App\Models\MeasurementUnit;
+use App\Models\NonFoodItem;
 use App\Models\ProcurementRequest;
 use App\Models\ProcurementRequestItem;
 use App\Models\Supplier;
+use App\Models\Warehouse;
 use App\Services\ProcurementRequestService;
 use App\Services\StockReceiptService;
 use App\Support\V3\OperationsPresentation;
@@ -41,7 +43,7 @@ class Show extends Component
     public function mount(ProcurementRequest $procurement): void
     {
         $unit = $this->currentUnit();
-        abort_unless($this->allowed('procurement.view'), 403);
+        abort_unless($this->allowed('procurement.view') || $this->allowed('non_food_procurement.view'), 403);
         abort_unless((int) $procurement->sppg_unit_id === (int) $unit->getKey(), 404);
         $this->requestId = $procurement->getKey();
         $this->fillFromRequest($procurement);
@@ -82,12 +84,13 @@ class Show extends Component
         $request = $this->request();
         abort_unless($this->canEditItems($request), 403);
         $unit = $this->currentUnit();
+        $isNonFood = $request->procurement_type === Warehouse::TYPE_NON_FOOD;
 
         $data = $this->validate([
             'newIngredientId' => [
                 'required',
                 'integer',
-                Rule::exists('ingredients', 'id')
+                Rule::exists($isNonFood ? 'non_food_items' : 'ingredients', 'id')
                     ->where('sppg_unit_id', $unit->getKey())
                     ->where('is_active', true),
             ],
@@ -96,31 +99,33 @@ class Show extends Component
             'newIngredientId.exists' => 'Bahan tidak tersedia pada Unit SPPG aktif.',
         ]);
 
-        $this->runAction(function () use ($data, $request, $service, $unit): string {
-            $ingredient = Ingredient::query()
+        $this->runAction(function () use ($data, $request, $service, $unit, $isNonFood): string {
+            $ingredient = ($isNonFood ? NonFoodItem::query() : Ingredient::query())
                 ->with('measurementUnit')
                 ->where('sppg_unit_id', $unit->getKey())
                 ->where('is_active', true)
                 ->findOrFail((int) $data['newIngredientId']);
 
-            if ($request->items()->where('ingredient_id', $ingredient->getKey())->exists()) {
+            $referenceColumn = $isNonFood ? 'non_food_item_id' : 'ingredient_id';
+            if ($request->items()->where($referenceColumn, $ingredient->getKey())->exists()) {
                 throw ValidationException::withMessages([
                     'newIngredientId' => 'Bahan tersebut sudah ada dalam daftar pembelian.',
                 ]);
             }
 
-            DB::transaction(function () use ($ingredient, $request, $service): void {
+            DB::transaction(function () use ($ingredient, $request, $service, $isNonFood): void {
                 $quantity = 1.0;
                 $unitSnapshot = $ingredient->measurementUnit?->symbol
                     ?: $ingredient->measurementUnit?->code
                     ?: 'unit';
-                $legacyKgQuantity = $this->isKilogramUnit($ingredient->measurementUnit, $unitSnapshot)
+                $legacyKgQuantity = ! $isNonFood && $this->isKilogramUnit($ingredient->measurementUnit, $unitSnapshot)
                     ? $quantity
                     : 0.0;
 
                 $request->items()->create([
                     'nutrition_requirement_item_id' => null,
-                    'ingredient_id' => $ingredient->getKey(),
+                    'ingredient_id' => $isNonFood ? null : $ingredient->getKey(),
+                    'non_food_item_id' => $isNonFood ? $ingredient->getKey() : null,
                     'supplier_id' => null,
                     'ingredient_code_snapshot' => $ingredient->code,
                     'ingredient_name_snapshot' => $ingredient->name,
@@ -238,8 +243,10 @@ class Show extends Component
 
     public function delete(): void
     {
-        abort_unless($this->allowed('procurement.delete'), 403);
         $request = $this->request();
+        abort_unless($request->procurement_type === Warehouse::TYPE_NON_FOOD
+            ? $this->allowed('non_food_procurement.update')
+            : $this->allowed('procurement.delete'), 403);
         abort_unless($request->isEditable(), 403);
         $request->delete();
         session()->flash('v3.status', 'Draft permintaan pembelian berhasil dihapus.');
@@ -249,19 +256,19 @@ class Show extends Component
     public function render()
     {
         $unit = $this->currentUnit();
-        abort_unless($this->allowed('procurement.view'), 403);
-        $request = $this->request()->load(['nutritionRequirementPlan', 'items.supplier', 'items.ingredient.measurementUnit', 'items.measurementUnit', 'items.nutritionRequirementItem', 'creator', 'submitter', 'approver', 'priceFinalizer', 'orderer']);
+        abort_unless($this->allowed('procurement.view') || $this->allowed('non_food_procurement.view'), 403);
+        $request = $this->request()->load(['nutritionRequirementPlan', 'items.supplier', 'items.ingredient.measurementUnit', 'items.nonFoodItem.measurementUnit', 'items.measurementUnit', 'items.nutritionRequirementItem', 'creator', 'submitter', 'approver', 'priceFinalizer', 'orderer']);
 
         return view('livewire.v3.procurement.show', [
             ...$this->shellData($unit),
             'request' => $request,
             'statuses' => OperationsPresentation::procurementStatuses(),
             'suppliers' => Supplier::query()->where('sppg_unit_id', $unit->getKey())->where('is_active', true)->orderBy('name')->get(),
-            'availableIngredients' => Ingredient::query()
+            'availableIngredients' => ($request->procurement_type === Warehouse::TYPE_NON_FOOD ? NonFoodItem::query() : Ingredient::query())
                 ->with('measurementUnit')
                 ->where('sppg_unit_id', $unit->getKey())
                 ->where('is_active', true)
-                ->whereNotIn('id', $request->items->pluck('ingredient_id')->filter())
+                ->whereNotIn('id', $request->items->pluck($request->procurement_type === Warehouse::TYPE_NON_FOOD ? 'non_food_item_id' : 'ingredient_id')->filter())
                 ->orderBy('name')
                 ->get(),
             'measurementUnits' => MeasurementUnit::query()
@@ -269,10 +276,16 @@ class Show extends Component
                 ->orderByRaw("CASE unit_type WHEN 'weight' THEN 1 WHEN 'volume' THEN 2 WHEN 'count' THEN 3 ELSE 4 END")
                 ->orderBy('name')
                 ->get(),
-            'canHeaderEdit' => $this->allowed('procurement.update') && $request->isEditable(),
+            'canHeaderEdit' => $this->canUpdate($request) && $request->isEditable(),
             'canItemEdit' => $this->canEditItems($request),
-            'canSupplierEdit' => $this->allowed('procurement.select_supplier') && $request->status === ProcurementRequest::STATUS_SUBMITTED,
+            'canSupplierEdit' => $this->canSelectSupplier($request) && $request->status === ProcurementRequest::STATUS_SUBMITTED,
             'canPriceEdit' => $this->allowed('procurement.price_input') && $request->priceIsEditable(),
+            'canSubmitRequest' => $request->procurement_type === Warehouse::TYPE_NON_FOOD
+                ? $this->allowed('non_food_procurement.submit') : $this->allowed('procurement.submit'),
+            'canOrderRequest' => $request->procurement_type === Warehouse::TYPE_NON_FOOD
+                ? $this->allowed('non_food_procurement.order') : $this->allowed('procurement.order'),
+            'canDeleteRequest' => $request->procurement_type === Warehouse::TYPE_NON_FOOD
+                ? $this->allowed('non_food_procurement.update') : $this->allowed('procurement.delete'),
         ])->layout('layouts.v3', ['title' => 'Rincian Pengadaan']);
     }
 
@@ -280,9 +293,9 @@ class Show extends Component
     {
         $request = $this->request()->load('items');
         $unit = $this->currentUnit();
-        $canHeader = $this->allowed('procurement.update') && $request->isEditable();
+        $canHeader = $this->canUpdate($request) && $request->isEditable();
         $canItems = $this->canEditItems($request);
-        $canSupplier = $this->allowed('procurement.select_supplier') && $request->status === ProcurementRequest::STATUS_SUBMITTED;
+        $canSupplier = $this->canSelectSupplier($request) && $request->status === ProcurementRequest::STATUS_SUBMITTED;
         $canPrice = $this->allowed('procurement.price_input') && $request->priceIsEditable();
         abort_unless($canHeader || $canItems || $canSupplier || $canPrice, 403);
 
@@ -368,7 +381,7 @@ class Show extends Component
 
     private function canEditItems(ProcurementRequest $request): bool
     {
-        return $this->allowed('procurement.update')
+        return $this->canUpdate($request)
             && $request->itemsAreEditable();
     }
 
@@ -381,7 +394,7 @@ class Show extends Component
 
     private function fillFromRequest(ProcurementRequest $request): void
     {
-        $request->load(['items.ingredient.measurementUnit', 'items.measurementUnit', 'items.nutritionRequirementItem']);
+        $request->load(['items.ingredient.measurementUnit', 'items.nonFoodItem.measurementUnit', 'items.measurementUnit', 'items.nutritionRequirementItem']);
         $this->requestDate = $request->request_date?->toDateString() ?? '';
         $this->neededDate = $request->needed_date?->toDateString() ?? '';
         $this->notes = (string) $request->notes;
@@ -422,7 +435,21 @@ class Show extends Component
             }
         }
 
-        return $item->ingredient?->measurementUnit;
+        return $item->ingredient?->measurementUnit ?: $item->nonFoodItem?->measurementUnit;
+    }
+
+    private function canUpdate(ProcurementRequest $request): bool
+    {
+        return $request->procurement_type === Warehouse::TYPE_NON_FOOD
+            ? $this->allowed('non_food_procurement.update')
+            : $this->allowed('procurement.update');
+    }
+
+    private function canSelectSupplier(ProcurementRequest $request): bool
+    {
+        return $request->procurement_type === Warehouse::TYPE_NON_FOOD
+            ? $this->allowed('non_food_procurement.select_supplier')
+            : $this->allowed('procurement.select_supplier');
     }
 
     private function isKilogramUnit(?MeasurementUnit $measurementUnit, ?string $snapshot = null): bool

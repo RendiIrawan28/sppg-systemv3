@@ -22,9 +22,11 @@ use App\Models\ProcessingBatch;
 use App\Models\ProcessingReturn;
 use App\Models\StockAdjustment;
 use App\Models\StockReceipt;
+use App\Models\Warehouse;
 use App\Models\WarehouseWithdrawal;
 use App\Models\WashingSession;
 use App\Models\WasteHandoverReport;
+use App\Services\CleaningScheduleService;
 use App\Services\CleaningWorkflow;
 use App\Services\ContainerCollectionWorkflow;
 use App\Services\DistributionWorkflow;
@@ -46,6 +48,7 @@ use App\Services\V3\OperationalRecordInitializer;
 use App\Services\WarehouseWithdrawalService;
 use App\Services\WashingWorkflow;
 use App\Services\WasteHandoverWorkflow;
+use App\Support\DivisionRole;
 use App\Support\Mobile\MobileOperationalRecordTransformer;
 use App\Support\Mobile\MobileWorkspaceRegistry;
 use App\Support\V3\SystemUnit;
@@ -70,9 +73,16 @@ class MobileOperationalController extends Controller
         Request $request,
         MobileWorkspaceRegistry $registry,
         SystemUnit $systemUnit,
+        CleaningScheduleService $cleaningSchedule,
     ): JsonResponse {
         $today = now()->toDateString();
-        $modules = collect($registry->forUser($request->user()))
+        $definitions = $registry->forUser($request->user());
+
+        if (isset($definitions['kebersihan'])) {
+            $cleaningSchedule->ensureForDate($systemUnit->id(), $today, $request->user());
+        }
+
+        $modules = collect($definitions)
             ->map(function (array $definition, string $slug) use ($request, $registry, $systemUnit, $today): array {
                 $model = $definition['model'];
                 $emptyRecord = new $model;
@@ -125,8 +135,14 @@ class MobileOperationalController extends Controller
         MobileWorkspaceRegistry $registry,
         MobileOperationalRecordTransformer $transformer,
         SystemUnit $systemUnit,
+        CleaningScheduleService $cleaningSchedule,
     ): JsonResponse {
         $definition = $registry->authorize($request->user(), $module);
+
+        if ($module === 'kebersihan') {
+            $cleaningSchedule->ensureForDate($systemUnit->id(), now()->toDateString(), $request->user());
+        }
+
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', 'string', 'max:50'],
@@ -263,7 +279,8 @@ class MobileOperationalController extends Controller
                     return $record->refresh();
                 }
 
-                if ($module === 'gudang-stok-awal') {
+                if (in_array($module, ['gudang-stok-awal', 'gudang-stok-awal-non-pangan'], true)) {
+                    $nonFood = $module === 'gudang-stok-awal-non-pangan';
                     $input = $request->validate([
                         'fields' => ['present', 'array'],
                         'fields.opening_date' => ['required', 'date', 'before_or_equal:today'],
@@ -279,6 +296,7 @@ class MobileOperationalController extends Controller
                         'rows' => ['required', 'array', 'min:1', 'max:100'],
                         'rows.*.mode' => ['required', Rule::in(['existing', 'new'])],
                         'rows.*.ingredient_id' => ['nullable', 'integer'],
+                        'rows.*.non_food_item_id' => ['nullable', 'integer'],
                         'rows.*.new_name' => ['nullable', 'string', 'max:255'],
                         'rows.*.new_category' => ['nullable', Rule::in([
                             'staple', 'animal_protein', 'plant_protein', 'vegetable', 'fruit', 'seasoning',
@@ -298,10 +316,14 @@ class MobileOperationalController extends Controller
                             'measurement_unit_id' => null, 'lot_number' => null, 'expired_date' => null,
                             'location_name' => null, 'condition_notes' => null,
                         ];
-                        if ($row['mode'] === 'existing' && blank($row['ingredient_id'])) {
+                        $selectedId = $nonFood ? ($row['non_food_item_id'] ?? null) : ($row['ingredient_id'] ?? null);
+                        if ($row['mode'] === 'existing' && blank($selectedId)) {
                             throw ValidationException::withMessages(['fields.rows_payload' => 'Pilih barang pada baris '.($index + 1).'.']);
                         }
-                        if ($row['mode'] === 'new' && (blank($row['new_name']) || blank($row['measurement_unit_id']))) {
+                        if ($nonFood && $row['mode'] === 'new') {
+                            throw ValidationException::withMessages(['fields.rows_payload' => 'Master barang Non-Pangan baru dibuat melalui website. Pilih barang yang sudah tersedia.']);
+                        }
+                        if (! $nonFood && $row['mode'] === 'new' && (blank($row['new_name']) || blank($row['measurement_unit_id']))) {
                             throw ValidationException::withMessages(['fields.rows_payload' => 'Nama dan satuan barang baru pada baris '.($index + 1).' wajib diisi.']);
                         }
                     }
@@ -312,13 +334,14 @@ class MobileOperationalController extends Controller
                         'files.photo_path',
                     );
                     try {
-                        return app(OpeningStockService::class)->create(
+                        return app(OpeningStockService::class)->createForWarehouse(
                             $unitId,
                             (string) $input['fields']['opening_date'],
                             $photoPath,
                             $input['fields']['notes'] ?? null,
                             $rows,
                             $request->user(),
+                            $nonFood ? Warehouse::TYPE_NON_FOOD : Warehouse::TYPE_FOOD,
                         );
                     } catch (\Throwable $exception) {
                         Storage::disk('public')->delete($photoPath);
@@ -326,7 +349,7 @@ class MobileOperationalController extends Controller
                     }
                 }
 
-                if ($module === 'gudang-penyesuaian') {
+                if (in_array($module, ['gudang-penyesuaian', 'gudang-penyesuaian-non-pangan'], true)) {
                     $fields = $request->validate([
                         'fields' => ['present', 'array'],
                         'fields.inventory_lot_id' => ['required', 'integer'],
@@ -336,6 +359,15 @@ class MobileOperationalController extends Controller
                     ])['fields'];
                     $lot = InventoryLot::query()
                         ->where('sppg_unit_id', $unitId)
+                        ->where(function (Builder $query) use ($module): void {
+                            $type = $module === 'gudang-penyesuaian-non-pangan'
+                                ? Warehouse::TYPE_NON_FOOD
+                                : Warehouse::TYPE_FOOD;
+                            $query->whereHas('warehouse', fn (Builder $warehouseQuery) => $warehouseQuery->where('type', $type));
+                            if ($type === Warehouse::TYPE_FOOD) {
+                                $query->orWhereNull('warehouse_id');
+                            }
+                        })
                         ->findOrFail((int) $fields['inventory_lot_id']);
 
                     return app(StockControlService::class)->create(
@@ -367,6 +399,27 @@ class MobileOperationalController extends Controller
                         (string) $fields['reference_selection'],
                         $fields['purpose_reference'] ?? null,
                         $fields['shift'] ?? null,
+                        $fields['notes'] ?? null,
+                        $request->user(),
+                    );
+                }
+
+                if ($module === 'pengambilan-non-pangan') {
+                    $fields = $request->validate([
+                        'fields' => ['present', 'array'],
+                        'fields.purpose_reference' => ['required', 'string', 'max:255'],
+                        'fields.notes' => ['nullable', 'string', 'max:2000'],
+                    ])['fields'];
+                    $division = $request->user()->getRoleNames()
+                        ->map(fn (string $role): ?string => DivisionRole::divisionCodeForRole($role))
+                        ->filter()
+                        ->first();
+                    abort_unless(is_string($division), 403, 'Akun tidak terhubung ke salah satu divisi operasional.');
+
+                    return app(WarehouseWithdrawalService::class)->createNonFoodDraft(
+                        $unitId,
+                        $division,
+                        (string) $fields['purpose_reference'],
                         $fields['notes'] ?? null,
                         $request->user(),
                     );
@@ -693,11 +746,11 @@ class MobileOperationalController extends Controller
                 $data = [...$item->getAttributes(), ...$fields];
 
                 return match ($module) {
-                    'gudang' => $this->runWarehouseReceiptAction($action, $item, $actor),
-                    'gudang-stok' => $this->runWarehouseStockAction($action, $item, $actor, $fields, $notes),
-                    'gudang-penyesuaian' => $this->runWarehouseAdjustmentAction($action, $item, $actor),
-                    'gudang-pengambilan' => $this->runWarehouseWithdrawalAction($action, $item, $actor, $notes),
-                    'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian' => $this->runDivisionWarehouseWithdrawalAction($action, $item, $actor),
+                    'gudang', 'gudang-non-pangan' => $this->runWarehouseReceiptAction($action, $item, $actor),
+                    'gudang-stok', 'gudang-stok-non-pangan' => $this->runWarehouseStockAction($action, $item, $actor, $fields, $notes),
+                    'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan' => $this->runWarehouseAdjustmentAction($action, $item, $actor),
+                    'gudang-pengambilan', 'gudang-pengambilan-non-pangan' => $this->runWarehouseWithdrawalAction($action, $item, $actor, $notes),
+                    'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian', 'pengambilan-non-pangan' => $this->runDivisionWarehouseWithdrawalAction($action, $item, $actor),
                     'gudang-retur' => $this->runPreparationReturnAction($action, $item, $actor, $fields, $notes),
                     'gudang-retur-pengolahan' => $this->runProcessingReturnAction($action, $item, $actor, $fields, $notes),
                     'lapangan-konfirmasi' => $this->runDailyBeneficiaryConfirmationAction($action, $item, $actor),
@@ -753,6 +806,36 @@ class MobileOperationalController extends Controller
         [$definition, $parent, $relationDefinition] = $this->relationContext(
             $request, $module, $record, $relation, $registry, $systemUnit, 'create',
         );
+        if (in_array($module, ['gudang', 'gudang-non-pangan'], true) && $relation === 'itemPhotos') {
+            $input = $request->validate([
+                'fields' => ['present', 'array'],
+                'fields.stock_receipt_item_id' => ['required', 'integer'],
+                'files.photo_path' => ['required', 'string', 'max:7500000'],
+            ]);
+            $receiptItem = $parent->items()->findOrFail((int) $input['fields']['stock_receipt_item_id']);
+            $photoPath = $this->storeEncodedImage(
+                (string) data_get($input, 'files.photo_path'),
+                'mobile/stock-receipts/items/'.$receiptItem->getKey(),
+                'files.photo_path',
+            );
+            try {
+                $photo = $parent->itemPhotos()->create([
+                    'stock_receipt_item_id' => $receiptItem->getKey(),
+                    'item_name_snapshot' => $receiptItem->ingredient_name_snapshot,
+                    'photo_path' => $photoPath,
+                    'original_name' => basename($photoPath),
+                    'uploaded_by' => $request->user()->getKey(),
+                ]);
+            } catch (\Throwable $exception) {
+                Storage::disk('public')->delete($photoPath);
+                throw $exception;
+            }
+
+            return response()->json([
+                'message' => 'Foto barang berhasil ditambahkan. Anda dapat menambahkan foto berikutnya.',
+                'data' => $this->relationItemData($photo, $relationDefinition, $registry, (int) $systemUnit->id()),
+            ], 201);
+        }
         if ($module === 'persiapan' && $relation === 'returns') {
             $input = $request->validate([
                 'fields' => ['present', 'array'],
@@ -842,7 +925,7 @@ class MobileOperationalController extends Controller
                 (int) $systemUnit->id(),
             );
         }
-        if (str_starts_with($module, 'pengambilan-gudang-') && $relation === 'items') {
+        if ((str_starts_with($module, 'pengambilan-gudang-') || $module === 'pengambilan-non-pangan') && $relation === 'items') {
             $input = $request->validate([
                 'fields' => ['present', 'array'],
                 'fields.inventory_lot_id' => ['required', 'integer'],
@@ -857,17 +940,27 @@ class MobileOperationalController extends Controller
                 'files.photo_path',
             );
             try {
-                $createdItem = app(WarehouseWithdrawalService::class)->createMobileDraftItem(
-                    $parent,
-                    (int) $input['fields']['inventory_lot_id'],
-                    (float) $input['fields']['requested_quantity'],
-                    filled($input['fields']['pickup_temperature_celsius'] ?? null)
-                        ? (float) $input['fields']['pickup_temperature_celsius']
-                        : null,
-                    $photoPath,
-                    $input['fields']['notes'] ?? null,
-                    $request->user(),
-                );
+                $service = app(WarehouseWithdrawalService::class);
+                $createdItem = $module === 'pengambilan-non-pangan'
+                    ? $service->addNonFoodItem(
+                        $parent,
+                        (int) $input['fields']['inventory_lot_id'],
+                        (float) $input['fields']['requested_quantity'],
+                        $photoPath,
+                        $input['fields']['notes'] ?? null,
+                        $request->user(),
+                    )
+                    : $service->createMobileDraftItem(
+                        $parent,
+                        (int) $input['fields']['inventory_lot_id'],
+                        (float) $input['fields']['requested_quantity'],
+                        filled($input['fields']['pickup_temperature_celsius'] ?? null)
+                            ? (float) $input['fields']['pickup_temperature_celsius']
+                            : null,
+                        $photoPath,
+                        $input['fields']['notes'] ?? null,
+                        $request->user(),
+                    );
             } catch (\Throwable $exception) {
                 Storage::disk('public')->delete($photoPath);
                 throw $exception;
@@ -951,7 +1044,7 @@ class MobileOperationalController extends Controller
         );
         $child = $parent->{$relation}()->whereKey($item)->firstOrFail();
 
-        if ($module === 'gudang' && $relation === 'items') {
+        if (in_array($module, ['gudang', 'gudang-non-pangan'], true) && $relation === 'items') {
             $fields = $request->validate([
                 'fields' => ['present', 'array'],
                 'fields.received_quantity' => ['required', 'numeric', 'min:0'],
@@ -1205,6 +1298,17 @@ class MobileOperationalController extends Controller
         foreach ($definition['where_in'] ?? [] as $column => $values) {
             $query->whereIn($column, (array) $values);
         }
+
+        if (filled($definition['warehouse_type'] ?? null)) {
+            $query->where(function (Builder $scopedQuery) use ($definition): void {
+                $scopedQuery->whereHas('warehouse', fn (Builder $warehouseQuery) => $warehouseQuery
+                    ->where('type', $definition['warehouse_type'])
+                    ->where('is_active', true));
+                if ($definition['warehouse_type'] === Warehouse::TYPE_FOOD) {
+                    $scopedQuery->orWhereNull('warehouse_id');
+                }
+            });
+        }
     }
 
     private function applyDistributionActorScope(Builder $query, string $module, $actor): void
@@ -1237,9 +1341,10 @@ class MobileOperationalController extends Controller
     {
         $relations = match ($module) {
             'gudang' => ['items'],
-            'gudang-stok-awal' => ['items'],
-            'gudang-stok' => ['movements'],
-            'gudang-pengambilan', 'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian' => ['items'],
+            'gudang-stok-awal', 'gudang-stok-awal-non-pangan' => ['items'],
+            'gudang-stok', 'gudang-stok-non-pangan' => ['movements'],
+            'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'pengambilan-non-pangan',
+            'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian' => ['items'],
             'lapangan-konfirmasi' => ['items'],
             'persiapan' => ['items', 'returns'],
             'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => ['withdrawals'],
@@ -1415,12 +1520,13 @@ class MobileOperationalController extends Controller
         $actor = $request->user();
         $actions = [];
 
-        if ($module === 'gudang' && $status === StockReceipt::STATUS_DRAFT
-            && $actor->can('stock.update')) {
+        if (in_array($module, ['gudang', 'gudang-non-pangan'], true) && $status === StockReceipt::STATUS_DRAFT
+            && $actor->can($module === 'gudang-non-pangan' ? 'non_food_stock.update' : 'stock.update')) {
             return [$this->actionDefinition('receive', 'Masukkan barang ke kartu stok')];
         }
 
-        if ($module === 'gudang-stok' && $actor->can('stock.update')) {
+        if (in_array($module, ['gudang-stok', 'gudang-stok-non-pangan'], true)
+            && $actor->can($module === 'gudang-stok-non-pangan' ? 'non_food_stock.update' : 'stock.update')) {
             return [
                 $this->actionDefinition('adjust_stock', 'Sesuaikan dengan stok fisik', false, [
                     $this->actionField(
@@ -1455,27 +1561,27 @@ class MobileOperationalController extends Controller
             ];
         }
 
-        if ($module === 'gudang-penyesuaian'
+        if (in_array($module, ['gudang-penyesuaian', 'gudang-penyesuaian-non-pangan'], true)
             && $status === StockAdjustment::DRAFT
-            && $actor->can('stock.approve')) {
+            && $actor->can($module === 'gudang-penyesuaian-non-pangan' ? 'non_food_stock.approve' : 'stock.approve')) {
             return [$this->actionDefinition('verify', 'Verifikasi dan perbarui stok')];
         }
 
         if ($module === 'lapangan-konfirmasi'
             && $item->isEditable()
             && $actor->can('daily_beneficiary_confirmations.submit')) {
-            return [$this->actionDefinition('confirm', 'Konfirmasi dan sinkronkan rencana distribusi')];
+            return [$this->actionDefinition('confirm', 'Simpan konfirmasi penerima harian')];
         }
 
-        if (str_starts_with($module, 'pengambilan-gudang-')
+        if ((str_starts_with($module, 'pengambilan-gudang-') || $module === 'pengambilan-non-pangan')
             && in_array($status, [WarehouseWithdrawal::DRAFT, WarehouseWithdrawal::REVISION], true)
             && (int) $item->taken_by === (int) $actor->getKey()) {
             return [$this->actionDefinition('submit', 'Ajukan untuk verifikasi Gudang')];
         }
 
-        if ($module === 'gudang-pengambilan'
+        if (in_array($module, ['gudang-pengambilan', 'gudang-pengambilan-non-pangan'], true)
             && $status === WarehouseWithdrawal::WAITING
-            && $actor->can('stock.approve')) {
+            && $actor->can($module === 'gudang-pengambilan-non-pangan' ? 'non_food_stock.approve' : 'stock.approve')) {
             return [
                 $this->actionDefinition('verify', 'Verifikasi pengambilan'),
                 $this->actionDefinition('revision', 'Minta koreksi', true),
@@ -1694,27 +1800,27 @@ class MobileOperationalController extends Controller
                     && (int) $item->getAttribute('petugas_id') !== (int) $actor->getKey()
                         ? []
                         : match ($state) {
-                    'planned' => [$this->actionDefinition('claim', 'Pilih rute ini', false, [
-                        $this->actionField('vehicle_name', 'Jenis/nama kendaraan', 'text', true, (string) $item->vehicle_name),
-                        $this->actionField('vehicle_plate', 'Nomor polisi', 'text', true, (string) $item->vehicle_plate),
-                        $this->actionField('kernet_name', 'Nama kernet', 'text', true, (string) $item->kernet_name),
-                    ])],
-                    'assigned' => [
-                        $this->actionDefinition('load', 'Mulai memuat'),
-                        $this->actionDefinition('release', 'Lepas rute'),
-                    ],
-                    'loaded' => [
-                        $this->actionDefinition('depart', 'Berangkat', false, [
-                            $this->actionField('actual_departure_at', 'Waktu berangkat', 'datetime', true, now()->format('Y-m-d\TH:i')),
-                            $this->actionField('departure_temperature_celsius', 'Suhu makanan saat berangkat °C', 'number', true, (string) $item->departure_temperature_celsius),
-                        ]),
-                        $this->actionDefinition('release', 'Lepas rute'),
-                    ],
-                    'destinations_completed' => [$this->actionDefinition('finish', 'Sudah kembali ke SPPG', false, [
-                        $this->actionField('returned_at', 'Waktu kembali', 'datetime', true, now()->format('Y-m-d\TH:i')),
-                    ])],
-                    default => [],
-                },
+                            'planned' => [$this->actionDefinition('claim', 'Pilih rute ini', false, [
+                                $this->actionField('vehicle_name', 'Jenis/nama kendaraan', 'text', true, (string) $item->vehicle_name),
+                                $this->actionField('vehicle_plate', 'Nomor polisi', 'text', true, (string) $item->vehicle_plate),
+                                $this->actionField('kernet_name', 'Nama kernet', 'text', true, (string) $item->kernet_name),
+                            ])],
+                            'assigned' => [
+                                $this->actionDefinition('load', 'Mulai memuat'),
+                                $this->actionDefinition('release', 'Lepas rute'),
+                            ],
+                            'loaded' => [
+                                $this->actionDefinition('depart', 'Berangkat', false, [
+                                    $this->actionField('actual_departure_at', 'Waktu berangkat', 'datetime', true, now()->format('Y-m-d\TH:i')),
+                                    $this->actionField('departure_temperature_celsius', 'Suhu makanan saat berangkat °C', 'number', true, (string) $item->departure_temperature_celsius),
+                                ]),
+                                $this->actionDefinition('release', 'Lepas rute'),
+                            ],
+                            'destinations_completed' => [$this->actionDefinition('finish', 'Sudah kembali ke SPPG', false, [
+                                $this->actionField('returned_at', 'Waktu kembali', 'datetime', true, now()->format('Y-m-d\TH:i')),
+                            ])],
+                            default => [],
+                        },
                 'pencucian' => match ($state) {
                     'planned' => [$this->actionDefinition('receive', 'Terima ompreng', false, [
                         $this->actionField('received_containers', 'Jumlah diterima fisik', 'number', true, (string) ($item->received_containers ?: $item->expected_containers)),
@@ -2378,12 +2484,12 @@ class MobileOperationalController extends Controller
         abort_unless(isset($definition['relations'][$relation]), 404);
         $parent = $this->findRecord($definition, $record, (int) $systemUnit->id());
         $this->assertDistributionRecordAccess($module, $parent, $request->user());
-        if (str_starts_with($module, 'pengambilan-gudang-')) {
+        if (str_starts_with($module, 'pengambilan-gudang-') || $module === 'pengambilan-non-pangan') {
             abort_unless((int) $parent->taken_by === (int) $request->user()->getKey(), 403);
         }
         abort_unless(in_array($operation, $this->relationOperations($module, $relation, $parent), true), 403);
         $relationEditable = $this->isEditable($parent)
-            || ($module === 'gudang-pengambilan'
+            || (in_array($module, ['gudang-pengambilan', 'gudang-pengambilan-non-pangan'], true)
                 && $relation === 'items'
                 && $this->scalarValue($parent->getAttribute('status')) === WarehouseWithdrawal::WAITING);
         abort_unless($relationEditable, 422, 'Data sudah dikunci dan tidak dapat diubah.');
@@ -2396,9 +2502,13 @@ class MobileOperationalController extends Controller
     private function relationOperations(string $module, string $relation, ?Model $parent = null): array
     {
         return match ($module) {
-            'gudang' => $relation === 'items' ? ['update'] : [],
-            'gudang-pengambilan' => $relation === 'items' ? ['update'] : [],
-            'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian' => $relation === 'items' ? ['create', 'update', 'delete'] : [],
+            'gudang', 'gudang-non-pangan' => match ($relation) {
+                'items' => ['update'],
+                'itemPhotos' => ['create', 'delete'],
+                default => [],
+            },
+            'gudang-pengambilan', 'gudang-pengambilan-non-pangan' => $relation === 'items' ? ['update'] : [],
+            'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian', 'pengambilan-non-pangan' => $relation === 'items' ? ['create', 'update', 'delete'] : [],
             'lapangan-konfirmasi' => $relation === 'items' ? ['update'] : [],
             'persiapan' => match ($relation) {
                 'items' => $this->preparationDataIsEditable($parent) ? ['update'] : [],
@@ -2750,6 +2860,24 @@ class MobileOperationalController extends Controller
                 $unitId,
                 true,
             );
+            if (in_array($module, ['gudang', 'gudang-non-pangan'], true) && $key === 'itemPhotos') {
+                $receiptItemOptions = $parent->items
+                    ->mapWithKeys(fn (Model $item): array => [
+                        (string) $item->getKey() => trim(implode(' · ', array_filter([
+                            $item->getAttribute('ingredient_name_snapshot'),
+                            filled($item->getAttribute('received_quantity'))
+                                ? $item->getAttribute('received_quantity').' '.$item->getAttribute('unit_snapshot')
+                                : null,
+                        ]))),
+                    ])->all();
+                $emptyFormFields = collect($emptyFormFields)->map(function (array $field) use ($receiptItemOptions): array {
+                    if ($field['key'] === 'stock_receipt_item_id') {
+                        $field['options'] = $receiptItemOptions;
+                    }
+
+                    return $field;
+                })->values()->all();
+            }
             if ($module === 'persiapan' && $key === 'returns') {
                 $itemOptions = $parent->items
                     ->mapWithKeys(fn (Model $item): array => [

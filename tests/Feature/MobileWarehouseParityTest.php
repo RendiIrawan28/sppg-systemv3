@@ -165,14 +165,14 @@ it('keeps mobile receipt quantities and kilogram conversion identical to the web
     ])->assertUnprocessable();
 });
 
-it('uploads receipt documentation without requiring another field to change', function (): void {
+it('uploads multiple receipt photos per item and then receives stock', function (): void {
     $receipt = StockReceipt::query()->create([
         'sppg_unit_id' => $this->unit->id,
         'receipt_date' => today(),
         'status' => StockReceipt::STATUS_DRAFT,
         'created_by' => $this->user->id,
     ]);
-    StockReceiptItem::query()->create([
+    $item = StockReceiptItem::query()->create([
         'stock_receipt_id' => $receipt->id,
         'ingredient_id' => $this->ingredient->id,
         'ingredient_name_snapshot' => $this->ingredient->name,
@@ -191,15 +191,24 @@ it('uploads receipt documentation without requiring another field to change', fu
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
     ));
 
-    $this->putJson("/api/mobile/operational-modules/gudang/records/{$receipt->id}", [
+    $this->postJson("/api/mobile/operational-modules/gudang/records/{$receipt->id}/actions/receive", [
         'fields' => [],
-        'files' => ['documentation_path' => $photo],
-    ])->assertOk()
-        ->assertJsonPath('data.fields.1.key', 'status');
+        'files' => [],
+    ])->assertUnprocessable();
 
-    $receipt->refresh();
-    expect($receipt->documentation_path)->not->toBeNull();
-    Storage::disk('public')->assertExists($receipt->documentation_path);
+    foreach (range(1, 2) as $index) {
+        $this->postJson("/api/mobile/operational-modules/gudang/records/{$receipt->id}/relations/itemPhotos", [
+            'fields' => ['stock_receipt_item_id' => $item->id],
+            'files' => ['photo_path' => $photo],
+        ])->assertCreated();
+    }
+
+    $receipt->load('itemPhotos');
+    expect($receipt->itemPhotos)->toHaveCount(2)
+        ->and($receipt->itemPhotos->pluck('stock_receipt_item_id')->unique()->all())->toBe([$item->id]);
+    foreach ($receipt->itemPhotos as $itemPhoto) {
+        Storage::disk('public')->assertExists($itemPhoto->photo_path);
+    }
 
     $this->getJson("/api/mobile/operational-modules/gudang/records/{$receipt->id}")
         ->assertOk()

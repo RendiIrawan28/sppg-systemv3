@@ -25,7 +25,17 @@ class SecurityApiContractTest {
                   "completed_at": "2026-08-01T20:00:00+07:00",
                   "status": "expired",
                   "reports_count": 3,
-                  "reports_expected": 4
+                  "reports_expected": 4,
+                  "reports": [{
+                    "id": 10,
+                    "sequence_number": 1,
+                    "due_at": "2026-08-01T11:00:00+07:00",
+                    "reported_at": "2026-08-01T11:05:00+07:00",
+                    "situation": "safe",
+                    "gate_secure": true,
+                    "perimeter_secure": true,
+                    "photo_url": "/api/mobile/security/reports/10/photo?expires=1&signature=test"
+                  }]
                 }],
                 "pending_tasks": [],
                 "can_start_shift": true
@@ -38,6 +48,8 @@ class SecurityApiContractTest {
         assertNull(response.data.activeShift)
         assertEquals("expired", response.data.recentShifts.single().status)
         assertEquals(3, response.data.recentShifts.single().reportsCount)
+        assertEquals(1, response.data.recentShifts.single().reports.size)
+        assertEquals(10L, response.data.recentShifts.single().reports.single().id)
         assertFalse(response.data.pendingTasks.any())
     }
 
@@ -81,6 +93,19 @@ class SecurityApiContractTest {
             resolved,
         )
         assertEquals(true, isImageUrl(resolved))
+    }
+
+    @Test
+    fun relativeSignedPhotoUrlUsesTheApiServerAddressInsideAndroid() {
+        val resolved = resolveAppMediaUrl(
+            rawUrl = "/api/mobile/security/reports/10/photo?expires=1&signature=test",
+            apiBaseUrl = "http://192.168.18.14:8000/api/mobile/",
+        )
+
+        assertEquals(
+            "http://192.168.18.14:8000/api/mobile/security/reports/10/photo?expires=1&signature=test",
+            resolved,
+        )
     }
 
     @Test

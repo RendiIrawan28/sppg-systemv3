@@ -16,7 +16,7 @@ class InventoryLot extends Model
 
     public const DEPLETED = 'depleted';
 
-    protected $fillable = ['sppg_unit_id', 'ingredient_id', 'stock_receipt_item_id', 'unit_snapshot', 'initial_quantity', 'balance_quantity', 'lot_number', 'expired_date', 'location_name', 'storage_type', 'status', 'initial_quantity_kg', 'balance_quantity_kg'];
+    protected $fillable = ['sppg_unit_id', 'warehouse_id', 'ingredient_id', 'non_food_item_id', 'stock_receipt_item_id', 'unit_snapshot', 'initial_quantity', 'balance_quantity', 'lot_number', 'expired_date', 'location_name', 'storage_type', 'status', 'initial_quantity_kg', 'balance_quantity_kg'];
 
     protected function casts(): array
     {
@@ -37,6 +37,14 @@ class InventoryLot extends Model
     public function ingredient(): BelongsTo
     {
         return $this->belongsTo(Ingredient::class);
+    }
+
+    public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
+    public function nonFoodItem(): BelongsTo { return $this->belongsTo(NonFoodItem::class); }
+
+    public function stockItem(): Ingredient|NonFoodItem|null
+    {
+        return $this->ingredient ?: $this->nonFoodItem;
     }
 
     public function receiptItem(): BelongsTo

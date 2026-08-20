@@ -8,12 +8,14 @@ use App\Models\InventoryLot;
 use App\Models\PortioningSession;
 use App\Models\ProcessingBatch;
 use App\Models\WarehouseWithdrawal;
+use App\Models\Warehouse;
 use App\Services\WarehouseWithdrawalService;
 use App\Support\DivisionRole;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
+use Livewire\Attributes\Url;
 use Livewire\WithFileUploads;
 use Livewire\WithPagination;
 use Throwable;
@@ -21,6 +23,11 @@ use Throwable;
 class Index extends Component
 {
     use InteractsWithV3Shell, WithFileUploads, WithPagination;
+
+    #[Url(as: 'gudang', history: true)]
+    public string $warehouseType = Warehouse::TYPE_FOOD;
+
+    public string $purposeReference = '';
 
     public string $referenceId = '';
 
@@ -35,8 +42,23 @@ class Index extends Component
     public function mount(): void
     {
         $this->currentUnit();
+        if (! in_array($this->divisionCode(), ['persiapan', 'pengolahan', 'pemorsian'], true)
+            && $this->allowed('non_food_stock.create')) {
+            $this->warehouseType = Warehouse::TYPE_NON_FOOD;
+        }
         abort_unless($this->canTake() || $this->allowed('stock.view'), 403);
         $this->addRow();
+    }
+
+    public function updatedWarehouseType(): void
+    {
+        if (! in_array($this->warehouseType, [Warehouse::TYPE_FOOD, Warehouse::TYPE_NON_FOOD], true)) {
+            $this->warehouseType = Warehouse::TYPE_FOOD;
+        }
+        $this->reset('referenceId', 'purposeReference', 'notes');
+        $this->rows = [];
+        $this->addRow();
+        $this->resetPage();
     }
 
     public function addRow(): void
@@ -54,16 +76,17 @@ class Index extends Component
     {
         abort_unless($this->canTake(), 403);
         $unit = $this->currentUnit();
+        $isNonFood = $this->warehouseType === Warehouse::TYPE_NON_FOOD;
         $data = $this->validate([
-            'referenceId' => ['required', 'string', 'regex:/^(record|plan):[1-9][0-9]*$/'],
+            'referenceId' => $isNonFood ? ['nullable'] : ['required', 'string', 'regex:/^(record|plan):[1-9][0-9]*$/'],
+            'purposeReference' => $isNonFood ? ['required', 'string', 'max:255'] : ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'rows' => ['required', 'array', 'min:1'], 'rows.*.inventory_lot_id' => ['required', 'integer'],
             'rows.*.quantity' => ['required', 'numeric', 'gt:0'],
-            'rows.*.pickup_temperature_celsius' => ['nullable', 'numeric', 'between:-40,40'],
+            'rows.*.pickup_temperature_celsius' => $isNonFood ? ['nullable'] : ['nullable', 'numeric', 'between:-40,40'],
             'rows.*.photo' => ['required', 'image', 'max:5120'],
         ]);
         $division = $this->divisionCode();
-        $referenceId = $this->resolveManualReference($data['referenceId']);
         $storedPaths = [];
         try {
             foreach ($data['rows'] as $index => $row) {
@@ -72,21 +95,27 @@ class Index extends Component
                 $data['rows'][$index]['photo_path'] = $path;
                 unset($data['rows'][$index]['photo']);
             }
-            $service->createAndSubmit(
-                unitId: $unit->id,
-                divisionCode: (string) $division,
-                referenceType: $this->referenceType(),
-                referenceId: $referenceId,
-                purposeReference: '',
-                notes: filled($data['notes']) ? trim($data['notes']) : null,
-                rows: $data['rows'],
-                actor: auth()->user(),
-            );
+            if ($isNonFood) {
+                DB::transaction(function () use ($service, $unit, $division, $data): void {
+                    $withdrawal = $service->createNonFoodDraft($unit->id, (string) $division, $data['purposeReference'], $data['notes'] ?? null, auth()->user());
+                    foreach ($data['rows'] as $row) {
+                        $service->addNonFoodItem($withdrawal, (int) $row['inventory_lot_id'], (float) $row['quantity'], $row['photo_path'], null, auth()->user());
+                    }
+                    $service->submit($withdrawal->refresh(), auth()->user());
+                });
+            } else {
+                $referenceId = $this->resolveManualReference($data['referenceId']);
+                $service->createAndSubmit(
+                    unitId: $unit->id, divisionCode: (string) $division, referenceType: $this->referenceType(),
+                    referenceId: $referenceId, purposeReference: '', notes: filled($data['notes']) ? trim($data['notes']) : null,
+                    rows: $data['rows'], actor: auth()->user(),
+                );
+            }
         } catch (Throwable $exception) {
             Storage::disk('public')->delete($storedPaths);
             throw $exception;
         }
-        $this->reset('referenceId', 'notes');
+        $this->reset('referenceId', 'purposeReference', 'notes');
         $this->rows = [];
         $this->addRow();
         session()->flash('v3.status', 'Pengambilan tercatat dan bahan langsung tersedia di halaman divisi. Gudang tetap perlu memverifikasi stok.');
@@ -94,7 +123,7 @@ class Index extends Component
 
     public function verify(int $id, WarehouseWithdrawalService $service): void
     {
-        abort_unless($this->allowed('stock.update') || $this->allowed('stock.create'), 403);
+        abort_unless($this->canVerify(), 403);
         $record = $this->record($id)->load('items');
         $rules = [];
         foreach ($record->items as $item) {
@@ -108,7 +137,7 @@ class Index extends Component
 
     public function revise(int $id, WarehouseWithdrawalService $service): void
     {
-        abort_unless($this->allowed('stock.update') || $this->allowed('stock.create'), 403);
+        abort_unless($this->canVerify(), 403);
         $this->validate(['decisionNotes' => ['required', 'string', 'max:2000']]);
         $service->requestRevision($this->record($id), auth()->user(), $this->decisionNotes);
         $this->decisionNotes = '';
@@ -116,7 +145,7 @@ class Index extends Component
 
     public function reject(int $id, WarehouseWithdrawalService $service): void
     {
-        abort_unless($this->allowed('stock.update') || $this->allowed('stock.create'), 403);
+        abort_unless($this->canVerify(), 403);
         $this->validate(['decisionNotes' => ['required', 'string', 'max:2000']]);
         $service->reject($this->record($id), auth()->user(), $this->decisionNotes);
         $this->decisionNotes = '';
@@ -125,7 +154,8 @@ class Index extends Component
     public function render()
     {
         $unit = $this->currentUnit();
-        $lots = InventoryLot::with('ingredient')->where('sppg_unit_id', $unit->id)->where('status', InventoryLot::AVAILABLE)
+        $warehouse = Warehouse::forUnit($unit->id, $this->warehouseType);
+        $lots = InventoryLot::with(['ingredient', 'nonFoodItem'])->where('sppg_unit_id', $unit->id)->where('warehouse_id', $warehouse->id)->where('status', InventoryLot::AVAILABLE)
             ->where('balance_quantity', '>', 0)->where(fn ($q) => $q->whereNull('expired_date')->orWhereDate('expired_date', '>=', today()))
             ->orderByRaw('expired_date IS NULL')->orderBy('expired_date')->get();
         $reserved = DB::table('warehouse_withdrawal_items')
@@ -141,6 +171,7 @@ class Index extends Component
         }
         $lots = $lots->filter(fn (InventoryLot $lot): bool => (float) $lot->available_quantity > 0.0001)->values();
         $records = WarehouseWithdrawal::with(['items', 'taker', 'verifier'])->where('sppg_unit_id', $unit->id)
+            ->where('warehouse_id', $warehouse->id)
             ->when(! $this->allowed('stock.view'), fn ($q) => $q->where('taken_by', auth()->id()))
             ->latest('id')->paginate(15);
         foreach ($records as $record) {
@@ -155,10 +186,12 @@ class Index extends Component
         return view('livewire.v3.warehouse.withdrawals.index', [
             ...$this->shellData($unit), 'lots' => $lots, 'records' => $records, 'canTake' => $this->canTake(),
             'references' => $this->references(),
-            'canVerify' => $this->allowed('stock.update') || $this->allowed('stock.create'),
+            'canVerify' => $this->canVerify(),
             'pendingToday' => WarehouseWithdrawal::query()->where('sppg_unit_id', $unit->id)
+                ->where('warehouse_id', $warehouse->id)
                 ->where('status', WarehouseWithdrawal::WAITING)->count(),
             'pendingOverdue' => WarehouseWithdrawal::query()->where('sppg_unit_id', $unit->id)
+                ->where('warehouse_id', $warehouse->id)
                 ->whereDate('withdrawal_date', '<', today())->where('status', WarehouseWithdrawal::WAITING)->count(),
         ])->layout('layouts.v3', ['title' => 'Pengambilan Gudang']);
     }
@@ -181,7 +214,14 @@ class Index extends Component
 
     private function canTake(): bool
     {
-        return in_array($this->divisionCode(), ['persiapan', 'pengolahan', 'pemorsian'], true);
+        return $this->warehouseType === Warehouse::TYPE_NON_FOOD
+            ? $this->allowed('non_food_stock.create') && array_key_exists((string) $this->divisionCode(), DivisionRole::DIVISIONS)
+            : in_array($this->divisionCode(), ['persiapan', 'pengolahan', 'pemorsian'], true);
+    }
+
+    private function canVerify(): bool
+    {
+        return $this->allowed('stock.update') || $this->allowed('stock.create') || $this->allowed('non_food_stock.approve');
     }
 
     private function referenceType(): string

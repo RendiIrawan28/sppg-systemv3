@@ -6,6 +6,7 @@ use App\Models\MeasurementUnit;
 use App\Models\NutritionRequirementPlan;
 use App\Models\ProcurementRequest;
 use App\Models\User;
+use App\Models\Warehouse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -43,9 +44,12 @@ class ProcurementRequestService
 
             if ($existing) {
                 if ($existing->isEditable()) {
+                    $foodWarehouse = Warehouse::forUnit((int) $plan->sppg_unit_id, Warehouse::TYPE_FOOD);
                     $existing->forceFill([
                         'needed_date' => $plan->requirement_date,
                         'field_distribution_plan_id' => $plan->field_distribution_plan_id,
+                        'warehouse_id' => $foodWarehouse->getKey(),
+                        'procurement_type' => Warehouse::TYPE_FOOD,
                         'notes' => 'Disinkronkan otomatis dari kebutuhan bahan '.$plan->plan_number.'.',
                     ])->save();
                     $this->synchronizeItems($existing, $plan);
@@ -55,12 +59,15 @@ class ProcurementRequestService
                 return $existing->refresh();
             }
 
+            $foodWarehouse = Warehouse::forUnit((int) $plan->sppg_unit_id, Warehouse::TYPE_FOOD);
             $request = ProcurementRequest::query()->create([
                 'sppg_unit_id' => $plan->sppg_unit_id,
                 'request_date' => now()->toDateString(),
                 'needed_date' => $plan->requirement_date,
                 'nutrition_requirement_plan_id' => $plan->id,
                 'field_distribution_plan_id' => $plan->field_distribution_plan_id,
+                'warehouse_id' => $foodWarehouse->getKey(),
+                'procurement_type' => Warehouse::TYPE_FOOD,
                 'status' => ProcurementRequest::STATUS_DRAFT,
                 'price_status' => 'draft',
                 'notes' => 'Dibuat otomatis dari kebutuhan bahan ' . $plan->plan_number . '.',
@@ -150,9 +157,10 @@ class ProcurementRequestService
     public function submit(ProcurementRequest $request): void
     {
         $user = $this->authenticatedUser();
-        $this->ensurePermission($user, 'procurement.submit');
+        $this->ensurePermission($user, $request->procurement_type === Warehouse::TYPE_NON_FOOD ? 'non_food_procurement.submit' : 'procurement.submit');
         $this->ensureUnitAccess($user, $request->sppg_unit_id);
         $this->ensureStatus($request, [ProcurementRequest::STATUS_DRAFT, ProcurementRequest::STATUS_REVISION]);
+        $this->assertWarehouseIntegrity($request);
 
         if (! $request->items()->exists()) {
             throw ValidationException::withMessages(['items' => 'Daftar bahan masih kosong.']);
@@ -285,9 +293,10 @@ class ProcurementRequestService
     public function markOrdered(ProcurementRequest $request): void
     {
         $user = $this->authenticatedUser();
-        $this->ensurePermission($user, 'procurement.order');
+        $this->ensurePermission($user, $request->procurement_type === Warehouse::TYPE_NON_FOOD ? 'non_food_procurement.order' : 'procurement.order');
         $this->ensureUnitAccess($user, $request->sppg_unit_id);
         $this->ensureStatus($request, [ProcurementRequest::STATUS_APPROVED]);
+        $this->assertWarehouseIntegrity($request);
 
         if ($request->price_status !== 'finalized') {
             throw ValidationException::withMessages([
@@ -338,6 +347,46 @@ class ProcurementRequestService
             'total_items' => $request->items()->count(),
             'estimated_total_amount' => $request->items()->sum('estimated_total_price'),
         ])->save();
+    }
+
+    private function assertWarehouseIntegrity(ProcurementRequest $request): void
+    {
+        $type = $request->procurement_type ?: Warehouse::TYPE_FOOD;
+        if (! in_array($type, [Warehouse::TYPE_FOOD, Warehouse::TYPE_NON_FOOD], true)) {
+            throw ValidationException::withMessages(['warehouse' => 'Jenis pengadaan tidak dikenali.']);
+        }
+
+        $warehouse = $request->warehouse;
+        if (! $warehouse && $type === Warehouse::TYPE_FOOD) {
+            $warehouse = Warehouse::forUnit((int) $request->sppg_unit_id, Warehouse::TYPE_FOOD);
+            $request->forceFill([
+                'warehouse_id' => $warehouse->getKey(),
+                'procurement_type' => Warehouse::TYPE_FOOD,
+            ])->save();
+        }
+
+        if (! $warehouse
+            || (int) $warehouse->sppg_unit_id !== (int) $request->sppg_unit_id
+            || $warehouse->type !== $type
+            || ! $warehouse->is_active) {
+            throw ValidationException::withMessages([
+                'warehouse' => 'Gudang tujuan pengadaan tidak aktif atau tidak sesuai dengan jenis barang.',
+            ]);
+        }
+
+        $invalidItems = $type === Warehouse::TYPE_NON_FOOD
+            ? $request->items()->where(function ($query): void {
+                $query->whereNull('non_food_item_id')->orWhereNotNull('ingredient_id');
+            })->exists()
+            : $request->items()->where(function ($query): void {
+                $query->whereNull('ingredient_id')->orWhereNotNull('non_food_item_id');
+            })->exists();
+
+        if ($invalidItems) {
+            throw ValidationException::withMessages([
+                'items' => 'Daftar barang tercampur antara Gudang Pangan dan Gudang Non-Pangan.',
+            ]);
+        }
     }
 
     private function assertSupplierAndPriceComplete(ProcurementRequest $request): void

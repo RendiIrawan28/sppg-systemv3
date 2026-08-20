@@ -4,6 +4,8 @@ namespace App\Livewire\V3\Warehouse\Receipts;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\StockReceipt;
+use App\Models\StockReceiptItemPhoto;
+use App\Models\Warehouse;
 use App\Services\StockReceiptService;
 use App\Support\V3\OperationsPresentation;
 use Illuminate\Support\Facades\Storage;
@@ -22,7 +24,8 @@ class Show extends Component
 
     public string $notes = '';
 
-    public $documentation = null;
+    /** @var array<int, array<int, mixed>> */
+    public array $itemDocumentations = [];
 
     public ?string $actionMessage = null;
 
@@ -68,17 +71,30 @@ class Show extends Component
         $this->redirectRoute('v3.warehouse.receipts.index', navigate: true);
     }
 
+    public function deleteItemPhoto(int $photoId): void
+    {
+        $receipt = $this->receipt();
+        abort_unless($receipt->isEditable() && ($this->allowed('stock.update') || $this->allowed('stock.create')), 403);
+        $photo = StockReceiptItemPhoto::query()
+            ->where('stock_receipt_id', $receipt->getKey())
+            ->findOrFail($photoId);
+        Storage::disk('public')->delete($photo->photo_path);
+        $photo->delete();
+        $this->actionMessage = 'Foto dokumentasi barang berhasil dihapus.';
+    }
+
     public function render()
     {
         $unit = $this->currentUnit();
         abort_unless($this->allowed('stock.view'), 403);
-        $receipt = $this->receipt()->load(['procurementRequest', 'supplier', 'items.supplier']);
+        $receipt = $this->receipt()->load(['warehouse', 'procurementRequest', 'supplier', 'items.supplier', 'items.nonFoodItem', 'items.photos']);
 
         return view('livewire.v3.warehouse.receipts.show', [
             ...$this->shellData($unit),
             'receipt' => $receipt,
             'statuses' => OperationsPresentation::receiptStatuses(),
             'canEdit' => $receipt->isEditable() && ($this->allowed('stock.update') || $this->allowed('stock.create')),
+            'isNonFood' => $receipt->warehouse?->type === Warehouse::TYPE_NON_FOOD,
             'receiptTotalsByUnit' => $receipt->items
                 ->groupBy(fn ($item): string => trim((string) $item->unit_snapshot) ?: 'unit')
                 ->map(fn ($items, string $unit): array => [
@@ -97,12 +113,17 @@ class Show extends Component
         $data = $this->validate([
             'receiptDate' => ['required', 'date'],
             'notes' => ['nullable', 'string', 'max:2000'],
-            'documentation' => ['nullable', 'image', 'max:5120'],
+            'itemDocumentations' => ['nullable', 'array'],
+            'itemDocumentations.*' => ['nullable', 'array'],
+            'itemDocumentations.*.*' => ['image', 'max:5120'],
             'rows' => ['required', 'array'],
             'rows.*.received_quantity' => ['required', 'numeric', 'min:0'],
             'rows.*.accepted_quantity' => ['required', 'numeric', 'min:0'],
             'rows.*.rejected_quantity' => ['required', 'numeric', 'min:0'],
             'rows.*.quality_notes' => ['nullable', 'string', 'max:1000'],
+            'rows.*.supplier_batch_number' => ['nullable', 'string', 'max:100'],
+            'rows.*.expired_date' => ['nullable', 'date'],
+            'rows.*.received_temperature_celsius' => ['nullable', 'numeric', 'between:-50,100'],
         ]);
 
         foreach ($receipt->items as $item) {
@@ -111,29 +132,28 @@ class Show extends Component
                 continue;
             }
             app(StockReceiptService::class)->updateInspection($item, $row);
-        }
 
-        $oldDocumentationPath = $receipt->documentation_path;
-        $newDocumentationPath = null;
-        if ($this->documentation) {
-            $newDocumentationPath = $this->documentation->store(
-                'stock-receipts/'.$receipt->receipt_date?->format('Y/m/d'),
-                'public',
-            );
+            foreach (data_get($data, 'itemDocumentations.'.$item->id, []) as $photo) {
+                $path = $photo->store(
+                    'stock-receipts/'.$receipt->receipt_date?->format('Y/m/d').'/items/'.$item->id,
+                    'public',
+                );
+                $item->photos()->create([
+                    'stock_receipt_id' => $receipt->getKey(),
+                    'item_name_snapshot' => $item->ingredient_name_snapshot,
+                    'photo_path' => $path,
+                    'original_name' => $photo->getClientOriginalName(),
+                    'uploaded_by' => auth()->id(),
+                ]);
+            }
         }
 
         $receipt->update([
             'receipt_date' => $data['receiptDate'],
             'received_by_name' => auth()->user()->name,
             'notes' => trim($data['notes']) ?: null,
-            'documentation_path' => $newDocumentationPath ?: $oldDocumentationPath,
         ]);
-
-        if ($newDocumentationPath && $oldDocumentationPath && $oldDocumentationPath !== $newDocumentationPath) {
-            Storage::disk('public')->delete($oldDocumentationPath);
-        }
-
-        $this->reset('documentation');
+        $this->itemDocumentations = [];
     }
 
     private function receipt(): StockReceipt
@@ -153,6 +173,9 @@ class Show extends Component
             'accepted_quantity' => (float) $item->accepted_quantity,
             'rejected_quantity' => (float) $item->rejected_quantity,
             'quality_notes' => (string) $item->quality_notes,
+            'supplier_batch_number' => (string) $item->supplier_batch_number,
+            'expired_date' => $item->expired_date?->toDateString(),
+            'received_temperature_celsius' => $item->received_temperature_celsius,
         ]])->all();
     }
 

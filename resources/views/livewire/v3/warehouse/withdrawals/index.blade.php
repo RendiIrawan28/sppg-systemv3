@@ -13,6 +13,7 @@
                     <p class="text-xs font-bold uppercase tracking-widest text-cyan-200">Pengambilan langsung</p>
                     <h2 class="mt-2 text-2xl font-bold">Ambil barang dan langsung lanjutkan pekerjaan divisi.</h2>
                     <p class="mt-2 max-w-3xl text-sm text-slate-300">Barang langsung muncul di halaman divisi setelah dicatat. Gudang memeriksa kecocokan jenis dan jumlah aktual, kemudian stok resmi berkurang saat diverifikasi.</p>
+                    <div class="mt-4 inline-flex rounded-xl bg-white/10 p-1"><button wire:click="$set('warehouseType','food')" class="rounded-lg px-4 py-2 text-xs font-bold {{ $warehouseType === 'food' ? 'bg-cyan-300 text-[#081d3a]' : 'text-white' }}">Pangan</button><button wire:click="$set('warehouseType','non_food')" class="rounded-lg px-4 py-2 text-xs font-bold {{ $warehouseType === 'non_food' ? 'bg-cyan-300 text-[#081d3a]' : 'text-white' }}">Non-Pangan</button></div>
                 </div>
                 @if ($canVerify)
                     <div class="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-5 py-3 text-center">
@@ -29,7 +30,7 @@
                 <form wire:submit="submit" class="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                     <h3 class="font-bold text-slate-950">Catat barang yang diambil</h3>
 
-                    <label class="mt-4 block">
+                    @if($warehouseType === 'food')<label class="mt-4 block">
                         <span class="text-xs font-semibold text-slate-700">Rencana/batch aktif</span>
                         <select wire:model="referenceId" class="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
                             <option value="">Pilih rencana produksi</option>
@@ -40,7 +41,7 @@
                             @endforelse
                         </select>
                         @error('referenceId') <span class="text-xs text-rose-600">{{ $message }}</span> @enderror
-                    </label>
+                    </label>@else<label class="mt-4 block"><span class="text-xs font-semibold text-slate-700">Keperluan pengambilan *</span><input wire:model="purposeReference" class="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" placeholder="Contoh: kebutuhan pencucian ompreng"></label>@endif
 
                     <div class="mt-4 space-y-3">
                         @foreach ($rows as $i => $row)
@@ -49,7 +50,7 @@
                                     <option value="">Pilih lot sesuai FEFO/FIFO</option>
                                     @foreach ($lots as $lot)
                                         <option value="{{ $lot->id }}">
-                                            {{ $lot->ingredient->name }} — {{ $lot->lot_number ?: 'tanpa batch' }} — tersedia {{ number_format((float) $lot->available_quantity, 3, ',', '.') }} {{ $lot->unit_snapshot }} — {{ ucfirst($lot->storage_type) }}
+                                            {{ $lot->ingredient?->name ?? $lot->nonFoodItem?->name ?? 'Barang' }} — {{ $lot->lot_number ?: 'tanpa batch' }} — tersedia {{ number_format((float) $lot->available_quantity, 3, ',', '.') }} {{ $lot->unit_snapshot }} — {{ ucfirst($lot->storage_type) }}
                                         </option>
                                     @endforeach
                                 </select>
@@ -57,7 +58,7 @@
 
                                 <div class="mt-2 grid gap-2 sm:grid-cols-2">
                                     <input wire:model="rows.{{ $i }}.quantity" type="number" step="0.001" min="0.001" class="h-10 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Jumlah diambil">
-                                    <input wire:model="rows.{{ $i }}.pickup_temperature_celsius" type="number" step="0.1" class="h-10 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Suhu °C jika dingin/beku">
+                                    @if($warehouseType === 'food')<input wire:model="rows.{{ $i }}.pickup_temperature_celsius" type="number" step="0.1" class="h-10 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Suhu °C jika dingin/beku">@endif
                                 </div>
                                 @error("rows.$i.quantity") <span class="text-xs text-rose-600">{{ $message }}</span> @enderror
                                 @error("rows.$i.pickup_temperature_celsius") <span class="text-xs text-rose-600">{{ $message }}</span> @enderror
@@ -84,7 +85,7 @@
                     <button class="mt-4 h-11 w-full rounded-xl bg-sky-600 text-xs font-bold text-white">Catat pengambilan</button>
                 </form>
             @else
-                <div class="h-fit rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Pencatatan pengambilan hanya untuk petugas Persiapan, Pengolahan, dan Pemorsian.</div>
+                <div class="h-fit rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Pencatatan pengambilan tidak tersedia untuk akun ini.</div>
             @endif
 
             <section class="space-y-3">

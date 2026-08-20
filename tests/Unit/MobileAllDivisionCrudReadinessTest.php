@@ -63,8 +63,8 @@ it('offers both processing reports on android', function (): void {
     $documentController = file_get_contents(app_path('Http/Controllers/Api/MobileDocumentController.php'));
 
     expect($screen)
-        ->toContain('Lihat monitoring produksi')
-        ->toContain('Lihat pemantauan suhu')
+        ->toContain('EKSPOR LAPORAN')
+        ->toContain('Pemantauan suhu')
         ->toContain('onOpenDocument("temperature")')
         ->and($documentController)
         ->toContain("query('type') === 'temperature'")
@@ -143,8 +143,12 @@ it('publishes incident reporting for field divisions and limits the warehouse mo
     }
 
     expect($roleModules[UserRole::StafGudang->value])
-        ->toBe(['gudang', 'gudang-pengambilan', 'gudang-retur', 'gudang-stok', 'gudang-penyesuaian'])
-        ->not->toContain('gudang-stok-awal', 'gudang-retur-pengolahan', 'lapangan-insiden');
+        ->toBe([
+            'gudang', 'gudang-non-pangan', 'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'gudang-retur',
+            'gudang-stok', 'gudang-stok-non-pangan', 'gudang-stok-awal',
+            'gudang-stok-awal-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan',
+        ])
+        ->not->toContain('gudang-retur-pengolahan', 'lapangan-insiden');
 
     expect($definitions['gudang-stok-awal']['allow_create'])->toBeTrue()
         ->and(collect($definitions['gudang-stok-awal']['fields'])->pluck('name'))

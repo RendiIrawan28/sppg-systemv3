@@ -11,6 +11,7 @@ class ProcurementRequestItem extends Model
         'procurement_request_id',
         'nutrition_requirement_item_id',
         'ingredient_id',
+        'non_food_item_id',
         'supplier_id',
         'ingredient_code_snapshot',
         'ingredient_name_snapshot',
@@ -56,6 +57,8 @@ class ProcurementRequestItem extends Model
     {
         return $this->belongsTo(Ingredient::class);
     }
+
+    public function nonFoodItem(): BelongsTo { return $this->belongsTo(NonFoodItem::class); }
 
     public function supplier(): BelongsTo
     {

@@ -49,6 +49,9 @@ final class AccessControl
             'suppliers' => $crud,
             'procurement' => [...$crud, 'submit', 'select_supplier', 'price_input', 'approve', 'finalize_price', 'order', 'export'],
             'stock' => [...$crud, 'approve', 'export'],
+            'non_food_items' => ['view', 'manage'],
+            'non_food_procurement' => ['view', 'create', 'update', 'submit', 'select_supplier', 'order'],
+            'non_food_stock' => ['view', 'create', 'update', 'approve'],
 
             'preparation' => [...$operational, 'import'],
             'processing' => $operational,
@@ -149,6 +152,8 @@ final class AccessControl
             ...self::module('suppliers', ['view']),
             ...self::module('procurement', ['view', 'finalize_price', 'export']),
             ...self::module('stock', ['view']),
+            ...self::module('non_food_procurement', ['view']),
+            ...self::module('non_food_stock', ['view']),
             ...self::module('finance', ['view']),
 
             // Approval rencana H-3 dan laporan Asisten Lapangan.
@@ -199,6 +204,9 @@ final class AccessControl
             ...self::module('suppliers', ['view', 'create', 'update', 'delete']),
             ...self::module('procurement', ['view']),
             ...self::module('stock', ['view']),
+            ...self::module('non_food_items', ['view']),
+            ...self::module('non_food_procurement', ['view']),
+            ...self::module('non_food_stock', ['view']),
             ...self::operationalViewPermissions(),
             ...self::module('field_planning', ['view']),
             ...self::module('field_daily_reports', ['view']),
@@ -263,6 +271,7 @@ final class AccessControl
             ...self::module('finance', ['view', 'verify', 'approve', 'export']),
             ...self::module('attendance', ['view', 'correct', 'export']),
             ...self::module('procurement', ['view', 'update', 'price_input', 'approve', 'export', 'submit']),
+            ...self::module('non_food_procurement', ['view', 'update']),
             ...self::module('stock', ['view']),
             ...self::module('suppliers', ['view']),
             ...self::module('ingredients', ['view']),
@@ -279,6 +288,9 @@ final class AccessControl
             ...self::module('suppliers', ['view', 'create', 'update', 'delete']),
             ...self::module('procurement', ['view', 'select_supplier', 'order', 'export']),
             ...self::module('stock', ['view', 'create', 'update', 'delete', 'approve', 'export']),
+            ...self::module('non_food_items', ['view', 'manage']),
+            ...self::module('non_food_procurement', ['view', 'create', 'update', 'submit', 'select_supplier', 'order']),
+            ...self::module('non_food_stock', ['view', 'create', 'update', 'approve']),
             ...self::module('ingredients', ['view']),
             ...self::module('nutrition', ['view']),
             ...self::module('field_incidents', ['view', 'create', 'update', 'resolve']),
@@ -326,6 +338,7 @@ final class AccessControl
             ...self::module('field_incidents', ['view', 'create', 'update', 'resolve']),
             'security.view',
             ...self::module($prefix, $actions),
+            ...self::module('non_food_stock', ['view', 'create', 'update']),
         ];
     }
 
@@ -343,6 +356,7 @@ final class AccessControl
             'incidents.view', 'incidents.create', 'incidents.update',
             ...self::module('field_incidents', ['view', 'create', 'update', 'resolve']),
             ...self::module($prefix, $actions),
+            ...self::module('non_food_stock', ['view', 'create', 'update']),
         ];
     }
 

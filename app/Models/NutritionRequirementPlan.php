@@ -22,6 +22,9 @@ class NutritionRequirementPlan extends Model
         'requirement_date',
         'menu_id',
         'field_distribution_plan_id',
+        'beneficiary_period_id',
+        'menu_cycle_day_id',
+        'source_type',
         'requirement_type',
         'original_requirement_plan_id',
         'menu_day_revision_request_id',
@@ -103,6 +106,9 @@ class NutritionRequirementPlan extends Model
         return $this->belongsTo(FieldDistributionPlan::class);
     }
 
+    public function beneficiaryPeriod(): BelongsTo { return $this->belongsTo(BeneficiaryPeriod::class); }
+    public function menuCycleDay(): BelongsTo { return $this->belongsTo(MenuCycleDay::class); }
+
     public function originalRequirementPlan(): BelongsTo
     {
         return $this->belongsTo(self::class, 'original_requirement_plan_id');
@@ -149,7 +155,7 @@ class NutritionRequirementPlan extends Model
 
         return $rows->map(function (array $row): string {
             $name = $row['name'] ?? $row['code'] ?? 'Kelompok';
-            $actual = number_format((float) ($row['actual_portions'] ?? 0), 0, ',', '.');
+            $actual = number_format((float) ($row['master_portions'] ?? $row['actual_portions'] ?? 0), 0, ',', '.');
             $multiplier = number_format((float) ($row['portion_multiplier'] ?? 1), 2, ',', '.');
             $effective = number_format((float) ($row['effective_portions'] ?? 0), 2, ',', '.');
             $portion = strtoupper((string) ($row['portion_size'] ?? '-'));

@@ -6,7 +6,6 @@ use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\FieldDistributionPlan;
 use App\Services\FieldDistributionPlanWorkflow;
 use App\Services\FieldPlanActualConfirmationService;
-use App\Services\NutritionRequirementFromFieldPlanService;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -28,8 +27,6 @@ class Form extends Component
     public string $generalNotes = '';
 
     public string $workflowNotes = '';
-
-    public float $bufferPercent = 3;
 
     public ?string $actionMessage = null;
 
@@ -91,15 +88,6 @@ class Form extends Component
             $this->fillFromPlan($this->plan()->refresh());
 
             return 'Rencana aktif';
-        });
-    }
-
-    public function generateRequirement(): void
-    {
-        $this->runAction(function (): string {
-            $requirement = app(NutritionRequirementFromFieldPlanService::class)->generate($this->plan(), auth()->user(), $this->bufferPercent);
-
-            return "Kebutuhan {$requirement->plan_number} dihitung dan draft pengadaan otomatis disinkronkan.";
         });
     }
 

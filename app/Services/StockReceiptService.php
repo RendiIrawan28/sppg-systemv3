@@ -7,6 +7,7 @@ use App\Models\ProcurementRequest;
 use App\Models\StockMovement;
 use App\Models\StockReceipt;
 use App\Models\StockReceiptItem;
+use App\Models\Warehouse;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -71,7 +72,7 @@ class StockReceiptService
         }
 
         return DB::transaction(function () use ($request): Collection {
-            $request->loadMissing('items');
+            $request->loadMissing(['warehouse', 'items.nonFoodItem']);
 
             if ($request->items->isEmpty()) {
                 throw new InvalidArgumentException('Pesanan belum memiliki item untuk diterima.');
@@ -79,6 +80,15 @@ class StockReceiptService
 
             if ($request->items->contains(fn ($item): bool => blank($item->supplier_id))) {
                 throw new InvalidArgumentException('Seluruh item harus memiliki supplier sebelum dokumen penerimaan dibuat.');
+            }
+
+
+            $isNonFood = $request->warehouse?->type === Warehouse::TYPE_NON_FOOD;
+            $invalidReference = $request->items->contains(fn ($item): bool => $isNonFood
+                ? blank($item->non_food_item_id) || filled($item->ingredient_id)
+                : blank($item->ingredient_id) || filled($item->non_food_item_id));
+            if ($invalidReference || ($isNonFood !== ($request->procurement_type === Warehouse::TYPE_NON_FOOD))) {
+                throw new InvalidArgumentException('Jenis barang, jenis pengadaan, dan Gudang tujuan tidak konsisten.');
             }
 
             return $request->items
@@ -89,6 +99,7 @@ class StockReceiptService
                         'supplier_id' => (int) $supplierId,
                     ], [
                         'sppg_unit_id' => $request->sppg_unit_id,
+                        'warehouse_id' => $request->warehouse_id,
                         'receipt_date' => now()->toDateString(),
                         'status' => StockReceipt::STATUS_DRAFT,
                         'created_by' => auth()->id(),
@@ -102,6 +113,7 @@ class StockReceiptService
                             'procurement_request_item_id' => $item->id,
                         ], [
                             'ingredient_id' => $item->ingredient_id,
+                            'non_food_item_id' => $item->non_food_item_id,
                             'supplier_id' => $item->supplier_id,
                             'ingredient_name_snapshot' => $item->ingredient_name_snapshot,
                             'unit_snapshot' => $item->unit_snapshot ?: 'unit',
@@ -133,14 +145,34 @@ class StockReceiptService
             throw new InvalidArgumentException('Penerimaan bahan belum memiliki item.');
         }
 
-        if (blank($receipt->documentation_path)) {
-            throw new InvalidArgumentException('Satu foto dokumentasi kiriman supplier wajib diunggah.');
+        $receipt->loadMissing('items.photos');
+        $itemWithoutPhoto = $receipt->items->first(fn (StockReceiptItem $item): bool => $item->photos->isEmpty());
+        if ($itemWithoutPhoto) {
+            throw ValidationException::withMessages([
+                'documentation' => "Dokumentasi {$itemWithoutPhoto->ingredient_name_snapshot} wajib diunggah minimal satu foto.",
+            ]);
         }
 
         return DB::transaction(function () use ($receipt): StockReceipt {
-            $receipt->load('items');
+            if (blank($receipt->warehouse_id)) {
+                $receipt->forceFill([
+                    'warehouse_id' => Warehouse::forUnit((int) $receipt->sppg_unit_id, Warehouse::TYPE_FOOD)->getKey(),
+                ])->save();
+            }
+            $receipt->load(['warehouse', 'items.nonFoodItem']);
+
+            if (! $receipt->warehouse || ! $receipt->warehouse->is_active
+                || (int) $receipt->warehouse->sppg_unit_id !== (int) $receipt->sppg_unit_id) {
+                throw new InvalidArgumentException('Gudang penerimaan tidak aktif atau berasal dari unit lain.');
+            }
+            $isNonFood = $receipt->warehouse->type === Warehouse::TYPE_NON_FOOD;
 
             foreach ($receipt->items as $item) {
+                if ($isNonFood
+                    ? blank($item->non_food_item_id) || filled($item->ingredient_id)
+                    : blank($item->ingredient_id) || filled($item->non_food_item_id)) {
+                    throw new InvalidArgumentException("Jenis barang {$item->ingredient_name_snapshot} tidak sesuai dengan Gudang penerimaan.");
+                }
                 $acceptedKg = (float) $item->accepted_quantity_kg;
                 $unit = $item->unit_snapshot ?: 'unit';
                 $accepted = (float) ($item->accepted_quantity ?? ($unit === 'kg' ? $acceptedKg : 0));
@@ -155,6 +187,18 @@ class StockReceiptService
                     throw new InvalidArgumentException('Barang ditolak tidak boleh memiliki jumlah diterima baik.');
                 }
 
+                if ($receipt->warehouse?->type === Warehouse::TYPE_NON_FOOD) {
+                    if (! $item->nonFoodItem) {
+                        throw new InvalidArgumentException("Master Non-Pangan {$item->ingredient_name_snapshot} tidak ditemukan.");
+                    }
+                    if ($item->nonFoodItem->tracks_lot && blank($item->supplier_batch_number)) {
+                        throw new InvalidArgumentException("Nomor lot {$item->ingredient_name_snapshot} wajib diisi.");
+                    }
+                    if ($item->nonFoodItem->tracks_expiry && blank($item->expired_date)) {
+                        throw new InvalidArgumentException("Tanggal kedaluwarsa {$item->ingredient_name_snapshot} wajib diisi.");
+                    }
+                }
+
                 if ($accepted <= 0) {
                     continue;
                 }
@@ -162,17 +206,20 @@ class StockReceiptService
                 $lot = InventoryLot::query()->updateOrCreate(
                     ['stock_receipt_item_id' => $item->id],
                     [
-                        'sppg_unit_id' => $receipt->sppg_unit_id, 'ingredient_id' => $item->ingredient_id,
+                        'sppg_unit_id' => $receipt->sppg_unit_id, 'warehouse_id' => $receipt->warehouse_id,
+                        'ingredient_id' => $item->ingredient_id, 'non_food_item_id' => $item->non_food_item_id,
                         'unit_snapshot' => $unit, 'initial_quantity' => $accepted, 'balance_quantity' => $accepted,
                         'lot_number' => $item->supplier_batch_number, 'expired_date' => $item->expired_date,
-                        'location_name' => 'Gudang Utama', 'status' => InventoryLot::AVAILABLE,
+                        'location_name' => $item->nonFoodItem?->default_location ?: 'Gudang Utama', 'status' => InventoryLot::AVAILABLE,
                         'initial_quantity_kg' => $acceptedKg, 'balance_quantity_kg' => $acceptedKg,
                     ],
                 );
 
                 StockMovement::query()->create([
                     'sppg_unit_id' => $receipt->sppg_unit_id,
+                    'warehouse_id' => $receipt->warehouse_id,
                     'ingredient_id' => $item->ingredient_id,
+                    'non_food_item_id' => $item->non_food_item_id,
                     'inventory_lot_id' => $lot->id,
                     'ingredient_name_snapshot' => $item->ingredient_name_snapshot,
                     'unit_snapshot' => $unit,

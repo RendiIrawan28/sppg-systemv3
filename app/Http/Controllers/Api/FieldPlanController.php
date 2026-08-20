@@ -64,11 +64,22 @@ class FieldPlanController extends Controller
             'status' => ['nullable', 'string', 'in:'.implode(',', array_column(FieldDistributionPlanStatus::cases(), 'value'))],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'scope' => ['nullable', 'string', 'in:upcoming,history'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
 
+        $scope = $filters['scope'] ?? null;
+        $historyStatuses = [
+            FieldDistributionPlanStatus::Completed->value,
+            FieldDistributionPlanStatus::Cancelled->value,
+        ];
+
         $plans = FieldDistributionPlan::query()
             ->where('sppg_unit_id', $systemUnit->id())
+            ->when($scope === 'upcoming', fn ($query) => $query
+                ->whereDate('distribution_date', '>=', today())
+                ->whereNotIn('status', $historyStatuses))
+            ->when($scope === 'history', fn ($query) => $query->whereIn('status', $historyStatuses))
             ->when($filters['search'] ?? null, function ($query, string $search): void {
                 $query->where(function ($query) use ($search): void {
                     $query->where('plan_number', 'like', "%{$search}%")
@@ -78,8 +89,11 @@ class FieldPlanController extends Controller
             ->when($filters['status'] ?? null, fn ($query, string $status) => $query->where('status', $status))
             ->when($filters['date_from'] ?? null, fn ($query, string $date) => $query->whereDate('distribution_date', '>=', $date))
             ->when($filters['date_to'] ?? null, fn ($query, string $date) => $query->whereDate('distribution_date', '<=', $date))
-            ->orderByDesc('distribution_date')
-            ->orderByDesc('id')
+            ->when(
+                $scope === 'upcoming',
+                fn ($query) => $query->orderBy('distribution_date')->orderBy('id'),
+                fn ($query) => $query->orderByDesc('distribution_date')->orderByDesc('id'),
+            )
             ->paginate($filters['per_page'] ?? 20)
             ->withQueryString();
 

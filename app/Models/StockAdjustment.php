@@ -11,7 +11,7 @@ class StockAdjustment extends Model
 
     public const VERIFIED = 'verified';
 
-    protected $fillable = ['sppg_unit_id', 'inventory_lot_id', 'unit_snapshot', 'adjustment_number', 'adjustment_date', 'type', 'system_quantity', 'actual_quantity', 'difference_quantity', 'system_quantity_kg', 'actual_quantity_kg', 'difference_quantity_kg', 'status', 'reason', 'created_by', 'verified_by', 'verified_at'];
+    protected $fillable = ['sppg_unit_id', 'warehouse_id', 'non_food_item_id', 'inventory_lot_id', 'unit_snapshot', 'adjustment_number', 'adjustment_date', 'type', 'system_quantity', 'actual_quantity', 'difference_quantity', 'system_quantity_kg', 'actual_quantity_kg', 'difference_quantity_kg', 'status', 'reason', 'created_by', 'verified_by', 'verified_at'];
 
     protected function casts(): array
     {
@@ -27,6 +27,9 @@ class StockAdjustment extends Model
     {
         return $this->belongsTo(InventoryLot::class, 'inventory_lot_id');
     }
+
+    public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
+    public function nonFoodItem(): BelongsTo { return $this->belongsTo(NonFoodItem::class); }
 
     public function creator(): BelongsTo
     {

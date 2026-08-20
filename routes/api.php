@@ -19,6 +19,9 @@ Route::prefix('iot/attendance')->middleware('throttle:120,1')->group(function ()
 
 Route::prefix('mobile')->group(function (): void {
     Route::post('/login', [MobileAuthController::class, 'login']);
+    Route::get('/security/reports/{report}/photo', [MobileSecurityController::class, 'photo'])
+        ->middleware('signed:relative')
+        ->name('api.mobile.security.reports.photo');
 
     Route::middleware(['auth:sanctum', EnsureMobileAccessToken::class])->group(function (): void {
         Route::get('/user', [MobileAuthController::class, 'user']);

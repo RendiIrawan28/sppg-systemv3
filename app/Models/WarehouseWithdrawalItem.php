@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WarehouseWithdrawalItem extends Model
 {
-    protected $fillable = ['warehouse_withdrawal_id', 'ingredient_id', 'inventory_lot_id', 'ingredient_name_snapshot', 'lot_number_snapshot', 'expiry_date_snapshot', 'unit_snapshot', 'requested_quantity', 'actual_quantity', 'pickup_temperature_celsius', 'photo_path', 'taken_quantity_kg', 'verified_quantity_kg', 'condition_status', 'notes'];
+    protected $fillable = ['warehouse_withdrawal_id', 'ingredient_id', 'non_food_item_id', 'inventory_lot_id', 'ingredient_name_snapshot', 'lot_number_snapshot', 'expiry_date_snapshot', 'unit_snapshot', 'requested_quantity', 'actual_quantity', 'pickup_temperature_celsius', 'photo_path', 'taken_quantity_kg', 'verified_quantity_kg', 'condition_status', 'notes'];
 
     protected function casts(): array
     {
@@ -23,6 +23,8 @@ class WarehouseWithdrawalItem extends Model
     {
         return $this->belongsTo(Ingredient::class);
     }
+
+    public function nonFoodItem(): BelongsTo { return $this->belongsTo(NonFoodItem::class); }
 
     public function lot(): BelongsTo
     {

@@ -106,11 +106,22 @@ internal fun resolveAppMediaUrl(
     apiBaseUrl: String = BuildConfig.API_BASE_URL,
 ): String = runCatching {
     val media = URI(rawUrl)
+    val api = URI(apiBaseUrl)
+    if (!media.isAbsolute) {
+        return@runCatching URI(
+            api.scheme,
+            null,
+            api.host,
+            api.port,
+            if (media.path.startsWith('/')) media.path else "/${media.path}",
+            media.query,
+            media.fragment,
+        ).toString()
+    }
     if (media.host !in setOf("127.0.0.1", "localhost", "::1")) {
         return@runCatching rawUrl
     }
 
-    val api = URI(apiBaseUrl)
     URI(
         api.scheme,
         media.userInfo,

@@ -1522,6 +1522,7 @@ private fun OperationalFormInput(
 private data class OpeningStockMobileRow(
     val mode: String = "existing",
     val ingredient_id: String? = null,
+    val non_food_item_id: String? = null,
     val new_name: String? = null,
     val new_category: String = "other",
     val measurement_unit_id: String? = null,
@@ -1543,8 +1544,14 @@ private fun OpeningStockRowsInput(
     val gson = remember { Gson() }
     var rows by remember(field.key) { mutableStateOf(listOf(OpeningStockMobileRow())) }
     val catalog = field.options.orEmpty()
-    val ingredients = catalog.filterKeys { it.startsWith("ingredient:") }
-        .mapKeys { it.key.removePrefix("ingredient:") }
+    val isNonFood = catalog.keys.any { it.startsWith("non_food_item:") }
+    val ingredients = if (isNonFood) {
+        catalog.filterKeys { it.startsWith("non_food_item:") }
+            .mapKeys { it.key.removePrefix("non_food_item:") }
+    } else {
+        catalog.filterKeys { it.startsWith("ingredient:") }
+            .mapKeys { it.key.removePrefix("ingredient:") }
+    }
     val units = catalog.filterKeys { it.startsWith("unit:") }
         .mapKeys { it.key.removePrefix("unit:") }
     val categories = catalog.filterKeys { it.startsWith("category:") }
@@ -1586,7 +1593,7 @@ private fun OpeningStockRowsInput(
                             }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!isNonFood) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (row.mode == "existing") {
                             Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("Barang tersedia") }
                         } else {
@@ -1605,8 +1612,12 @@ private fun OpeningStockRowsInput(
                         }
                     }
                     if (row.mode == "existing") {
-                        OpeningStockSearchableDropdown("Cari barang *", row.ingredient_id, ingredients) { selected ->
-                            publish(rows.toMutableList().also { it[index] = row.copy(ingredient_id = selected) })
+                        val selectedItem = if (isNonFood) row.non_food_item_id else row.ingredient_id
+                        OpeningStockSearchableDropdown("Cari barang *", selectedItem, ingredients) { selected ->
+                            publish(rows.toMutableList().also {
+                                it[index] = if (isNonFood) row.copy(non_food_item_id = selected)
+                                else row.copy(ingredient_id = selected)
+                            })
                         }
                     } else {
                         OutlinedTextField(

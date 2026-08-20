@@ -21,7 +21,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun WorkHistoryTabs(showHistory: Boolean, onShowHistoryChange: (Boolean) -> Unit) {
+fun WorkHistoryTabs(
+    showHistory: Boolean,
+    activeLabel: String = "Pekerjaan Hari Ini",
+    onShowHistoryChange: (Boolean) -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -29,7 +33,7 @@ fun WorkHistoryTabs(showHistory: Boolean, onShowHistoryChange: (Boolean) -> Unit
         FilterChip(
             selected = !showHistory,
             onClick = { onShowHistoryChange(false) },
-            label = { Text("Pekerjaan Hari Ini") },
+            label = { Text(activeLabel) },
             modifier = Modifier.weight(1f),
         )
         FilterChip(
@@ -70,4 +74,3 @@ fun HistoryEmptyState() {
         }
     }
 }
-

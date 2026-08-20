@@ -19,7 +19,7 @@ class StockReceipt extends Model
     public const STATUS_RECEIVED = 'received';
 
     protected $fillable = [
-        'uuid', 'sppg_unit_id', 'procurement_request_id', 'supplier_id', 'receipt_number', 'receipt_date', 'status',
+        'uuid', 'sppg_unit_id', 'warehouse_id', 'procurement_request_id', 'supplier_id', 'receipt_number', 'receipt_date', 'status',
         'received_by_name', 'notes', 'documentation_path', 'created_by', 'received_by', 'received_at',
     ];
 
@@ -65,6 +65,8 @@ class StockReceipt extends Model
         return $this->belongsTo(ProcurementRequest::class);
     }
 
+    public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
+
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
@@ -73,6 +75,11 @@ class StockReceipt extends Model
     public function items(): HasMany
     {
         return $this->hasMany(StockReceiptItem::class);
+    }
+
+    public function itemPhotos(): HasMany
+    {
+        return $this->hasMany(StockReceiptItemPhoto::class);
     }
 
     public function isEditable(): bool

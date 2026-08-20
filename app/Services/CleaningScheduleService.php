@@ -32,16 +32,21 @@ final class CleaningScheduleService
                     $query->whereNull('frequency')->orWhere('frequency', 'daily');
                 })
                 ->orderBy('name')
+                ->lockForUpdate()
                 ->get();
 
             return $areas->map(function (CleaningArea $area) use ($unitId, $scheduledDate, $actor): CleaningSession {
-                $session = CleaningSession::query()->firstOrCreate(
-                    [
+                $session = CleaningSession::query()
+                    ->where('sppg_unit_id', $unitId)
+                    ->where('cleaning_area_id', $area->getKey())
+                    ->whereDate('scheduled_date', $scheduledDate)
+                    ->first();
+
+                if (! $session) {
+                    $session = CleaningSession::query()->create([
                         'sppg_unit_id' => $unitId,
                         'cleaning_area_id' => $area->getKey(),
                         'scheduled_date' => $scheduledDate,
-                    ],
-                    [
                         'shift' => $this->shiftForTime($area->scheduled_time),
                         'scheduled_start_at' => $area->scheduled_time
                             ? Carbon::parse($scheduledDate.' '.$area->scheduled_time)
@@ -51,8 +56,8 @@ final class CleaningScheduleService
                         'created_by' => $actor->getKey(),
                         'updated_by' => $actor->getKey(),
                         'source_system' => 'cleaning_auto_schedule',
-                    ],
-                );
+                    ]);
+                }
 
                 app(OperationalRecordInitializer::class)->initialize($session, $actor);
 

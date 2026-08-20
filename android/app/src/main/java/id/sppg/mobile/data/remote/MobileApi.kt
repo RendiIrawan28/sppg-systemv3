@@ -28,6 +28,7 @@ interface MobileApi {
         @Header("Authorization") authorization: String,
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,
+        @Query("scope") scope: String? = null,
         @Query("per_page") perPage: Int = 50,
         @Query("page") page: Int = 1,
     ): Response<PaginatedFieldPlans>
@@ -712,6 +713,7 @@ data class SecurityShiftSummary(
     val status: String,
     @SerializedName("reports_count") val reportsCount: Int,
     @SerializedName("reports_expected") val reportsExpected: Int,
+    val reports: List<SecurityReportItem> = emptyList(),
 )
 
 data class SecurityTaskSummary(

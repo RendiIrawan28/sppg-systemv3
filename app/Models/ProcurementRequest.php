@@ -23,7 +23,7 @@ class ProcurementRequest extends Model
 
     protected $fillable = [
         'uuid', 'sppg_unit_id', 'request_number', 'request_date', 'needed_date',
-        'nutrition_requirement_plan_id', 'field_distribution_plan_id', 'status',
+        'nutrition_requirement_plan_id', 'field_distribution_plan_id', 'warehouse_id', 'procurement_type', 'status',
         'price_status', 'price_finalized_by', 'price_finalized_at',
         'total_items', 'estimated_total_amount', 'notes', 'finance_notes',
         'created_by', 'submitted_by', 'approved_by', 'ordered_by',
@@ -67,6 +67,7 @@ class ProcurementRequest extends Model
     public function sppgUnit(): BelongsTo { return $this->belongsTo(SppgUnit::class); }
     public function nutritionRequirementPlan(): BelongsTo { return $this->belongsTo(NutritionRequirementPlan::class); }
     public function fieldDistributionPlan(): BelongsTo { return $this->belongsTo(FieldDistributionPlan::class); }
+    public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
     public function items(): HasMany { return $this->hasMany(ProcurementRequestItem::class); }
     public function creator(): BelongsTo { return $this->belongsTo(User::class, 'created_by'); }
     public function submitter(): BelongsTo { return $this->belongsTo(User::class, 'submitted_by'); }

@@ -6,10 +6,11 @@
                     <span class="rounded-full bg-cyan-300/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[.16em] text-cyan-200 ring-1 ring-cyan-300/20">Buku besar barang</span>
                     <h2 class="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">Saldo mengikuti satuan asli setiap barang.</h2>
                     <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Penerimaan lolos QC menambah stok. Pengambilan terverifikasi dan penyesuaian mengurangi atau mengoreksi stok dengan referensi yang dapat diaudit.</p>
+                    <div class="mt-4 inline-flex rounded-xl bg-white/10 p-1"><button wire:click="$set('warehouseType','food')" class="rounded-lg px-4 py-2 text-xs font-bold {{ $warehouseType === 'food' ? 'bg-cyan-300 text-[#081d3a]' : 'text-white' }}">Pangan</button><button wire:click="$set('warehouseType','non_food')" class="rounded-lg px-4 py-2 text-xs font-bold {{ $warehouseType === 'non_food' ? 'bg-cyan-300 text-[#081d3a]' : 'text-white' }}">Non-Pangan</button></div>
                 </div>
                 <div class="flex gap-2">
                     @if(auth()->user()->is_super_admin || auth()->user()->can('stock.create'))
-                        <a wire:navigate href="{{ route('v3.warehouse.opening-stocks.index') }}" class="inline-flex h-11 items-center rounded-xl bg-cyan-300 px-4 text-xs font-bold text-[#081d3a]">Input Stok Awal</a>
+                        <a wire:navigate href="{{ route('v3.warehouse.opening-stocks.index', ['gudang' => $warehouseType]) }}" class="inline-flex h-11 items-center rounded-xl bg-cyan-300 px-4 text-xs font-bold text-[#081d3a]">Input Stok Awal</a>
                     @endif
                     <a wire:navigate href="{{ route('v3.warehouse.receipts.index') }}" class="inline-flex h-11 items-center rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-bold text-white">Penerimaan</a>
                     <a wire:navigate href="{{ route('v3.warehouse.withdrawals.index') }}" class="inline-flex h-11 items-center rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-bold text-white">Pengambilan</a>

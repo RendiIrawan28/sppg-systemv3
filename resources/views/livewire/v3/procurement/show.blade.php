@@ -7,7 +7,7 @@
                 </a>
                 <h2 class="mt-3 text-2xl font-bold tracking-tight text-slate-950 dark:text-white">{{ $request->request_number }}</h2>
                 <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                    Dibutuhkan {{ $request->needed_date?->translatedFormat('d M Y') ?? 'tanpa tanggal' }} · {{ $request->total_items }} bahan
+                    {{ $request->procurement_type === 'non_food' ? 'Gudang Non-Pangan' : 'Gudang Pangan' }} · Dibutuhkan {{ $request->needed_date?->translatedFormat('d M Y') ?? 'tanpa tanggal' }} · {{ $request->total_items }} barang
                 </p>
             </div>
 
@@ -95,7 +95,7 @@
                         <textarea wire:model="decisionNotes" rows="3" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" placeholder="Wajib untuk permintaan revisi"></textarea>
                     </label>
                     <div class="mt-3 grid gap-2">
-                        @if ($request->isEditable() && (auth()->user()->is_super_admin || auth()->user()->can('procurement.submit')))
+                        @if ($request->isEditable() && (auth()->user()->is_super_admin || $canSubmitRequest))
                             <button wire:click="submit" wire:confirm="Ajukan permintaan ini?" class="h-10 rounded-xl bg-[#081d3a] text-xs font-bold text-white">Ajukan permintaan</button>
                         @endif
                         @if ($request->status === \App\Models\ProcurementRequest::STATUS_SUBMITTED && (auth()->user()->is_super_admin || auth()->user()->can('procurement.approve')))
@@ -107,10 +107,10 @@
                         @if (in_array($request->status, [\App\Models\ProcurementRequest::STATUS_SUBMITTED, \App\Models\ProcurementRequest::STATUS_FINANCE_VERIFIED], true) && (auth()->user()->is_super_admin || auth()->user()->can('procurement.approve') || auth()->user()->can('procurement.finalize_price')))
                             <button wire:click="requestRevision" class="h-10 rounded-xl bg-rose-50 text-xs font-bold text-rose-700 ring-1 ring-rose-100 dark:bg-rose-950/40 dark:text-rose-300 dark:ring-rose-900">Minta revisi</button>
                         @endif
-                        @if ($request->status === \App\Models\ProcurementRequest::STATUS_APPROVED && (auth()->user()->is_super_admin || auth()->user()->can('procurement.order')))
+                        @if ($request->status === \App\Models\ProcurementRequest::STATUS_APPROVED && (auth()->user()->is_super_admin || $canOrderRequest))
                             <button wire:click="markOrdered" wire:confirm="Tandai seluruh bahan sudah dipesan?" class="h-10 rounded-xl bg-violet-600 text-xs font-bold text-white">Tandai dipesan</button>
                         @endif
-                        @if ($request->isEditable() && (auth()->user()->is_super_admin || auth()->user()->can('procurement.delete')))
+                        @if ($request->isEditable() && (auth()->user()->is_super_admin || $canDeleteRequest))
                             <button wire:click="delete" wire:confirm="Hapus draft permintaan ini?" class="h-10 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/40">Hapus draft</button>
                         @endif
                     </div>

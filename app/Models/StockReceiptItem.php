@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class StockReceiptItem extends Model
 {
@@ -12,6 +13,7 @@ class StockReceiptItem extends Model
         'stock_receipt_id',
         'procurement_request_item_id',
         'ingredient_id',
+        'non_food_item_id',
         'supplier_id',
         'ingredient_name_snapshot',
         'unit_snapshot',
@@ -61,6 +63,8 @@ class StockReceiptItem extends Model
         return $this->belongsTo(Ingredient::class);
     }
 
+    public function nonFoodItem(): BelongsTo { return $this->belongsTo(NonFoodItem::class); }
+
     public function supplier(): BelongsTo
     {
         return $this->belongsTo(Supplier::class);
@@ -69,5 +73,10 @@ class StockReceiptItem extends Model
     public function inventoryLot(): HasOne
     {
         return $this->hasOne(InventoryLot::class);
+    }
+
+    public function photos(): HasMany
+    {
+        return $this->hasMany(StockReceiptItemPhoto::class);
     }
 }

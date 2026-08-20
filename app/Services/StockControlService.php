@@ -20,12 +20,14 @@ class StockControlService
         }
 
         $unit = $this->normalizedUnit($lot->unit_snapshot);
-        $lot->loadMissing('ingredient.measurementUnit');
+        $lot->loadMissing(['ingredient.measurementUnit', 'nonFoodItem.measurementUnit']);
         $systemKg = $this->units->legacyKilograms($lot->ingredient, (float) $lot->balance_quantity);
         $actualKg = $this->units->legacyKilograms($lot->ingredient, $actual);
 
         return StockAdjustment::create([
-            'sppg_unit_id' => $lot->sppg_unit_id, 'inventory_lot_id' => $lot->id,
+            'sppg_unit_id' => $lot->sppg_unit_id, 'warehouse_id' => $lot->warehouse_id,
+            'ingredient_id' => $lot->ingredient_id, 'non_food_item_id' => $lot->non_food_item_id,
+            'inventory_lot_id' => $lot->id,
             'unit_snapshot' => $unit,
             'adjustment_number' => 'SA/'.now()->format('YmdHis').'/'.$lot->id, 'adjustment_date' => today(),
             'type' => $type, 'system_quantity' => $lot->balance_quantity, 'actual_quantity' => $actual,
@@ -46,7 +48,7 @@ class StockControlService
             }
             $lot = InventoryLot::lockForUpdate()->findOrFail($adjustment->inventory_lot_id);
             $unit = $this->normalizedUnit($lot->unit_snapshot ?: $adjustment->unit_snapshot);
-            $lot->loadMissing('ingredient.measurementUnit');
+            $lot->loadMissing(['ingredient.measurementUnit', 'nonFoodItem.measurementUnit']);
             $difference = (float) $adjustment->actual_quantity - (float) $lot->balance_quantity;
             $actualKg = $this->units->legacyKilograms($lot->ingredient, (float) $adjustment->actual_quantity);
             $differenceKg = $this->units->legacyKilograms($lot->ingredient, $difference);
@@ -59,8 +61,11 @@ class StockControlService
                 'status' => (float) $adjustment->actual_quantity > 0 ? InventoryLot::AVAILABLE : InventoryLot::DEPLETED,
             ]);
             StockMovement::create([
-                'sppg_unit_id' => $lot->sppg_unit_id, 'ingredient_id' => $lot->ingredient_id, 'inventory_lot_id' => $lot->id,
-                'ingredient_name_snapshot' => $lot->ingredient->name, 'unit_snapshot' => $unit, 'movement_type' => StockMovement::TYPE_ADJUSTMENT,
+                'sppg_unit_id' => $lot->sppg_unit_id, 'warehouse_id' => $lot->warehouse_id,
+                'ingredient_id' => $lot->ingredient_id, 'non_food_item_id' => $lot->non_food_item_id,
+                'inventory_lot_id' => $lot->id,
+                'ingredient_name_snapshot' => $lot->ingredient?->name ?: $lot->nonFoodItem?->name ?: 'Barang',
+                'unit_snapshot' => $unit, 'movement_type' => StockMovement::TYPE_ADJUSTMENT,
                 'movement_date' => today(),
                 'quantity_in_kg' => max(0, $differenceKg),
                 'quantity_out_kg' => max(0, -$differenceKg),

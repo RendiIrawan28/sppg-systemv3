@@ -35,6 +35,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -460,18 +461,22 @@ fun SecurityScreen(
 @Composable
 private fun SecurityShiftHistoryCard(shift: SecurityShiftSummary) {
     Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp)) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Shift keamanan", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 SppgStatusPill(shift.status.replaceFirstChar { it.uppercase() })
             }
-            Spacer(Modifier.height(8.dp))
             Text("Mulai: ${formatMobileDate(shift.startedAt)}")
             Text("Selesai: ${formatMobileDate(shift.completedAt)}")
             Text(
                 "${shift.reportsCount}/${shift.reportsExpected} laporan situasi",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (shift.reports.isNotEmpty()) {
+                HorizontalDivider()
+                Text("Hasil laporan", fontWeight = FontWeight.Bold)
+                shift.reports.forEach { report -> SecurityReportCard(report) }
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-<x-v3.shell :$unit :$navigation :$roleLabel title="Kebutuhan & Pengadaan" eyebrow="Otomatis dari porsi aktual">
+<x-v3.shell :$unit :$navigation :$roleLabel title="Kebutuhan & Pengadaan" eyebrow="Sumber: Master Penerima Aktif">
     <div class="mx-auto max-w-[1450px] space-y-5">
         @if (session('v3.status'))
             <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
@@ -9,15 +9,30 @@
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white shadow-xl sm:p-7">
             <div class="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
                 <div>
-                    <h2 class="mt-4 text-2xl font-bold sm:text-3xl">Kebutuhan dihitung dari rencana distribusi.</h2>
-                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-300">Ahli Gizi tidak perlu membuat rencana manual. Sistem menggunakan porsi aktual, resep, BDD, susut, buffer, satuan pembelian, dan aturan pembulatan pada Master Bahan.</p>
+                    <h2 class="mt-4 text-2xl font-bold sm:text-3xl">Kebutuhan dihitung dari Master Penerima.</h2>
+                    <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-300">Pilih hari pelayanan dari siklus menu. Sistem menggunakan porsi master periode aktif, resep, BDD, susut, buffer siklus, satuan pembelian, dan aturan pembulatan Master Bahan.</p>
                 </div>
-                <a wire:navigate href="{{ route('v3.field.plans.index') }}" class="inline-flex h-11 items-center rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-bold text-white">Buka rencana distribusi</a>
+                <span class="inline-flex h-11 items-center rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-bold text-white">Tidak bergantung pada Rencana Distribusi</span>
             </div>
             <div class="mt-6 grid gap-3 sm:grid-cols-3">
                 <div class="rounded-2xl border border-white/10 bg-white/[.07] px-4 py-3"><p class="text-[10px] uppercase text-slate-400">Perhitungan</p><p class="mt-1 text-xl font-bold">{{ number_format($planCount, 0, ',', '.') }}</p></div>
                 <div class="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 px-4 py-3"><p class="text-[10px] uppercase text-cyan-200/70">Total berat</p><p class="mt-1 text-xl font-bold text-cyan-100">{{ number_format($totalWeight, 2, ',', '.') }} kg</p></div>
                 <div class="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 px-4 py-3"><p class="text-[10px] uppercase text-emerald-200/70">Draft pengadaan</p><p class="mt-1 text-xl font-bold text-emerald-100">{{ number_format($readyCount, 0, ',', '.') }}</p></div>
+            </div>
+        </section>
+
+        @error('generate')<div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ $message }}</div>@enderror
+        <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div><h3 class="text-lg font-bold text-slate-950">Hari menu siap dihitung</h3><p class="mt-1 text-xs text-slate-500">Periode penerima yang terhubung ke siklus akan menjadi sumber jumlah.</p></div>
+            <div class="mt-4 grid gap-3 lg:grid-cols-2">
+                @forelse($menuDays as $day)
+                    <div class="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center">
+                        <div><p class="text-sm font-bold text-slate-800">{{ $day->service_date?->translatedFormat('d M Y') }} · {{ $day->menu?->name }}</p><p class="mt-1 text-xs text-slate-500">{{ $day->cycle?->name }} · Periode: {{ $day->cycle?->beneficiaryPeriod?->name ?? 'dicari otomatis sesuai tanggal' }}</p></div>
+                        @if(auth()->user()->is_super_admin || auth()->user()->can('nutrition.manage'))<button wire:click="generate({{ $day->id }})" wire:loading.attr="disabled" class="h-10 shrink-0 rounded-xl bg-sky-600 px-4 text-xs font-bold text-white">Hitung kebutuhan</button>@endif
+                    </div>
+                @empty
+                    <p class="text-sm text-slate-500">Belum ada hari pelayanan dengan menu pada siklus disetujui/aktif.</p>
+                @endforelse
             </div>
         </section>
 
@@ -31,7 +46,7 @@
                     <tbody class="divide-y divide-slate-100">
                         @forelse ($plans as $plan)
                             <tr class="hover:bg-sky-50/30">
-                                <td class="px-5 py-4"><p class="text-sm font-bold text-slate-800">{{ $plan->requirement_date?->translatedFormat('d M Y') }}</p><p class="mt-1 text-xs text-slate-400">{{ $plan->fieldDistributionPlan?->plan_number ?? $plan->plan_number }}</p></td>
+                                <td class="px-5 py-4"><p class="text-sm font-bold text-slate-800">{{ $plan->requirement_date?->translatedFormat('d M Y') }}</p><p class="mt-1 text-xs text-slate-400">{{ $plan->beneficiaryPeriod?->name ?? $plan->fieldDistributionPlan?->plan_number ?? 'Data legacy' }}</p></td>
                                 <td class="px-5 py-4 text-sm text-slate-600">{{ $plan->menu?->name ?? 'Menu tidak tersedia' }}</td>
                                 <td class="px-5 py-4 text-right text-sm font-bold text-slate-700">{{ number_format($plan->total_portions, 0, ',', '.') }}</td>
                                 <td class="px-5 py-4 text-right text-sm text-slate-600">{{ $plan->total_items }}</td>
@@ -40,7 +55,7 @@
                                 <td class="px-5 py-4 text-right"><a wire:navigate href="{{ route('v3.nutrition.requirements.show', $plan) }}" class="rounded-lg bg-sky-50 px-3 py-2 text-[10px] font-bold text-sky-700">Lihat</a></td>
                             </tr>
                         @empty
-                            <tr><td colspan="7" class="px-5 py-16 text-center"><p class="text-sm font-bold text-slate-700">Belum ada kebutuhan bahan</p><p class="mt-1 text-xs text-slate-400">Konfirmasi porsi pada Rencana Distribusi, lalu pilih Hitung kebutuhan & pengadaan.</p></td></tr>
+                            <tr><td colspan="7" class="px-5 py-16 text-center"><p class="text-sm font-bold text-slate-700">Belum ada kebutuhan bahan</p><p class="mt-1 text-xs text-slate-400">Pilih hari pelayanan di atas lalu tekan Hitung kebutuhan.</p></td></tr>
                         @endforelse
                     </tbody>
                 </table>

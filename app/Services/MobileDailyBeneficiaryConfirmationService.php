@@ -14,7 +14,6 @@ class MobileDailyBeneficiaryConfirmationService
 {
     public function __construct(
         private readonly FieldPlanActualConfirmationService $actualConfirmation,
-        private readonly FieldActualDistributionPlanSyncService $planSync,
     ) {}
 
     /** @return Collection<int, DailyBeneficiaryConfirmation> */
@@ -173,17 +172,6 @@ class MobileDailyBeneficiaryConfirmationService
 
             return $confirmation->refresh()->load('items');
         });
-
-        $pending = DailyBeneficiaryConfirmation::query()
-            ->where('sppg_unit_id', $confirmation->sppg_unit_id)
-            ->where('beneficiary_period_id', $confirmation->beneficiary_period_id)
-            ->whereDate('service_date', $confirmation->service_date)
-            ->where('status', 'draft')
-            ->exists();
-
-        if (! $pending) {
-            $this->planSync->syncForConfirmation($confirmation, $actor);
-        }
 
         return $confirmation->refresh()->load('items');
     }

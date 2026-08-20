@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\SecurityShiftStatus;
 use App\Http\Controllers\Controller;
 use App\Models\MobileTask;
+use App\Models\SecurityReport;
 use App\Models\SecurityShift;
 use App\Services\Mobile\MobileTaskService;
 use App\Services\SecurityMonitoringService;
@@ -12,8 +13,10 @@ use App\Support\V3\SystemUnit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
 
 class MobileSecurityController extends Controller
@@ -40,6 +43,7 @@ class MobileSecurityController extends Controller
         $recent = SecurityShift::query()
             ->where('sppg_unit_id', $systemUnit->id())
             ->where('officer_id', $request->user()->getKey())
+            ->with('reports')
             ->withCount('reports')
             ->when($filters['date'] ?? null, fn ($query, string $date) => $query->whereDate('started_at', $date))
             ->latest('started_at')
@@ -56,6 +60,7 @@ class MobileSecurityController extends Controller
                     'status' => $shift->status->value,
                     'reports_count' => (int) $shift->reports_count,
                     'reports_expected' => (int) $shift->reports_expected,
+                    'reports' => $shift->reports->map(fn (SecurityReport $report): array => $this->reportPayload($report)),
                 ]),
                 'pending_tasks' => MobileTask::query()
                     ->where('user_id', $request->user()->getKey())
@@ -133,6 +138,19 @@ class MobileSecurityController extends Controller
         ], 201);
     }
 
+    public function photo(SecurityReport $report): StreamedResponse
+    {
+        abort_if(blank($report->photo_path), 404);
+        abort_unless(Storage::disk('public')->exists($report->photo_path), 404);
+
+        return Storage::disk('public')->response(
+            $report->photo_path,
+            basename($report->photo_path),
+            ['Cache-Control' => 'private, max-age=300'],
+            'inline',
+        );
+    }
+
     private function shiftPayload(SecurityShift $shift): array
     {
         $shift->loadMissing('reports');
@@ -150,19 +168,35 @@ class MobileSecurityController extends Controller
             'next_report_sequence' => $shift->next_report_sequence,
             'next_report_due_at' => $shift->next_report_due_at?->toIso8601String(),
             'report_due' => $shift->isReportDue(),
-            'reports' => $shift->reports->map(fn ($report): array => [
-                'id' => $report->getKey(),
-                'sequence_number' => $report->sequence_number,
-                'due_at' => $report->due_at?->toIso8601String(),
-                'reported_at' => $report->reported_at?->toIso8601String(),
-                'situation' => $report->situation->value,
-                'gate_secure' => (bool) $report->gate_secure,
-                'perimeter_secure' => (bool) $report->perimeter_secure,
-                'access_activity' => $report->access_activity,
-                'visitor_activity' => $report->visitor_activity,
-                'notes' => $report->notes,
-                'photo_url' => $report->photo_path ? Storage::disk('public')->url($report->photo_path) : null,
-            ]),
+            'reports' => $shift->reports->map(fn (SecurityReport $report): array => $this->reportPayload($report)),
+        ];
+    }
+
+    private function reportPayload(SecurityReport $report): array
+    {
+        $photoUrl = null;
+        if (filled($report->photo_path)) {
+            $relativeUrl = URL::temporarySignedRoute(
+                'api.mobile.security.reports.photo',
+                now()->addMinutes(30),
+                ['report' => $report->getKey()],
+                absolute: false,
+            );
+            $photoUrl = request()->getSchemeAndHttpHost().$relativeUrl;
+        }
+
+        return [
+            'id' => $report->getKey(),
+            'sequence_number' => $report->sequence_number,
+            'due_at' => $report->due_at?->toIso8601String(),
+            'reported_at' => $report->reported_at?->toIso8601String(),
+            'situation' => $report->situation->value,
+            'gate_secure' => (bool) $report->gate_secure,
+            'perimeter_secure' => (bool) $report->perimeter_secure,
+            'access_activity' => $report->access_activity,
+            'visitor_activity' => $report->visitor_activity,
+            'notes' => $report->notes,
+            'photo_url' => $photoUrl,
         ];
     }
 

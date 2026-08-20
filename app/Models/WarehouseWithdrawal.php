@@ -22,7 +22,7 @@ class WarehouseWithdrawal extends Model
 
     public const REJECTED = 'rejected';
 
-    protected $fillable = ['uuid', 'sppg_unit_id', 'withdrawal_number', 'withdrawal_date', 'division_code', 'reference_type', 'reference_id', 'reference_number_snapshot', 'purpose_reference', 'shift', 'status', 'notes', 'decision_notes', 'taken_by', 'verified_by', 'submitted_at', 'verified_at', 'rejected_at'];
+    protected $fillable = ['uuid', 'sppg_unit_id', 'warehouse_id', 'withdrawal_number', 'withdrawal_date', 'division_code', 'reference_type', 'reference_id', 'reference_number_snapshot', 'purpose_reference', 'shift', 'status', 'notes', 'decision_notes', 'taken_by', 'verified_by', 'submitted_at', 'verified_at', 'rejected_at'];
 
     protected function casts(): array
     {
@@ -51,6 +51,8 @@ class WarehouseWithdrawal extends Model
     {
         return $this->hasMany(WarehouseWithdrawalItem::class);
     }
+
+    public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
 
     public function taker(): BelongsTo
     {

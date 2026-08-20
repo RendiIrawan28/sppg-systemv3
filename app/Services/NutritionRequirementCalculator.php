@@ -60,7 +60,7 @@ class NutritionRequirementCalculator
 
         if ($actualPortions <= 0 || $effectivePortions <= 0) {
             throw ValidationException::withMessages([
-                'total_portions' => 'Jumlah aktual dan porsi efektif harus lebih dari nol.',
+                'total_portions' => 'Jumlah porsi master dan porsi efektif harus lebih dari nol.',
             ]);
         }
 
@@ -366,6 +366,76 @@ class NutritionRequirementCalculator
             ->values()
             ->all();
 
+        if ($plan->beneficiary_period_id) {
+            $period = $plan->beneficiaryPeriod()
+                ->with(['destinations.categoryTotals', 'destinations.members'])
+                ->first();
+
+            if (! $period || (int) $period->sppg_unit_id !== (int) $plan->sppg_unit_id) {
+                throw ValidationException::withMessages([
+                    'beneficiary_period_id' => 'Periode penerima tidak ditemukan atau berasal dari Unit SPPG lain.',
+                ]);
+            }
+            if ($targets === []) {
+                throw ValidationException::withMessages([
+                    'categoryTargets' => 'Menu belum memiliki target kategori penerima dan pengali porsi.',
+                ]);
+            }
+
+            $groups = $period->destinations
+                ->where('is_active', true)
+                ->flatMap(function ($destination) {
+                    if ($destination->categoryTotals->isNotEmpty()) {
+                        return $destination->categoryTotals->map(fn ($total): array => [
+                            'beneficiary_category_id' => (int) ($total->beneficiary_category_id ?? 0),
+                            'code' => (string) ($total->beneficiary_category_code_snapshot ?? ''),
+                            'name' => (string) ($total->beneficiary_category_name_snapshot ?? ''),
+                            'menu_audience' => $this->enumValue($total->menu_audience ?? ''),
+                            'portion_size' => $this->enumValue($total->portion_category ?? ''),
+                            'actual_portions' => (int) $total->total_beneficiaries,
+                        ]);
+                    }
+
+                    return $destination->members->where('is_active', true)
+                        ->groupBy(fn ($member): string => implode('|', [
+                            (int) ($member->beneficiary_category_id ?? 0),
+                            (string) ($member->beneficiary_category_code_snapshot ?? ''),
+                            (string) ($member->menu_audience ?? ''),
+                            (string) ($member->portion_category ?? ''),
+                        ]))
+                        ->map(function ($members): array {
+                            $member = $members->first();
+                            return [
+                                'beneficiary_category_id' => (int) ($member->beneficiary_category_id ?? 0),
+                                'code' => (string) ($member->beneficiary_category_code_snapshot ?? ''),
+                                'name' => (string) ($member->beneficiary_category_name_snapshot ?? ''),
+                                'menu_audience' => $this->enumValue($member->menu_audience ?? ''),
+                                'portion_size' => $this->enumValue($member->portion_category ?? ''),
+                                'actual_portions' => $members->count(),
+                            ];
+                        })->values();
+                })
+                ->groupBy(fn (array $group): string => $group['beneficiary_category_id'] > 0
+                    ? 'id:'.$group['beneficiary_category_id']
+                    : implode('|', [strtolower($group['code']), strtolower($group['menu_audience']), strtolower($group['portion_size'])]))
+                ->map(function ($rows): array {
+                    $first = $rows->first();
+                    $first['actual_portions'] = (int) $rows->sum('actual_portions');
+                    return $first;
+                })
+                ->values()
+                ->all();
+
+            try {
+                return array_map(static function (array $allocation): array {
+                    $allocation['master_portions'] = $allocation['actual_portions'];
+                    return $allocation;
+                }, $this->portionAllocator->allocate($groups, $targets));
+            } catch (InvalidArgumentException $exception) {
+                throw ValidationException::withMessages(['categoryTargets' => $exception->getMessage()]);
+            }
+        }
+
         if ($plan->field_distribution_plan_id) {
             $fieldPlan = $plan->fieldDistributionPlan()
                 ->with('destinations.recipientGroups')
@@ -485,15 +555,17 @@ class NutritionRequirementCalculator
         $issues = [];
 
         if ((int) $plan->total_portions <= 0) {
-            $issues[] = 'Jumlah porsi aktual belum valid.';
+            $issues[] = 'Jumlah porsi master belum valid.';
         }
 
         if ((float) $plan->effective_portions <= 0) {
             $issues[] = 'Porsi efektif berdasarkan kategori belum dihitung.';
         }
 
-        if ($plan->field_distribution_plan_id && empty($plan->portion_breakdown)) {
-            $issues[] = 'Rincian kategori penerima dari Rencana H-3 belum tersedia.';
+        if (($plan->beneficiary_period_id || $plan->field_distribution_plan_id) && empty($plan->portion_breakdown)) {
+            $issues[] = $plan->beneficiary_period_id
+                ? 'Rincian kategori dari Master Penerima belum tersedia.'
+                : 'Rincian kategori penerima dari data legacy belum tersedia.';
         }
 
         if ($plan->items()->count() === 0) {

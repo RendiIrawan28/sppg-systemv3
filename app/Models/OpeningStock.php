@@ -9,7 +9,7 @@ use Illuminate\Support\Str;
 
 class OpeningStock extends Model
 {
-    protected $fillable = ['uuid', 'sppg_unit_id', 'opening_number', 'opening_date', 'photo_path', 'notes', 'status', 'created_by'];
+    protected $fillable = ['uuid', 'sppg_unit_id', 'warehouse_id', 'opening_number', 'opening_date', 'photo_path', 'notes', 'status', 'created_by'];
 
     protected function casts(): array
     {
@@ -30,6 +30,8 @@ class OpeningStock extends Model
     {
         return $this->belongsTo(User::class, 'created_by');
     }
+
+    public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
 
     public function items(): HasMany
     {

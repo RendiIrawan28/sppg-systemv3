@@ -86,23 +86,25 @@ fun FieldPlanListScreen(
     onRefresh: () -> Unit,
     onLoad: () -> Unit,
     onLoadMore: () -> Unit,
-    onDateChange: (String) -> Unit,
+    onShowActive: () -> Unit,
+    onHistoryDateChange: (String) -> Unit,
     onPlanClick: (Long) -> Unit,
     onCreate: () -> Unit,
 ) {
     LaunchedEffect(Unit) { onLoad() }
     val context = LocalContext.current
-    var showHistory by remember { mutableStateOf(false) }
-    var historyDate by remember { mutableStateOf(LocalDate.now()) }
-    val historyStatuses = setOf("completed", "cancelled")
-    val visiblePlans = state.plans.filter { (it.status in historyStatuses) == showHistory }
+    val showHistory = state.showHistory
+    var historyDate by remember(state.dateFilter) {
+        mutableStateOf(runCatching { LocalDate.parse(state.dateFilter) }.getOrDefault(LocalDate.now()))
+    }
+    val visiblePlans = state.plans
 
     fun chooseHistoryDate() {
         DatePickerDialog(
             context,
             { _, year, month, day ->
                 historyDate = LocalDate.of(year, month + 1, day)
-                onDateChange(historyDate.toString())
+                onHistoryDateChange(historyDate.toString())
             },
             historyDate.year,
             historyDate.monthValue - 1,
@@ -179,9 +181,8 @@ fun FieldPlanListScreen(
                     }
                 }
                 item {
-                    WorkHistoryTabs(showHistory) { history ->
-                        showHistory = history
-                        onDateChange((if (history) historyDate else LocalDate.now()).toString())
+                    WorkHistoryTabs(showHistory, activeLabel = "Aktif & Mendatang") { history ->
+                        if (history) onHistoryDateChange(historyDate.toString()) else onShowActive()
                     }
                 }
                 if (showHistory) {
@@ -189,7 +190,7 @@ fun FieldPlanListScreen(
                 }
                 item {
                     Text(
-                        if (showHistory) "RENCANA SELESAI" else "RENCANA HARI INI",
+                        if (showHistory) "RIWAYAT RENCANA" else "AKTIF & MENDATANG",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
@@ -200,7 +201,7 @@ fun FieldPlanListScreen(
                         if (showHistory) HistoryEmptyState()
                         else Card(shape = RoundedCornerShape(18.dp)) {
                             Text(
-                                "Belum ada rencana distribusi untuk hari ini",
+                                "Belum ada rencana distribusi aktif atau mendatang",
                                 modifier = Modifier.padding(22.dp),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

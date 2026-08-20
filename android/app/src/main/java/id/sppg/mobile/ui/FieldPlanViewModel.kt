@@ -22,6 +22,7 @@ data class FieldPlanUiState(
     val currentPage: Int = 1,
     val lastPage: Int = 1,
     val dateFilter: String = LocalDate.now().toString(),
+    val showHistory: Boolean = false,
     val isLoadingMore: Boolean = false,
     val selectedPlan: FieldPlan? = null,
     val options: List<FieldPlanOption> = emptyList(),
@@ -38,7 +39,11 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
         _uiState.value = FieldPlanUiState()
     }
 
-    fun loadPlans(force: Boolean = false, date: String = _uiState.value.dateFilter) {
+    fun loadPlans(
+        force: Boolean = false,
+        date: String = _uiState.value.dateFilter,
+        history: Boolean = _uiState.value.showHistory,
+    ) {
         if (!force && (_uiState.value.isLoading || _uiState.value.plans.isNotEmpty())) return
         viewModelScope.launch {
             _uiState.update {
@@ -49,12 +54,13 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
                     lastPage = 1,
                     isLoadingMore = false,
                     dateFilter = date,
+                    showHistory = history,
                     errorMessage = null,
                     successMessage = null,
                     selectedPlan = null,
                 )
             }
-            repository.getPlans(page = 1, date = date)
+            repository.getPlans(page = 1, history = history, date = date)
                 .onSuccess { page ->
                     _uiState.update {
                         it.copy(
@@ -75,7 +81,7 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
         viewModelScope.launch {
             val nextPage = _uiState.value.currentPage + 1
             _uiState.update { it.copy(isLoadingMore = true, errorMessage = null) }
-            repository.getPlans(page = nextPage, date = current.dateFilter)
+            repository.getPlans(page = nextPage, history = current.showHistory, date = current.dateFilter)
                 .onSuccess { page ->
                     _uiState.update { state ->
                         state.copy(
@@ -90,7 +96,9 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
         }
     }
 
-    fun filterPlans(date: String) = loadPlans(force = true, date = date)
+    fun showActivePlans() = loadPlans(force = true, date = LocalDate.now().toString(), history = false)
+
+    fun filterHistory(date: String) = loadPlans(force = true, date = date, history = true)
 
     fun loadPlan(id: Long) {
         if (_uiState.value.isLoading || _uiState.value.selectedPlan?.id == id) return

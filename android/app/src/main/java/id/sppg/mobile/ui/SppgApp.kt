@@ -285,7 +285,8 @@ private fun AuthenticatedContent(
             onRefresh = { fieldPlanViewModel.loadPlans(force = true) },
             onLoad = fieldPlanViewModel::loadPlans,
             onLoadMore = fieldPlanViewModel::loadMorePlans,
-            onDateChange = fieldPlanViewModel::filterPlans,
+            onShowActive = fieldPlanViewModel::showActivePlans,
+            onHistoryDateChange = fieldPlanViewModel::filterHistory,
             onPlanClick = { screen = AppScreen.FieldPlanDetail(it) },
             onCreate = {
                 fieldPlanViewModel.clearFeedback()

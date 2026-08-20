@@ -30,8 +30,9 @@ final class Navigation
             $this->module('gudang', 'Gudang', 'box', [
                 $this->item('Penerimaan bahan', 'box', route('v3.warehouse.receipts.index'), request()->routeIs('v3.warehouse.receipts.*'), $this->allowed($user, 'stock.view')),
                 $this->item('Input stok awal', 'plus', route('v3.warehouse.opening-stocks.index'), request()->routeIs('v3.warehouse.opening-stocks.*'), $this->allowed($user, 'stock.create')),
+                $this->item('Master & kebutuhan Non-Pangan', 'settings', route('v3.warehouse.non-food-items.index'), request()->routeIs('v3.warehouse.non-food-items.*'), $this->allowed($user, 'non_food_items.view')),
                 $this->item('Kartu stok', 'calculator', route('v3.warehouse.stock.index'), request()->routeIs('v3.warehouse.stock.*'), $this->allowed($user, 'stock.view')),
-                $this->item('Pengambilan barang', 'arrow-up-right', route('v3.warehouse.withdrawals.index'), request()->routeIs('v3.warehouse.withdrawals.*'), $this->allowed($user, 'stock.view') || $this->allowed($user, 'preparation.view') || $this->allowed($user, 'processing.view') || $this->allowed($user, 'portioning.view')),
+                $this->item('Pengambilan barang', 'arrow-up-right', route('v3.warehouse.withdrawals.index'), request()->routeIs('v3.warehouse.withdrawals.*'), $this->allowed($user, 'stock.view') || $this->allowed($user, 'non_food_stock.view') || $this->allowed($user, 'preparation.view') || $this->allowed($user, 'processing.view') || $this->allowed($user, 'portioning.view')),
                 $this->item('Kontrol stok', 'settings', route('v3.warehouse.controls.index'), request()->routeIs('v3.warehouse.controls.*'), $this->allowed($user, 'stock.view')),
             ]),
             $this->module('lapangan', 'Asisten Lapangan', 'route', [

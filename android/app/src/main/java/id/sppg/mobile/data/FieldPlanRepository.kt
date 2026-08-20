@@ -14,6 +14,7 @@ import id.sppg.mobile.data.remote.safeApiCall
 import id.sppg.mobile.data.session.SessionStore
 import java.io.File
 import java.io.IOException
+import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -29,8 +30,14 @@ class FieldPlanRepository(
     private val errorHandler: ApiErrorHandler,
     private val context: Context,
 ) {
-    suspend fun getPlans(page: Int = 1, date: String? = null): Result<FieldPlanPage> = safeApiCall(errorHandler) {
-        val response = api.fieldPlans(authorization(), dateFrom = date, dateTo = date, page = page)
+    suspend fun getPlans(page: Int = 1, history: Boolean = false, date: String? = null): Result<FieldPlanPage> = safeApiCall(errorHandler) {
+        val response = api.fieldPlans(
+            authorization = authorization(),
+            dateFrom = if (history) date else LocalDate.now().toString(),
+            dateTo = if (history) date else null,
+            scope = if (history) "history" else "upcoming",
+            page = page,
+        )
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
         val body = response.body() ?: throw IOException("Daftar rencana tidak tersedia.")
         FieldPlanPage(

@@ -4,7 +4,7 @@
             <div>
                 <a wire:navigate href="{{ route('v3.nutrition.requirements.index') }}" class="text-xs font-bold text-sky-700">← Kembali</a>
                 <h2 class="mt-3 text-2xl font-bold text-slate-950">{{ $plan->menu?->name ?? 'Menu tidak tersedia' }}</h2>
-                <p class="mt-1 text-sm text-slate-500">{{ $plan->fieldDistributionPlan?->plan_number }} · {{ $plan->requirement_date?->translatedFormat('d M Y') }}</p>
+                <p class="mt-1 text-sm text-slate-500">Periode: {{ $plan->beneficiaryPeriod?->name ?? 'Data legacy' }} · {{ $plan->requirement_date?->translatedFormat('d M Y') }}</p>
             </div>
             <div class="flex flex-wrap gap-2">
                 @if (auth()->user()->is_super_admin || auth()->user()->can('nutrition.manage'))
@@ -21,9 +21,9 @@
 
         <section class="rounded-[26px] bg-[#081d3a] p-6 text-white shadow-xl sm:p-7">
             <div class="grid gap-3 sm:grid-cols-5">
-                <div class="rounded-xl border border-white/10 bg-white/[.07] p-3"><p class="text-[10px] text-slate-400">Porsi aktual</p><p class="mt-1 text-xl font-bold">{{ number_format($plan->total_portions, 0, ',', '.') }}</p></div>
-                <div class="rounded-xl border border-white/10 bg-white/[.07] p-3"><p class="text-[10px] text-slate-400">Porsi kecil</p><p class="mt-1 text-xl font-bold">{{ number_format(collect($plan->portion_breakdown)->where('portion_size', 'small')->sum('actual_portions'), 0, ',', '.') }}</p></div>
-                <div class="rounded-xl border border-white/10 bg-white/[.07] p-3"><p class="text-[10px] text-slate-400">Porsi besar</p><p class="mt-1 text-xl font-bold">{{ number_format(collect($plan->portion_breakdown)->where('portion_size', 'large')->sum('actual_portions'), 0, ',', '.') }}</p></div>
+                <div class="rounded-xl border border-white/10 bg-white/[.07] p-3"><p class="text-[10px] text-slate-400">Porsi master</p><p class="mt-1 text-xl font-bold">{{ number_format($plan->total_portions, 0, ',', '.') }}</p></div>
+                <div class="rounded-xl border border-white/10 bg-white/[.07] p-3"><p class="text-[10px] text-slate-400">Porsi kecil</p><p class="mt-1 text-xl font-bold">{{ number_format(collect($plan->portion_breakdown)->where('portion_size', 'small')->sum(fn($row) => $row['master_portions'] ?? $row['actual_portions'] ?? 0), 0, ',', '.') }}</p></div>
+                <div class="rounded-xl border border-white/10 bg-white/[.07] p-3"><p class="text-[10px] text-slate-400">Porsi besar</p><p class="mt-1 text-xl font-bold">{{ number_format(collect($plan->portion_breakdown)->where('portion_size', 'large')->sum(fn($row) => $row['master_portions'] ?? $row['actual_portions'] ?? 0), 0, ',', '.') }}</p></div>
                 <div class="rounded-xl border border-white/10 bg-white/[.07] p-3"><p class="text-[10px] text-slate-400">Buffer</p><p class="mt-1 text-xl font-bold">{{ number_format((float) $plan->buffer_percent, 1, ',', '.') }}%</p></div>
                 <div class="rounded-xl border border-cyan-300/20 bg-cyan-300/10 p-3"><p class="text-[10px] text-cyan-200/70">Total berat</p><p class="mt-1 text-xl font-bold text-cyan-100">{{ number_format((float) $plan->total_weight_kg, 2, ',', '.') }} kg</p></div>
             </div>

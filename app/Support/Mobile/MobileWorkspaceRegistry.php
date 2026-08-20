@@ -15,6 +15,7 @@ use App\Models\FieldIncident;
 use App\Models\Ingredient;
 use App\Models\InventoryLot;
 use App\Models\MeasurementUnit;
+use App\Models\NonFoodItem;
 use App\Models\OpeningStock;
 use App\Models\PortioningSession;
 use App\Models\PreparationOutput;
@@ -27,34 +28,37 @@ use App\Models\ProcessingReturn;
 use App\Models\SecurityShift;
 use App\Models\StockAdjustment;
 use App\Models\StockReceipt;
+use App\Models\StockReceiptItem;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
+use App\Models\Warehouse;
 use App\Models\WasteHandoverReport;
 use App\Support\V3\OperationalModuleRegistry;
+use Illuminate\Support\Facades\DB;
 
 class MobileWorkspaceRegistry
 {
     private const ROLE_MODULES = [
         UserRole::KepalaSppg->value => [
-            'gudang', 'gudang-stok-awal', 'gudang-stok', 'gudang-penyesuaian', 'gudang-pengambilan', 'gudang-retur', 'gudang-retur-pengolahan',
+            'gudang', 'gudang-non-pangan', 'gudang-stok-awal', 'gudang-stok-awal-non-pangan', 'gudang-stok', 'gudang-stok-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan', 'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'gudang-retur', 'gudang-retur-pengolahan',
             'persiapan', 'pengolahan', 'pemorsian', 'distribusi', 'pencucian', 'kebersihan',
             'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan',
             'lapangan-insiden', 'lapangan-laporan',
         ],
         UserRole::AsistenLapangan->value => ['lapangan-insiden', 'lapangan-laporan'],
-        UserRole::StafGudang->value => ['gudang', 'gudang-pengambilan', 'gudang-retur', 'gudang-stok', 'gudang-penyesuaian'],
-        UserRole::KepalaDivisiPersiapan->value => ['pengambilan-gudang-persiapan', 'persiapan', 'hasil-persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
-        UserRole::PetugasPersiapan->value => ['pengambilan-gudang-persiapan', 'persiapan', 'hasil-persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
-        UserRole::KepalaDivisiPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengolahan', 'hasil-persiapan-pengolahan', 'lapangan-insiden'],
-        UserRole::PetugasPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengolahan', 'hasil-persiapan-pengolahan', 'lapangan-insiden'],
-        UserRole::KepalaDivisiPemorsian->value => ['pengambilan-gudang-pemorsian', 'pemorsian', 'hasil-persiapan-pemorsian', 'lapangan-insiden'],
-        UserRole::PetugasPemorsian->value => ['pengambilan-gudang-pemorsian', 'pemorsian', 'hasil-persiapan-pemorsian', 'lapangan-insiden'],
-        UserRole::KepalaDivisiDistribusi->value => ['distribusi', 'pengambilan-ompreng-tugas', 'pengambilan-ompreng', 'lapangan-insiden'],
-        UserRole::PetugasDistribusi->value => ['distribusi', 'pengambilan-ompreng-tugas', 'pengambilan-ompreng', 'lapangan-insiden'],
-        UserRole::KepalaDivisiPencucian->value => ['pencucian', 'ba-limbah-pencucian', 'lapangan-insiden'],
-        UserRole::PetugasPencucian->value => ['pencucian', 'ba-limbah-pencucian', 'lapangan-insiden'],
-        UserRole::KepalaDivisiKebersihan->value => ['kebersihan', 'ba-limbah-kebersihan', 'lapangan-insiden'],
-        UserRole::PetugasKebersihan->value => ['kebersihan', 'ba-limbah-kebersihan', 'lapangan-insiden'],
+        UserRole::StafGudang->value => ['gudang', 'gudang-non-pangan', 'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'gudang-retur', 'gudang-stok', 'gudang-stok-non-pangan', 'gudang-stok-awal', 'gudang-stok-awal-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan'],
+        UserRole::KepalaDivisiPersiapan->value => ['pengambilan-gudang-persiapan', 'pengambilan-non-pangan', 'persiapan', 'hasil-persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
+        UserRole::PetugasPersiapan->value => ['pengambilan-gudang-persiapan', 'pengambilan-non-pangan', 'persiapan', 'hasil-persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
+        UserRole::KepalaDivisiPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengambilan-non-pangan', 'pengolahan', 'hasil-persiapan-pengolahan', 'lapangan-insiden'],
+        UserRole::PetugasPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengambilan-non-pangan', 'pengolahan', 'hasil-persiapan-pengolahan', 'lapangan-insiden'],
+        UserRole::KepalaDivisiPemorsian->value => ['pengambilan-gudang-pemorsian', 'pengambilan-non-pangan', 'pemorsian', 'hasil-persiapan-pemorsian', 'lapangan-insiden'],
+        UserRole::PetugasPemorsian->value => ['pengambilan-gudang-pemorsian', 'pengambilan-non-pangan', 'pemorsian', 'hasil-persiapan-pemorsian', 'lapangan-insiden'],
+        UserRole::KepalaDivisiDistribusi->value => ['pengambilan-non-pangan', 'distribusi', 'pengambilan-ompreng-tugas', 'pengambilan-ompreng', 'lapangan-insiden'],
+        UserRole::PetugasDistribusi->value => ['pengambilan-non-pangan', 'distribusi', 'pengambilan-ompreng-tugas', 'pengambilan-ompreng', 'lapangan-insiden'],
+        UserRole::KepalaDivisiPencucian->value => ['pengambilan-non-pangan', 'pencucian', 'ba-limbah-pencucian', 'lapangan-insiden'],
+        UserRole::PetugasPencucian->value => ['pengambilan-non-pangan', 'pencucian', 'ba-limbah-pencucian', 'lapangan-insiden'],
+        UserRole::KepalaDivisiKebersihan->value => ['pengambilan-non-pangan', 'kebersihan', 'ba-limbah-kebersihan', 'lapangan-insiden'],
+        UserRole::PetugasKebersihan->value => ['pengambilan-non-pangan', 'kebersihan', 'ba-limbah-kebersihan', 'lapangan-insiden'],
         UserRole::Satpam->value => ['keamanan', 'lapangan-insiden'],
     ];
 
@@ -67,15 +71,21 @@ class MobileWorkspaceRegistry
     {
         $definitions = [
             'gudang' => $this->warehouseDefinition(),
+            'gudang-non-pangan' => $this->warehouseDefinition(true),
             'gudang-pengambilan' => $this->warehouseWithdrawalDefinition(),
+            'gudang-pengambilan-non-pangan' => $this->warehouseWithdrawalDefinition(true),
             'gudang-stok' => $this->warehouseStockDefinition(),
+            'gudang-stok-non-pangan' => $this->warehouseStockDefinition(true),
             'gudang-penyesuaian' => $this->warehouseAdjustmentDefinition(),
+            'gudang-penyesuaian-non-pangan' => $this->warehouseAdjustmentDefinition(true),
             'gudang-stok-awal' => $this->warehouseOpeningStockDefinition(),
+            'gudang-stok-awal-non-pangan' => $this->warehouseOpeningStockDefinition(true),
             'gudang-retur' => $this->warehouseReturnDefinition(),
             'gudang-retur-pengolahan' => $this->warehouseProcessingReturnDefinition(),
             'pengambilan-gudang-persiapan' => $this->divisionWarehouseWithdrawalDefinition('persiapan'),
             'pengambilan-gudang-pengolahan' => $this->divisionWarehouseWithdrawalDefinition('pengolahan'),
             'pengambilan-gudang-pemorsian' => $this->divisionWarehouseWithdrawalDefinition('pemorsian'),
+            'pengambilan-non-pangan' => $this->nonFoodWarehouseWithdrawalDefinition(),
             'persiapan' => $this->preparationDefinition(),
             'keamanan' => $this->securityDefinition(),
             'lapangan-konfirmasi' => $this->dailyBeneficiaryConfirmationDefinition(),
@@ -471,6 +481,63 @@ class MobileWorkspaceRegistry
                 ])->all();
         }
 
+        if ($source === 'non_food_inventory_lots_available') {
+            $warehouse = Warehouse::forUnit($unitId, Warehouse::TYPE_NON_FOOD);
+
+            return InventoryLot::query()
+                ->with('nonFoodItem')
+                ->where('sppg_unit_id', $unitId)
+                ->where('warehouse_id', $warehouse->getKey())
+                ->whereNotNull('non_food_item_id')
+                ->where('status', InventoryLot::AVAILABLE)
+                ->where('balance_quantity', '>', 0)
+                ->where(fn ($query) => $query->whereNull('expired_date')->orWhereDate('expired_date', '>=', today()))
+                ->orderByRaw('expired_date IS NULL')
+                ->orderBy('expired_date')
+                ->orderBy('id')
+                ->limit(250)
+                ->get()
+                ->filter(function (InventoryLot $lot): bool {
+                    $reserved = DB::table('warehouse_withdrawal_items')
+                        ->join('warehouse_withdrawals', 'warehouse_withdrawals.id', '=', 'warehouse_withdrawal_items.warehouse_withdrawal_id')
+                        ->where('warehouse_withdrawal_items.inventory_lot_id', $lot->getKey())
+                        ->where('warehouse_withdrawals.status', WarehouseWithdrawal::WAITING)
+                        ->sum('warehouse_withdrawal_items.requested_quantity');
+
+                    return (float) $lot->balance_quantity - (float) $reserved > 0.0001;
+                })
+                ->mapWithKeys(function (InventoryLot $lot): array {
+                    $reserved = (float) DB::table('warehouse_withdrawal_items')
+                        ->join('warehouse_withdrawals', 'warehouse_withdrawals.id', '=', 'warehouse_withdrawal_items.warehouse_withdrawal_id')
+                        ->where('warehouse_withdrawal_items.inventory_lot_id', $lot->getKey())
+                        ->where('warehouse_withdrawals.status', WarehouseWithdrawal::WAITING)
+                        ->sum('warehouse_withdrawal_items.requested_quantity');
+                    $available = max(0, (float) $lot->balance_quantity - $reserved);
+
+                    return [(string) $lot->getKey() => sprintf(
+                        '%s · lot %s · tersedia %s %s',
+                        $lot->nonFoodItem?->name ?: 'Barang Non-Pangan',
+                        $lot->lot_number,
+                        rtrim(rtrim(number_format($available, 4, '.', ''), '0'), '.'),
+                        $lot->unit_snapshot,
+                    )];
+                })->all();
+        }
+
+        if ($source === 'stock_receipt_items') {
+            return StockReceiptItem::query()
+                ->whereHas('receipt', fn ($query) => $query
+                    ->where('sppg_unit_id', $unitId)
+                    ->where('status', StockReceipt::STATUS_DRAFT))
+                ->with('receipt:id,receipt_number')
+                ->latest('id')
+                ->limit(300)
+                ->get()
+                ->mapWithKeys(fn (StockReceiptItem $item): array => [
+                    (string) $item->getKey() => ($item->receipt?->receipt_number ?: 'Penerimaan').' · '.$item->ingredient_name_snapshot,
+                ])->all();
+        }
+
         if ($source === 'opening_stock_catalog') {
             $ingredients = Ingredient::query()
                 ->with('measurementUnit')
@@ -498,6 +565,22 @@ class MobileWorkspaceRegistry
             ])->mapWithKeys(fn (string $label, string $key): array => ['storage:'.$key => $label]);
 
             return $ingredients->union($units)->union($categories)->union($storages)->all();
+        }
+
+        if ($source === 'opening_stock_non_food_catalog') {
+            $items = NonFoodItem::query()
+                ->with('measurementUnit')
+                ->where('sppg_unit_id', $unitId)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get()
+                ->mapWithKeys(fn (NonFoodItem $item): array => [
+                    'non_food_item:'.$item->getKey() => $item->name.' · '.($item->measurementUnit?->symbol ?: $item->measurementUnit?->code ?: '-'),
+                ]);
+            $storages = collect(['dry' => 'Gudang Non-Pangan'])
+                ->mapWithKeys(fn (string $label, string $key): array => ['storage:'.$key => $label]);
+
+            return $items->union($storages)->all();
         }
 
         if (in_array($source, ['withdrawal_references_persiapan', 'withdrawal_references_pengolahan', 'withdrawal_references_pemorsian'], true)) {
@@ -546,7 +629,7 @@ class MobileWorkspaceRegistry
     {
         return [
             'label' => 'Konfirmasi Penerima Harian',
-            'description' => 'Buat data harian, ubah jumlah aktual per kategori, lalu sinkronkan rencana distribusi.',
+            'description' => 'Catat jumlah aktual penerima harian sebagai laporan lapangan yang berdiri sendiri.',
             'model' => DailyBeneficiaryConfirmation::class,
             'permission' => 'daily_beneficiary_confirmations',
             'number' => 'destination_name_snapshot',
@@ -630,13 +713,52 @@ class MobileWorkspaceRegistry
     }
 
     /** @return array<string, mixed> */
-    private function warehouseDefinition(): array
+    private function nonFoodWarehouseWithdrawalDefinition(): array
     {
         return [
-            'label' => 'Penerimaan Barang',
+            'label' => 'Pengambilan Non-Pangan',
+            'description' => 'Catat barang operasional yang langsung diambil dari Gudang Non-Pangan.',
+            'model' => WarehouseWithdrawal::class,
+            'permission' => 'non_food_stock',
+            'number' => 'withdrawal_number',
+            'date' => 'withdrawal_date',
+            'warehouse_type' => Warehouse::TYPE_NON_FOOD,
+            'where' => ['reference_type' => 'non_food_operational'],
+            'allow_create' => true,
+            'allow_update' => true,
+            'allow_delete' => true,
+            'fields' => [
+                [...$this->field('withdrawal_date', 'Tanggal pengambilan', 'date'), 'editable' => false],
+                [...$this->field('withdrawal_number', 'Nomor pengambilan'), 'editable' => false],
+                [...$this->field('division_code', 'Divisi'), 'editable' => false],
+                $this->field('purpose_reference', 'Keperluan', 'text', true),
+                [...$this->field('status', 'Status'), 'editable' => false],
+                [...$this->field('decision_notes', 'Catatan Gudang'), 'editable' => false],
+                $this->field('notes', 'Catatan', 'textarea'),
+            ],
+            'relations' => [
+                'items' => $this->relation('Barang Non-Pangan yang diambil', [
+                    $this->field('inventory_lot_id', 'Barang tersedia', 'select', true, 'non_food_inventory_lots_available'),
+                    [...$this->field('ingredient_name_snapshot', 'Barang'), 'editable' => false],
+                    [...$this->field('lot_number_snapshot', 'Nomor lot'), 'editable' => false],
+                    [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
+                    $this->field('requested_quantity', 'Jumlah diambil', 'number', true),
+                    $this->field('photo_path', 'Foto pengambilan', 'file', true),
+                    $this->field('notes', 'Catatan', 'textarea'),
+                ]),
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function warehouseDefinition(bool $nonFood = false): array
+    {
+        return [
+            'label' => $nonFood ? 'Penerimaan Non-Pangan' : 'Penerimaan Pangan',
             'description' => 'Catat jumlah barang supplier, hasil pemeriksaan, dan dokumentasi penerimaan.',
             'model' => StockReceipt::class,
-            'permission' => 'stock',
+            'permission' => $nonFood ? 'non_food_stock' : 'stock',
+            'warehouse_type' => $nonFood ? Warehouse::TYPE_NON_FOOD : Warehouse::TYPE_FOOD,
             'number' => 'receipt_number',
             'date' => 'receipt_date',
             'fields' => [
@@ -645,7 +767,6 @@ class MobileWorkspaceRegistry
                 [...$this->field('received_by_name', 'Penerima'), 'editable' => false],
                 [...$this->field('received_at', 'Waktu diterima', 'datetime'), 'editable' => false],
                 $this->field('notes', 'Catatan'),
-                $this->field('documentation_path', 'Foto kiriman supplier', 'file', true),
             ],
             'allow_create' => false,
             'allow_delete' => false,
@@ -668,18 +789,26 @@ class MobileWorkspaceRegistry
                     ]), 'editable' => false],
                     $this->field('quality_notes', 'Catatan mutu'),
                 ]),
+                'itemPhotos' => $this->relation('Dokumentasi per Barang', [
+                    $this->field('stock_receipt_item_id', 'Barang penerimaan', 'select', true, 'stock_receipt_items'),
+                    [...$this->field('item_name_snapshot', 'Nama barang'), 'editable' => false],
+                    $this->field('photo_path', 'Foto barang', 'file', true),
+                    [...$this->field('original_name', 'Nama file'), 'editable' => false],
+                    [...$this->field('created_at', 'Diunggah'), 'editable' => false],
+                ]),
             ],
         ];
     }
 
     /** @return array<string, mixed> */
-    private function warehouseOpeningStockDefinition(): array
+    private function warehouseOpeningStockDefinition(bool $nonFood = false): array
     {
         return [
-            'label' => 'Input Stok Awal',
+            'label' => $nonFood ? 'Input Stok Awal Non-Pangan' : 'Input Stok Awal Pangan',
             'description' => 'Masukkan barang gudang yang sudah tersedia; stok langsung aktif setelah disimpan.',
             'model' => OpeningStock::class,
-            'permission' => 'stock',
+            'permission' => $nonFood ? 'non_food_stock' : 'stock',
+            'warehouse_type' => $nonFood ? Warehouse::TYPE_NON_FOOD : Warehouse::TYPE_FOOD,
             'number' => 'opening_number',
             'date' => 'opening_date',
             'allow_create' => true,
@@ -691,7 +820,13 @@ class MobileWorkspaceRegistry
                 [...$this->field('status', 'Status'), 'editable' => false],
                 $this->field('notes', 'Catatan', 'textarea'),
                 $this->field('photo_path', 'Foto keseluruhan barang', 'file', true),
-                [...$this->field('rows_payload', 'Daftar barang', 'opening_stock_rows', true, 'opening_stock_catalog'), 'create_only' => true],
+                [...$this->field(
+                    'rows_payload',
+                    'Daftar barang',
+                    'opening_stock_rows',
+                    true,
+                    $nonFood ? 'opening_stock_non_food_catalog' : 'opening_stock_catalog',
+                ), 'create_only' => true],
             ],
             'relations' => [
                 'items' => $this->relation('Barang stok awal', [
@@ -800,14 +935,15 @@ class MobileWorkspaceRegistry
     }
 
     /** @return array<string, mixed> */
-    private function warehouseStockDefinition(): array
+    private function warehouseStockDefinition(bool $nonFood = false): array
     {
         return [
-            'label' => 'Kartu Stok',
+            'label' => $nonFood ? 'Kartu Stok Non-Pangan' : 'Kartu Stok Pangan',
             'description' => 'Lihat saldo barang, lokasi penyimpanan, masa kedaluwarsa, dan riwayat mutasi.',
             'model' => InventoryLot::class,
-            'with' => ['ingredient'],
-            'permission' => 'stock',
+            'with' => $nonFood ? ['nonFoodItem'] : ['ingredient'],
+            'permission' => $nonFood ? 'non_food_stock' : 'stock',
+            'warehouse_type' => $nonFood ? Warehouse::TYPE_NON_FOOD : Warehouse::TYPE_FOOD,
             'number' => 'lot_number',
             'date' => 'expired_date',
             'allow_create' => false,
@@ -815,7 +951,9 @@ class MobileWorkspaceRegistry
             'allow_delete' => false,
             'fields' => [
                 $this->field('lot_number', 'Nomor lot'),
-                $this->field('ingredient_id', 'Bahan', 'select', false, 'ingredients'),
+                $nonFood
+                    ? [...$this->field('non_food_item_id', 'Barang Non-Pangan'), 'editable' => false]
+                    : $this->field('ingredient_id', 'Bahan', 'select', false, 'ingredients'),
                 $this->field('unit_snapshot', 'Satuan'),
                 $this->field('initial_quantity', 'Jumlah awal', 'number'),
                 $this->field('balance_quantity', 'Saldo tersedia', 'number'),
@@ -846,20 +984,21 @@ class MobileWorkspaceRegistry
     }
 
     /** @return array<string, mixed> */
-    private function warehouseAdjustmentDefinition(): array
+    private function warehouseAdjustmentDefinition(bool $nonFood = false): array
     {
         return [
-            'label' => 'Kontrol Stok',
+            'label' => $nonFood ? 'Kontrol Stok Non-Pangan' : 'Kontrol Stok Pangan',
             'description' => 'Periksa dan verifikasi penyesuaian antara saldo sistem dan stok fisik.',
             'model' => StockAdjustment::class,
-            'permission' => 'stock',
+            'permission' => $nonFood ? 'non_food_stock' : 'stock',
+            'warehouse_type' => $nonFood ? Warehouse::TYPE_NON_FOOD : Warehouse::TYPE_FOOD,
             'number' => 'adjustment_number',
             'date' => 'adjustment_date',
             'allow_create' => true,
             'allow_update' => false,
             'allow_delete' => false,
             'fields' => [
-                [...$this->field('inventory_lot_id', 'Barang dan lot', 'select', true, 'inventory_lots_available'), 'create_only' => true],
+                [...$this->field('inventory_lot_id', 'Barang dan lot', 'select', true, $nonFood ? 'non_food_inventory_lots_available' : 'inventory_lots_available'), 'create_only' => true],
                 [...$this->field('adjustment_date', 'Tanggal', 'date'), 'editable' => false],
                 [...$this->field('adjustment_number', 'Nomor penyesuaian'), 'editable' => false],
                 [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
@@ -880,13 +1019,14 @@ class MobileWorkspaceRegistry
     }
 
     /** @return array<string, mixed> */
-    private function warehouseWithdrawalDefinition(): array
+    private function warehouseWithdrawalDefinition(bool $nonFood = false): array
     {
         return [
-            'label' => 'Konfirmasi Pengambilan',
+            'label' => $nonFood ? 'Konfirmasi Pengambilan Non-Pangan' : 'Konfirmasi Pengambilan Pangan',
             'description' => 'Pastikan jenis dan jumlah barang yang telah diambil oleh petugas divisi.',
             'model' => WarehouseWithdrawal::class,
-            'permission' => 'stock',
+            'permission' => $nonFood ? 'non_food_stock' : 'stock',
+            'warehouse_type' => $nonFood ? Warehouse::TYPE_NON_FOOD : Warehouse::TYPE_FOOD,
             'number' => 'withdrawal_number',
             'date' => 'withdrawal_date',
             'allow_create' => false,

@@ -4,7 +4,7 @@ namespace App\Livewire\V3\Nutrition\Requirements;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\NutritionRequirementPlan;
-use App\Services\NutritionRequirementFromFieldPlanService;
+use App\Services\NutritionRequirementFromBeneficiaryPeriodService;
 use Livewire\Component;
 use Throwable;
 
@@ -20,7 +20,6 @@ class Show extends Component
         $unit = $this->currentUnit();
         abort_unless($this->allowed('nutrition.view'), 403);
         abort_unless((int) $plan->sppg_unit_id === (int) $unit->getKey(), 404);
-        abort_unless($plan->field_distribution_plan_id !== null, 404);
         $this->planId = $plan->getKey();
     }
 
@@ -29,12 +28,12 @@ class Show extends Component
         abort_unless($this->allowed('nutrition.manage'), 403);
 
         try {
-            $plan = $this->plan()->load('fieldDistributionPlan');
-            $requirement = app(NutritionRequirementFromFieldPlanService::class)->generate(
-                $plan->fieldDistributionPlan,
-                auth()->user(),
-                (float) $plan->buffer_percent,
-            );
+            $plan = $this->plan()->load('menuCycleDay');
+            if (! $plan->menuCycleDay) {
+                throw new \DomainException('Data kebutuhan legacy tidak dapat dihitung ulang dari Rencana Distribusi. Buat kebutuhan baru dari hari menu.');
+            }
+            $requirement = app(NutritionRequirementFromBeneficiaryPeriodService::class)
+                ->generate($plan->menuCycleDay, auth()->user(), (float) $plan->buffer_percent);
             $this->actionMessage = "Kebutuhan {$requirement->plan_number} dan draft pengadaan berhasil diperbarui.";
             $this->resetErrorBag();
         } catch (Throwable $exception) {
@@ -50,6 +49,8 @@ class Show extends Component
             'menu',
             'items.ingredient',
             'fieldDistributionPlan',
+            'beneficiaryPeriod',
+            'menuCycleDay.cycle',
             'procurementRequest',
         ]);
 

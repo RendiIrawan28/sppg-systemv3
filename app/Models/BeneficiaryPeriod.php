@@ -99,7 +99,7 @@ class BeneficiaryPeriod extends Model
         return $this->hasMany(BeneficiaryPeriodHistory::class)->latest();
     }
 
-    /** @deprecated Konfirmasi aktual kini dilakukan langsung pada Rencana H-3. */
+    /** Konfirmasi harian berdiri sendiri dan tidak membentuk Rencana Distribusi. */
     public function confirmations(): HasMany
     {
         return $this->hasMany(DailyBeneficiaryConfirmation::class);
