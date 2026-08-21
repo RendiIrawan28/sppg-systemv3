@@ -71,6 +71,7 @@ final class Navigation
             ]),
             $this->module('administrasi', 'Administrasi Sistem', 'settings', [
                 $this->item('Kirim notifikasi', 'alert', route('v3.notifications.broadcast'), request()->routeIs('v3.notifications.broadcast'), $this->allowed($user, 'notifications.manage')),
+                $this->item('Pembersihan data uji', 'trash', route('v3.administration.test-data-cleanup'), request()->routeIs('v3.administration.test-data-cleanup'), (bool) $user->is_super_admin),
                 $this->item('Master data', 'settings', route('v3.master-data.index'), request()->routeIs('v3.master-data.*'), $this->canSeeMasterData($user)),
             ]),
         ];
