@@ -70,6 +70,7 @@
     </script>
 </head>
 <body class="v3-theme min-h-screen bg-[#f4f7fb] font-sans text-slate-950 antialiased selection:bg-sky-200 selection:text-slate-950">
+    <x-v3.flash-alert :include-errors="true" />
     <div id="livewire-load-error" hidden class="fixed inset-x-4 top-4 z-[200] rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800 shadow-xl">
         Komponen interaktif gagal dimuat. Periksa APP_URL, konfigurasi HTTPS/proxy, lalu jalankan <code>php artisan optimize:clear</code> dan muat ulang halaman.
     </div>

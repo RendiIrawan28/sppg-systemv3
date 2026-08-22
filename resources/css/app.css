@@ -1,5 +1,75 @@
 @import 'tailwindcss';
 
+.sppg-swal-popup {
+    width: min(92vw, 27rem) !important;
+    border: 1px solid rgb(203 213 225 / .85) !important;
+    border-radius: 1.5rem !important;
+    padding: 1.4rem !important;
+    box-shadow: 0 24px 70px rgb(8 29 58 / .24) !important;
+}
+
+.sppg-swal-title {
+    color: #081d3a !important;
+    font-size: 1.3rem !important;
+    font-weight: 800 !important;
+}
+
+.sppg-swal-content {
+    color: #475569 !important;
+    font-size: .925rem !important;
+    line-height: 1.55 !important;
+}
+
+.sppg-swal-actions {
+    gap: .65rem !important;
+    margin-top: 1.2rem !important;
+}
+
+.sppg-swal-confirm,
+.sppg-swal-cancel {
+    min-height: 2.75rem;
+    border-radius: .8rem;
+    padding: .65rem 1.15rem;
+    font-size: .8rem;
+    font-weight: 800;
+    transition: transform .15s ease, background-color .15s ease;
+}
+
+.sppg-swal-confirm {
+    background: #0b6fa4;
+    color: white;
+}
+
+.sppg-swal-cancel {
+    border: 1px solid #cbd5e1;
+    background: white;
+    color: #475569;
+}
+
+.sppg-swal-confirm:hover,
+.sppg-swal-cancel:hover {
+    transform: translateY(-1px);
+}
+
+.dark .sppg-swal-popup {
+    border-color: #243b55 !important;
+    background: #0b1d33 !important;
+}
+
+.dark .sppg-swal-title {
+    color: #f8fafc !important;
+}
+
+.dark .sppg-swal-content {
+    color: #cbd5e1 !important;
+}
+
+.dark .sppg-swal-cancel {
+    border-color: #334155;
+    background: #13283f;
+    color: #e2e8f0;
+}
+
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 

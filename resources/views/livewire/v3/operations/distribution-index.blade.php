@@ -1,10 +1,6 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Distribusi" eyebrow="Pelaksanaan rute">
     <div class="mx-auto max-w-[1450px] space-y-5 text-slate-900 dark:text-slate-100">
-        @if (session('v3.status'))
-            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-                {{ session('v3.status') }}
-            </div>
-        @endif
+        <x-v3.flash-alert />
 
         <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div>

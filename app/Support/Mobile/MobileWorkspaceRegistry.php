@@ -29,6 +29,7 @@ use App\Models\SecurityShift;
 use App\Models\StockAdjustment;
 use App\Models\StockReceipt;
 use App\Models\StockReceiptItem;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
 use App\Models\Warehouse;
@@ -538,6 +539,33 @@ class MobileWorkspaceRegistry
                 ])->all();
         }
 
+        if ($source === 'active_suppliers') {
+            return Supplier::query()
+                ->where('sppg_unit_id', $unitId)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get()
+                ->mapWithKeys(fn (Supplier $supplier): array => [
+                    (string) $supplier->getKey() => $supplier->name.($supplier->code ? ' · '.$supplier->code : ''),
+                ])->all();
+        }
+
+        if (in_array($source, ['manual_receipt_catalog', 'manual_receipt_non_food_catalog'], true)) {
+            $items = $source === 'manual_receipt_non_food_catalog'
+                ? NonFoodItem::query()->with('measurementUnit')->where('sppg_unit_id', $unitId)
+                    ->where('is_active', true)->orderBy('name')->get()
+                    ->mapWithKeys(fn (NonFoodItem $item): array => [
+                        'non_food_item:'.$item->getKey() => $item->name.' · '.($item->code ?: 'tanpa kode').' · '.($item->measurementUnit?->symbol ?: $item->measurementUnit?->code ?: 'unit'),
+                    ])
+                : Ingredient::query()->with('measurementUnit')->where('sppg_unit_id', $unitId)
+                    ->where('is_active', true)->orderBy('name')->get()
+                    ->mapWithKeys(fn (Ingredient $item): array => [
+                        'ingredient:'.$item->getKey() => $item->name.' · '.($item->code ?: 'tanpa kode').' · '.($item->measurementUnit?->symbol ?: $item->measurementUnit?->code ?: 'unit'),
+                    ]);
+
+            return $items->all();
+        }
+
         if ($source === 'opening_stock_catalog') {
             $ingredients = Ingredient::query()
                 ->with('measurementUnit')
@@ -762,13 +790,21 @@ class MobileWorkspaceRegistry
             'number' => 'receipt_number',
             'date' => 'receipt_date',
             'fields' => [
-                [...$this->field('receipt_date', 'Tanggal penerimaan', 'date'), 'editable' => false],
+                [...$this->field('receipt_date', 'Tanggal penerimaan', 'date', true), 'create_only' => true],
+                [...$this->field('supplier_id', 'Supplier', 'select', true, 'active_suppliers'), 'create_only' => true],
+                [...$this->field(
+                    'manual_rows_payload',
+                    'Daftar barang penerimaan manual',
+                    'manual_receipt_rows',
+                    true,
+                    $nonFood ? 'manual_receipt_non_food_catalog' : 'manual_receipt_catalog',
+                ), 'create_only' => true],
                 [...$this->field('status', 'Status'), 'editable' => false],
                 [...$this->field('received_by_name', 'Penerima'), 'editable' => false],
                 [...$this->field('received_at', 'Waktu diterima', 'datetime'), 'editable' => false],
                 $this->field('notes', 'Catatan'),
             ],
-            'allow_create' => false,
+            'allow_create' => true,
             'allow_delete' => false,
             'relations' => [
                 'items' => $this->relation('Barang dan pemeriksaan QC', [

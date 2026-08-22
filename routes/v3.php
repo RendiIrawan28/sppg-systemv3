@@ -50,6 +50,7 @@ use App\Livewire\V3\Security\ShiftShow as SecurityShiftShow;
 use App\Livewire\V3\Warehouse\Controls\Index as WarehouseControlIndex;
 use App\Livewire\V3\Warehouse\NonFoodItems\Index as NonFoodItemIndex;
 use App\Livewire\V3\Warehouse\OpeningStocks\Index as OpeningStockIndex;
+use App\Livewire\V3\Warehouse\Receipts\CreateManual as StockReceiptCreateManual;
 use App\Livewire\V3\Warehouse\Receipts\Index as StockReceiptIndex;
 use App\Livewire\V3\Warehouse\Receipts\Show as StockReceiptShow;
 use App\Livewire\V3\Warehouse\Stock\Index as StockIndex;
@@ -90,6 +91,7 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/pengadaan', ProcurementIndex::class)->name('procurement.index');
             Route::get('/pengadaan/{procurement}', ProcurementShow::class)->name('procurement.show');
             Route::get('/gudang/penerimaan', StockReceiptIndex::class)->name('warehouse.receipts.index');
+            Route::get('/gudang/penerimaan/manual', StockReceiptCreateManual::class)->name('warehouse.receipts.manual');
             Route::get('/gudang/penerimaan/{receipt}', StockReceiptShow::class)->name('warehouse.receipts.show');
             Route::get('/gudang/stok', StockIndex::class)->name('warehouse.stock.index');
             Route::get('/gudang/stok-awal', OpeningStockIndex::class)->name('warehouse.opening-stocks.index');

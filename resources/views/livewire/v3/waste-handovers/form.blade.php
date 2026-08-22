@@ -2,7 +2,7 @@
     @php($input='h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950 disabled:opacity-60')
     @php($textarea='w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950 disabled:opacity-60')
     <div class="mx-auto max-w-[1200px] space-y-5 text-slate-900 dark:text-slate-100">
-        @if(session('v3.status'))<div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">{{ session('v3.status') }}</div>@endif
+        <x-v3.flash-alert />
         @error('action')<div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{{ $message }}</div>@enderror
         <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div class="flex flex-col justify-between gap-3 md:flex-row md:items-start"><div><p class="text-xs font-bold uppercase tracking-[.16em] text-sky-600">Berita acara serah terima</p><h2 class="mt-1 text-xl font-bold">Limbah Sisa Bahan Makanan</h2>@if($record)<p class="mt-1 text-xs text-slate-500">{{ $record->report_number }} · {{ $record->status->label() }}</p>@endif</div>@if($record)<a target="_blank" href="{{ route('v3.waste-handovers.pdf', $record) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 px-4 text-xs font-bold dark:border-slate-700">Ekspor PDF</a>@endif</div>

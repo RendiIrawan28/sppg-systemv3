@@ -1,8 +1,6 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Penerima Manfaat" eyebrow="Data master">
     <div class="mx-auto max-w-[1500px] space-y-5">
-        @if (session('v3.status'))
-            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{{ session('v3.status') }}</div>
-        @endif
+        <x-v3.flash-alert />
 
         <section class="flex flex-col justify-between gap-5 rounded-[24px] bg-[#081d3a] p-6 text-white shadow-xl shadow-slate-900/10 sm:flex-row sm:items-end sm:p-7">
             <div>

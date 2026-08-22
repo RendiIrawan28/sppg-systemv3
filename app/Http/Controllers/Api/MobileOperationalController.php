@@ -349,6 +349,56 @@ class MobileOperationalController extends Controller
                     }
                 }
 
+                if (in_array($module, ['gudang', 'gudang-non-pangan'], true)) {
+                    $nonFood = $module === 'gudang-non-pangan';
+                    $input = $request->validate([
+                        'fields' => ['present', 'array'],
+                        'fields.receipt_date' => ['required', 'date', 'before_or_equal:today'],
+                        'fields.supplier_id' => ['required', 'integer'],
+                        'fields.manual_rows_payload' => ['required', 'string', 'max:1000000'],
+                        'fields.notes' => ['nullable', 'string', 'max:3000'],
+                    ])['fields'];
+                    $rows = json_decode((string) $input['manual_rows_payload'], true);
+                    if (! is_array($rows)) {
+                        throw ValidationException::withMessages(['fields.manual_rows_payload' => 'Daftar barang penerimaan manual tidak valid.']);
+                    }
+                    $itemKey = $nonFood ? 'non_food_item_id' : 'ingredient_id';
+                    $itemTable = $nonFood ? 'non_food_items' : 'ingredients';
+                    $rows = validator(['rows' => $rows], [
+                        'rows' => ['required', 'array', 'min:1', 'max:100'],
+                        "rows.*.{$itemKey}" => ['required', 'integer', Rule::exists($itemTable, 'id')->where(fn ($query) => $query
+                            ->where('sppg_unit_id', $unitId)->where('is_active', true))],
+                        'rows.*.received_quantity' => ['required', 'numeric', 'gt:0', 'max:9999999999'],
+                        'rows.*.accepted_quantity' => ['required', 'numeric', 'min:0', 'max:9999999999'],
+                        'rows.*.rejected_quantity' => ['required', 'numeric', 'min:0', 'max:9999999999'],
+                        'rows.*.supplier_batch_number' => ['nullable', 'string', 'max:100'],
+                        'rows.*.expired_date' => ['nullable', 'date'],
+                        'rows.*.received_temperature_celsius' => ['nullable', 'numeric', 'between:-50,100'],
+                        'rows.*.quality_notes' => ['nullable', 'string', 'max:1000'],
+                    ])->validate()['rows'];
+                    foreach ($rows as $index => $row) {
+                        if (abs(((float) $row['accepted_quantity'] + (float) $row['rejected_quantity']) - (float) $row['received_quantity']) > 0.0001) {
+                            throw ValidationException::withMessages([
+                                'fields.manual_rows_payload' => 'Barang '.($index + 1).': jumlah baik + ditolak harus sama dengan jumlah diterima.',
+                            ]);
+                        }
+                    }
+                    $warehouse = Warehouse::forUnit(
+                        $unitId,
+                        $nonFood ? Warehouse::TYPE_NON_FOOD : Warehouse::TYPE_FOOD,
+                    );
+
+                    return app(StockReceiptService::class)->createManual(
+                        $unitId,
+                        $warehouse->getKey(),
+                        (int) $input['supplier_id'],
+                        (string) $input['receipt_date'],
+                        $input['notes'] ?? null,
+                        $rows,
+                        $request->user(),
+                    );
+                }
+
                 if (in_array($module, ['gudang-penyesuaian', 'gudang-penyesuaian-non-pangan'], true)) {
                     $fields = $request->validate([
                         'fields' => ['present', 'array'],

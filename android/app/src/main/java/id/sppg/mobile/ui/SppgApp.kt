@@ -730,6 +730,12 @@ private data class FeatureGroup(
     val items: List<FeatureItem>,
 )
 
+private data class FeatureCluster(
+    val key: String,
+    val title: String,
+    val items: List<FeatureItem>,
+)
+
 private enum class DashboardTab { Home, Modules, Account }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -847,7 +853,9 @@ private fun DashboardScreen(
                 start = 20.dp,
                 top = innerPadding.calculateTopPadding() + 16.dp,
                 end = 20.dp,
-                bottom = 32.dp,
+                // The bottom navigation is part of the Scaffold. Include its
+                // padding so the final module remains reachable and visible.
+                bottom = innerPadding.calculateBottomPadding() + 24.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -915,7 +923,7 @@ private fun DashboardScreen(
                         items(groups, key = { "module-group-${it.key}" }) { group ->
                             DashboardModuleGroup(
                                 group = group,
-                                initiallyExpanded = true,
+                                initiallyExpanded = false,
                                 onOpenFeature = { feature ->
                                     openDashboardFeature(feature, onOpenFieldPlans, onOpenOperational)
                                 },
@@ -1049,6 +1057,7 @@ private fun DashboardModuleGroup(
     onOpenFeature: (FeatureItem) -> Unit,
 ) {
     var expanded by remember(group.key) { mutableStateOf(initiallyExpanded) }
+    val clusters = remember(group.items) { compactFeatureClusters(group.items) }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1073,20 +1082,104 @@ private fun DashboardModuleGroup(
                 )
             }
             if (expanded) {
-                group.items.forEach { feature ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = feature.isAvailable) { onOpenFeature(feature) }
-                            .padding(start = 70.dp, top = 13.dp, end = 15.dp, bottom = 13.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(feature.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                            Text(feature.status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+                clusters.forEach { cluster ->
+                    DashboardFeatureCluster(cluster, onOpenFeature)
+                }
+            }
+        }
+    }
+}
+
+private fun compactFeatureClusters(items: List<FeatureItem>): List<FeatureCluster> {
+    fun baseTitle(title: String): String = title
+        .removeSuffix(" Non-Pangan")
+        .removeSuffix(" Pangan")
+        .trim()
+
+    return items
+        .groupBy { baseTitle(it.title) }
+        .map { (title, groupedItems) ->
+            FeatureCluster(
+                key = groupedItems.joinToString("|") { it.operationalSlug ?: it.title },
+                title = title,
+                items = groupedItems,
+            )
+        }
+}
+
+@Composable
+private fun DashboardFeatureCluster(
+    cluster: FeatureCluster,
+    onOpenFeature: (FeatureItem) -> Unit,
+) {
+    if (cluster.items.size == 1) {
+        val feature = cluster.items.first()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = feature.isAvailable) { onOpenFeature(feature) }
+                .padding(start = 70.dp, top = 12.dp, end = 15.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(feature.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(feature.status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.outline)
+        }
+        return
+    }
+
+    var expanded by remember(cluster.key) { mutableStateOf(false) }
+    val totalCount = cluster.items.sumOf { feature ->
+        feature.status.substringBefore(' ').toIntOrNull() ?: 0
+    }
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(start = 70.dp, top = 12.dp, end = 15.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(cluster.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(
+                    "Pangan & non-pangan • $totalCount pekerjaan",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                contentDescription = if (expanded) "Tutup pilihan" else "Buka pilihan",
+                tint = MaterialTheme.colorScheme.outline,
+            )
+        }
+        if (expanded) {
+            cluster.items.forEach { feature ->
+                val variant = when {
+                    feature.title.endsWith(" Non-Pangan") -> "Non-Pangan"
+                    feature.title.endsWith(" Pangan") -> "Pangan"
+                    else -> feature.title
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = feature.isAvailable) { onOpenFeature(feature) }
+                        .padding(start = 86.dp, top = 10.dp, end = 15.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(variant, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                        Text(feature.status, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    Icon(
+                        Icons.AutoMirrored.Outlined.ArrowForward,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.outline,
+                    )
                 }
             }
         }

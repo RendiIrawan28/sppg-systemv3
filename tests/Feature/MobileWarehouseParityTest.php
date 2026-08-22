@@ -8,6 +8,7 @@ use App\Models\SppgUnit;
 use App\Models\StockAdjustment;
 use App\Models\StockReceipt;
 use App\Models\StockReceiptItem;
+use App\Models\Supplier;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
 use App\Support\Mobile\MobileWorkspaceRegistry;
@@ -44,7 +45,46 @@ beforeEach(function (): void {
         'edible_portion_percent' => 100, 'loss_factor' => 1, 'rounding_mode' => 'up',
         'nutrition_reference_grams' => 100, 'is_active' => true,
     ]);
+    $this->supplier = Supplier::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'code' => 'SUP-MOBILE',
+        'name' => 'Supplier Mobile',
+        'is_active' => true,
+    ]);
     Sanctum::actingAs($this->user, ['mobile']);
+});
+
+it('creates a manual supplier receipt from mobile without procurement', function (): void {
+    $rows = [[
+        'ingredient_id' => $this->ingredient->id,
+        'received_quantity' => '12.5',
+        'accepted_quantity' => '10',
+        'rejected_quantity' => '2.5',
+        'supplier_batch_number' => 'MANUAL-01',
+        'expired_date' => null,
+        'received_temperature_celsius' => '18',
+        'quality_notes' => 'Kemasan dua setengah kilogram rusak',
+    ]];
+
+    $this->postJson('/api/mobile/operational-modules/gudang/records', [
+        'fields' => [
+            'receipt_date' => today()->toDateString(),
+            'supplier_id' => $this->supplier->id,
+            'manual_rows_payload' => json_encode($rows),
+            'notes' => 'Kiriman mendadak tanpa pengadaan',
+        ],
+        'files' => [],
+    ])->assertCreated()
+        ->assertJsonPath('data.status', StockReceipt::STATUS_DRAFT);
+
+    $receipt = StockReceipt::query()->with('items')->firstOrFail();
+    expect($receipt->procurement_request_id)->toBeNull()
+        ->and($receipt->supplier_id)->toBe($this->supplier->id)
+        ->and($receipt->items)->toHaveCount(1)
+        ->and((float) $receipt->items->first()->received_quantity)->toBe(12.5)
+        ->and((float) $receipt->items->first()->accepted_quantity)->toBe(10.0)
+        ->and((float) $receipt->items->first()->rejected_quantity)->toBe(2.5)
+        ->and($receipt->items->first()->quality_status)->toBe('partial');
 });
 
 it('fills warehouse item snapshots when a division saves a newly taken item', function (): void {

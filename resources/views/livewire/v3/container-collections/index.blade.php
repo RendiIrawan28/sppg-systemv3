@@ -1,11 +1,6 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Pengambilan Ompreng" eyebrow="Kegiatan siang hari">
     <div class="mx-auto max-w-[1450px] space-y-5 text-slate-900 dark:text-slate-100">
-        @if(session('v3.status'))
-            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-300">{{ session('v3.status') }}</div>
-        @endif
-        @if($errors->any())
-            <div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 dark:border-rose-400/30 dark:bg-rose-500/10 dark:text-rose-300">{{ $errors->first() }}</div>
-        @endif
+        <x-v3.flash-alert />
 
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
             <p class="text-xs font-bold uppercase tracking-[.18em] text-cyan-200">Daftar otomatis dari pengantaran</p>

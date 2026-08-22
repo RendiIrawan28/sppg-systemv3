@@ -1,11 +1,6 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Divisi Pengolahan" eyebrow="Bahan Gudang sampai makanan selesai dimasak">
     <div class="mx-auto max-w-[1500px] space-y-5">
-        @if(session('v3.status'))
-            <div class="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-700">{{ session('v3.status') }}</div>
-        @endif
-        @if($errors->any())
-            <div class="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{{ $errors->first() }}</div>
-        @endif
+        <x-v3.flash-alert />
 
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
             <p class="text-xs font-bold uppercase tracking-widest text-cyan-200">Kontrol Pengolahan</p>

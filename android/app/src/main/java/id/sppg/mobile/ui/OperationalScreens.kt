@@ -1173,6 +1173,7 @@ fun OperationalRecordEditScreen(
 ) {
     LaunchedEffect(isCreate, state.selectedRecord?.id) { onPrepare() }
     val fields = state.activeFormFields
+    val isManualReceipt = isCreate && fields.any { it.type == "manual_receipt_rows" }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -1217,14 +1218,17 @@ fun OperationalRecordEditScreen(
                 ) {
                     Column(Modifier.padding(18.dp)) {
                         Text(
-                            if (isCreate && createActionLabel == "Mulai Pemorsian") "Pilih rencana distribusi aktif"
+                            if (isManualReceipt) "Buat penerimaan manual"
+                            else if (isCreate && createActionLabel == "Mulai Pemorsian") "Pilih rencana distribusi aktif"
                             else if (isCreate && createActionLabel != null) "Pilih rencana produksi aktif"
                             else "Isi hanya data yang perlu diubah",
                             fontWeight = FontWeight.Bold,
                         )
                         Spacer(Modifier.height(5.dp))
                         Text(
-                            if (isCreate && createActionLabel != null) {
+                            if (isManualReceipt) {
+                                "Gunakan untuk kiriman supplier yang tidak berasal dari dokumen pengadaan."
+                            } else if (isCreate && createActionLabel != null) {
                                 if (createActionLabel == "Mulai Pemorsian") {
                                     "Pemorsian langsung dimulai setelah rencana dipilih. Barang dapat diambil sesudahnya."
                                 } else {
@@ -1272,7 +1276,8 @@ fun OperationalRecordEditScreen(
                         )
                     } else {
                         Text(
-                            if (isCreate && createActionLabel != null) createActionLabel
+                            if (isManualReceipt) "Buat draft penerimaan"
+                            else if (isCreate && createActionLabel != null) createActionLabel
                             else if (isCreate) "Simpan data baru"
                             else "Simpan perubahan",
                             fontWeight = FontWeight.Bold,
@@ -1333,6 +1338,11 @@ private fun OperationalFormInput(
     }
 
     when {
+        field.type == "manual_receipt_rows" -> ManualReceiptRowsInput(
+            field = field,
+            value = value,
+            onValueChange = onValueChange,
+        )
         field.type == "opening_stock_rows" -> OpeningStockRowsInput(
             field = field,
             value = value,
@@ -1516,6 +1526,161 @@ private fun OperationalFormInput(
             minLines = if (field.type == "textarea") 3 else 1,
             shape = RoundedCornerShape(16.dp),
         )
+    }
+}
+
+private data class ManualReceiptMobileRow(
+    val ingredient_id: String? = null,
+    val non_food_item_id: String? = null,
+    val received_quantity: String? = null,
+    val accepted_quantity: String? = null,
+    val rejected_quantity: String = "0",
+    val supplier_batch_number: String? = null,
+    val expired_date: String? = null,
+    val received_temperature_celsius: String? = null,
+    val quality_notes: String? = null,
+)
+
+@Composable
+private fun ManualReceiptRowsInput(
+    field: id.sppg.mobile.data.remote.OperationalFormField,
+    value: String?,
+    onValueChange: (String?) -> Unit,
+) {
+    val gson = remember { Gson() }
+    var rows by remember(field.key) { mutableStateOf(listOf(ManualReceiptMobileRow())) }
+    val catalog = field.options.orEmpty()
+    val isNonFood = catalog.keys.any { it.startsWith("non_food_item:") }
+    val items = if (isNonFood) {
+        catalog.filterKeys { it.startsWith("non_food_item:") }
+            .mapKeys { it.key.removePrefix("non_food_item:") }
+    } else {
+        catalog.filterKeys { it.startsWith("ingredient:") }
+            .mapKeys { it.key.removePrefix("ingredient:") }
+    }
+
+    fun publish(next: List<ManualReceiptMobileRow>) {
+        rows = next
+        onValueChange(gson.toJson(next))
+    }
+
+    LaunchedEffect(field.key, value) {
+        if (value.isNullOrBlank()) onValueChange(gson.toJson(rows))
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Penerimaan manual", fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(5.dp))
+                Text(
+                    "Isi pemeriksaan setiap barang. Setelah draft dibuat, buka bagian Dokumentasi per Barang untuk mengunggah satu atau beberapa foto.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        rows.forEachIndexed { index, row ->
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Barang ${index + 1}", fontWeight = FontWeight.Bold)
+                        if (rows.size > 1) {
+                            TextButton(onClick = { publish(rows.filterIndexed { rowIndex, _ -> rowIndex != index }) }) {
+                                Text("Hapus", color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                    OpeningStockSearchableDropdown(
+                        label = "Cari barang *",
+                        value = if (isNonFood) row.non_food_item_id else row.ingredient_id,
+                        options = items,
+                    ) { selected ->
+                        publish(rows.toMutableList().also {
+                            it[index] = if (isNonFood) row.copy(non_food_item_id = selected)
+                            else row.copy(ingredient_id = selected)
+                        })
+                    }
+                    OutlinedTextField(
+                        value = row.received_quantity.orEmpty(),
+                        onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(received_quantity = text) }) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Jumlah diterima *") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    OutlinedTextField(
+                        value = row.accepted_quantity.orEmpty(),
+                        onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(accepted_quantity = text) }) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Jumlah baik *") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    OutlinedTextField(
+                        value = row.rejected_quantity,
+                        onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(rejected_quantity = text) }) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Jumlah ditolak *") },
+                        supportingText = { Text("Jumlah baik + ditolak harus sama dengan jumlah diterima.") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    OutlinedTextField(
+                        value = row.supplier_batch_number.orEmpty(),
+                        onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(supplier_batch_number = text) }) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Batch supplier") },
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                    OperationalDatePickerInput(
+                        field = id.sppg.mobile.data.remote.OperationalFormField(
+                            key = "manual-receipt-expiry-$index", label = "Kedaluwarsa", type = "date",
+                            value = row.expired_date, required = false, editable = true, options = null,
+                        ),
+                        value = row.expired_date,
+                        onValueChange = { date -> publish(rows.toMutableList().also { it[index] = row.copy(expired_date = date) }) },
+                    )
+                    if (!isNonFood) {
+                        OutlinedTextField(
+                            value = row.received_temperature_celsius.orEmpty(),
+                            onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(received_temperature_celsius = text) }) },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Suhu diterima (°C)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            shape = RoundedCornerShape(16.dp),
+                        )
+                    }
+                    OutlinedTextField(
+                        value = row.quality_notes.orEmpty(),
+                        onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(quality_notes = text) }) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Catatan mutu") },
+                        minLines = 2,
+                        shape = RoundedCornerShape(16.dp),
+                    )
+                }
+            }
+        }
+        OutlinedButton(
+            onClick = { publish(rows + ManualReceiptMobileRow()) },
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Icon(Icons.Outlined.Add, contentDescription = null)
+            Spacer(Modifier.width(6.dp))
+            Text("Tambah barang")
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Berita Acara Limbah" eyebrow="Persiapan · Pencucian · Kebersihan">
     <div class="mx-auto max-w-[1450px] space-y-5 text-slate-900 dark:text-slate-100">
-        @if(session('v3.status'))<div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">{{ session('v3.status') }}</div>@endif
+        <x-v3.flash-alert />
         <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
             <div><p class="text-xs font-bold uppercase tracking-[.18em] text-sky-600">Dokumen bersama tiga divisi</p><h2 class="mt-2 text-2xl font-bold">Berita Acara Serah Terima Limbah</h2><p class="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">Satu form dan satu format ekspor untuk limbah Persiapan, Pencucian, serta Kebersihan.</p></div>
             @if($canCreate)<a wire:navigate href="{{ route('v3.waste-handovers.create') }}" class="inline-flex h-11 items-center justify-center rounded-xl bg-sky-600 px-5 text-sm font-bold text-white">+ Buat berita acara</a>@endif

@@ -3,10 +3,14 @@
 namespace App\Services;
 
 use App\Models\InventoryLot;
+use App\Models\Ingredient;
+use App\Models\NonFoodItem;
 use App\Models\ProcurementRequest;
 use App\Models\StockMovement;
 use App\Models\StockReceipt;
 use App\Models\StockReceiptItem;
+use App\Models\Supplier;
+use App\Models\User;
 use App\Models\Warehouse;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +19,110 @@ use InvalidArgumentException;
 
 class StockReceiptService
 {
+    /**
+     * @param array<int, array<string, mixed>> $rows
+     */
+    public function createManual(
+        int $unitId,
+        int $warehouseId,
+        int $supplierId,
+        string $receiptDate,
+        ?string $notes,
+        array $rows,
+        User $actor,
+    ): StockReceipt {
+        return DB::transaction(function () use (
+            $unitId, $warehouseId, $supplierId, $receiptDate, $notes, $rows, $actor,
+        ): StockReceipt {
+            $warehouse = Warehouse::query()
+                ->where('sppg_unit_id', $unitId)
+                ->where('is_active', true)
+                ->findOrFail($warehouseId);
+            $supplier = Supplier::query()
+                ->where('sppg_unit_id', $unitId)
+                ->where('is_active', true)
+                ->findOrFail($supplierId);
+
+            if ($rows === []) {
+                throw ValidationException::withMessages(['rows' => 'Tambahkan minimal satu barang penerimaan manual.']);
+            }
+
+            $receipt = StockReceipt::query()->create([
+                'sppg_unit_id' => $unitId,
+                'warehouse_id' => $warehouse->getKey(),
+                'procurement_request_id' => null,
+                'supplier_id' => $supplier->getKey(),
+                'receipt_date' => $receiptDate,
+                'status' => StockReceipt::STATUS_DRAFT,
+                'notes' => trim((string) $notes) ?: null,
+                'created_by' => $actor->getKey(),
+            ]);
+
+            $seen = [];
+            foreach ($rows as $index => $row) {
+                $isNonFood = $warehouse->type === Warehouse::TYPE_NON_FOOD;
+                $itemId = (int) ($isNonFood ? ($row['non_food_item_id'] ?? 0) : ($row['ingredient_id'] ?? 0));
+                $key = ($isNonFood ? 'non_food:' : 'ingredient:').$itemId;
+                if ($itemId <= 0 || isset($seen[$key])) {
+                    throw ValidationException::withMessages([
+                        "rows.{$index}.item" => $itemId <= 0
+                            ? 'Pilih barang dari master yang sesuai.'
+                            : 'Barang yang sama tidak boleh dimasukkan lebih dari satu kali.',
+                    ]);
+                }
+                $seen[$key] = true;
+
+                $catalogItem = $isNonFood
+                    ? NonFoodItem::query()->with('measurementUnit')->forUnit($unitId)->where('is_active', true)->findOrFail($itemId)
+                    : Ingredient::query()->with('measurementUnit')->where('sppg_unit_id', $unitId)->where('is_active', true)->findOrFail($itemId);
+
+                $received = round((float) ($row['received_quantity'] ?? 0), 4);
+                $accepted = round((float) ($row['accepted_quantity'] ?? 0), 4);
+                $rejected = round((float) ($row['rejected_quantity'] ?? 0), 4);
+                if ($received <= 0 || $accepted < 0 || $rejected < 0 || abs(($accepted + $rejected) - $received) > 0.0001) {
+                    throw ValidationException::withMessages([
+                        "rows.{$index}.received_quantity" => 'Jumlah baik + ditolak harus sama dengan jumlah yang diterima dari supplier.',
+                    ]);
+                }
+
+                $unit = trim((string) ($catalogItem->measurementUnit?->symbol
+                    ?: $catalogItem->measurementUnit?->code
+                    ?: $catalogItem->measurementUnit?->name
+                    ?: 'unit'));
+                $kgRatio = $this->kilogramRatio($unit, $catalogItem instanceof Ingredient ? (float) $catalogItem->grams_per_unit : 0);
+                $qualityStatus = match (true) {
+                    $accepted > 0 && $rejected > 0 => 'partial',
+                    $accepted > 0 => 'accepted',
+                    default => 'rejected',
+                };
+
+                $receipt->items()->create([
+                    'ingredient_id' => $isNonFood ? null : $catalogItem->getKey(),
+                    'non_food_item_id' => $isNonFood ? $catalogItem->getKey() : null,
+                    'supplier_id' => $supplier->getKey(),
+                    'ingredient_name_snapshot' => $catalogItem->name,
+                    'unit_snapshot' => $unit,
+                    'ordered_quantity' => $received,
+                    'received_quantity' => $received,
+                    'accepted_quantity' => $accepted,
+                    'rejected_quantity' => $rejected,
+                    'ordered_quantity_kg' => round($received * $kgRatio, 4),
+                    'received_quantity_kg' => round($received * $kgRatio, 4),
+                    'accepted_quantity_kg' => round($accepted * $kgRatio, 4),
+                    'rejected_quantity_kg' => round($rejected * $kgRatio, 4),
+                    'supplier_batch_number' => trim((string) ($row['supplier_batch_number'] ?? '')) ?: null,
+                    'expired_date' => filled($row['expired_date'] ?? null) ? $row['expired_date'] : null,
+                    'received_temperature_celsius' => filled($row['received_temperature_celsius'] ?? null)
+                        ? $row['received_temperature_celsius'] : null,
+                    'quality_status' => $qualityStatus,
+                    'quality_notes' => trim((string) ($row['quality_notes'] ?? '')) ?: null,
+                ]);
+            }
+
+            return $receipt->refresh()->load('items');
+        });
+    }
+
     /** @param array<string,mixed> $data */
     public function updateInspection(StockReceiptItem $item, array $data): StockReceiptItem
     {
@@ -251,5 +359,17 @@ class StockReceiptService
 
             return $receipt->refresh();
         });
+    }
+
+    private function kilogramRatio(string $unit, float $gramsPerUnit = 0): float
+    {
+        $normalized = strtolower(trim($unit));
+
+        return match ($normalized) {
+            'kg', 'kilogram' => 1,
+            'g', 'gr', 'gram' => 0.001,
+            'mg', 'miligram', 'milligram' => 0.000001,
+            default => $gramsPerUnit > 0 ? $gramsPerUnit / 1000 : 0,
+        };
     }
 }
