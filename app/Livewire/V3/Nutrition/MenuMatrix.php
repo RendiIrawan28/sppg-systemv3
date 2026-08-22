@@ -7,10 +7,14 @@ use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\BeneficiaryPeriod;
 use App\Models\Menu;
 use App\Models\MenuCycle;
+use App\Models\MenuCycleDay;
+use App\Models\MenuDayRevisionRequest;
 use App\Services\MenuCycleService;
 use App\Services\MenuCycleWorkflowService;
+use App\Services\MenuDayRevisionService;
 use App\Services\MenuMatrixService;
 use App\Services\NutritionistPlanningService;
+use App\Services\ServiceHolidayImpactService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
@@ -180,6 +184,38 @@ class MenuMatrix extends Component
             $this->loadRows($matrix);
 
             return 'Menu dilepas dari hari pelayanan.';
+        });
+    }
+
+    public function requestHolidayRevision(int $dayId, MenuMatrixService $matrix): void
+    {
+        $this->authorizePermission('menus.submit');
+        $this->runAction(function () use ($dayId, $matrix): string {
+            $day = MenuCycleDay::query()->with('cycle')->findOrFail($dayId);
+            app(ServiceHolidayImpactService::class)->reconcileDate(
+                (int) $day->cycle->sppg_unit_id,
+                $day->service_date,
+                auth()->id(),
+                $day->holidayName(),
+            );
+            $this->loadRows($matrix);
+
+            return 'Permintaan revisi pelepasan menu hari libur berhasil diajukan.';
+        });
+    }
+
+    public function authorizeHolidayRevision(int $requestId, MenuMatrixService $matrix): void
+    {
+        $this->authorizePermission('menus.approve');
+        $this->runAction(function () use ($requestId, $matrix): string {
+            app(MenuDayRevisionService::class)->authorize(
+                MenuDayRevisionRequest::query()->findOrFail($requestId),
+                auth()->user(),
+                'Menu dilepas karena tanggal berstatus libur pelayanan.',
+            );
+            $this->loadRows($matrix);
+
+            return 'Revisi disetujui. Menu telah dilepas tanpa mengubah hari lainnya.';
         });
     }
 

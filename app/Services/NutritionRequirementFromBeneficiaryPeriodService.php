@@ -23,6 +23,14 @@ class NutritionRequirementFromBeneficiaryPeriodService
         $cycle = $menuDay->cycle;
         $menu = $menuDay->menu;
 
+        if ($cycle && $menuDay->service_date) {
+            app(MenuServiceCalendarService::class)->assertOperationalDate(
+                (int) $cycle->sppg_unit_id,
+                $menuDay->service_date,
+                'Perhitungan kebutuhan bahan',
+            );
+        }
+
         if (! $cycle || ! $menu || ! $menuDay->service_date) {
             throw new DomainException('Hari pelayanan harus memiliki siklus, tanggal, dan menu final.');
         }
@@ -45,7 +53,7 @@ class NutritionRequirementFromBeneficiaryPeriodService
                 ->where('menu_cycle_day_id', $menuDay->getKey())
                 ->where('source_type', 'beneficiary_period_master')
                 ->lockForUpdate()
-                ->first() ?? new NutritionRequirementPlan();
+                ->first() ?? new NutritionRequirementPlan;
 
             if ($requirement->exists && ! $requirement->isEditable()) {
                 throw new DomainException('Kebutuhan sudah diajukan/disetujui sehingga tidak dapat dihitung ulang.');

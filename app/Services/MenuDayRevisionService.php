@@ -17,8 +17,7 @@ class MenuDayRevisionService
 {
     public function __construct(
         private readonly MenuCloneService $cloneService,
-    ) {
-    }
+    ) {}
 
     public function request(
         MenuCycleDay $day,
@@ -120,6 +119,35 @@ class MenuDayRevisionService
                 ->with(['cycle', 'menu'])
                 ->lockForUpdate()
                 ->findOrFail($request->menu_cycle_day_id);
+
+            if (($request->snapshot['holiday_detach'] ?? false) === true) {
+                if (! $day->isHoliday()) {
+                    throw ValidationException::withMessages([
+                        'status' => 'Tanggal ini tidak lagi berstatus libur pelayanan.',
+                    ]);
+                }
+
+                $day->update([
+                    'menu_id' => null,
+                    'source_menu_id' => null,
+                    'snapshot_version' => 0,
+                    'snapshot_created_at' => null,
+                    'revision_status' => MenuDayRevisionStatus::Completed->value,
+                    'revision_notes' => filled($decisionNotes) ? trim((string) $decisionNotes) : $request->reason,
+                    'revision_approved_at' => now(),
+                ]);
+
+                $request->update([
+                    'status' => MenuDayRevisionStatus::Completed,
+                    'decision_notes' => filled($decisionNotes) ? trim((string) $decisionNotes) : null,
+                    'decided_by' => $user->getKey(),
+                    'decided_at' => now(),
+                    'completed_by' => $user->getKey(),
+                    'completed_at' => now(),
+                ]);
+
+                return $request->refresh();
+            }
 
             if (! $request->originalMenu) {
                 throw ValidationException::withMessages([

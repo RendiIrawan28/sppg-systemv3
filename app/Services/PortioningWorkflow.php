@@ -17,6 +17,13 @@ class PortioningWorkflow
     public function start(PortioningSession $session, User $actor): PortioningSession
     {
         abort_unless($actor->can('portioning.update'), 403);
+        $session->loadMissing('fieldDistributionPlan');
+        $serviceDate = $session->fieldDistributionPlan?->distribution_date ?: $session->portioning_date;
+        try {
+            app(MenuServiceCalendarService::class)->assertOperationalDate((int) $session->sppg_unit_id, $serviceDate, 'Pemorsian untuk pelayanan');
+        } catch (\DomainException $exception) {
+            throw ValidationException::withMessages(['service_date' => $exception->getMessage()]);
+        }
 
         return DB::transaction(function () use ($session, $actor): PortioningSession {
             $session = $this->lockedSession($session);

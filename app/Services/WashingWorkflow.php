@@ -194,6 +194,12 @@ class WashingWorkflow
 
     public function start(WashingSession $session, User $actor, array $data = []): WashingSession
     {
+        try {
+            app(MenuServiceCalendarService::class)->assertOperationalDate((int) $session->sppg_unit_id, $session->washing_date, 'Pencucian');
+        } catch (\DomainException $exception) {
+            throw ValidationException::withMessages(['washing_date' => $exception->getMessage()]);
+        }
+
         return DB::transaction(function () use ($session, $actor, $data): WashingSession {
             $session = $this->lockedSession($session);
             $this->ensureEditable($session);

@@ -7,6 +7,7 @@ use App\Models\NutritionRequirementPlan;
 use App\Models\ProcurementRequest;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Support\V3\SystemUnit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -25,6 +26,11 @@ class ProcurementRequestService
     public function createOrSynchronizeDraft(NutritionRequirementPlan $plan, User $actor): ProcurementRequest
     {
         $this->ensureUnitAccess($actor, $plan->sppg_unit_id);
+        app(MenuServiceCalendarService::class)->assertOperationalDate(
+            (int) $plan->sppg_unit_id,
+            $plan->requirement_date,
+            'Pengadaan pangan',
+        );
         $plan->loadMissing(['items.ingredient.measurementUnit', 'fieldDistributionPlan']);
 
         if (! $plan->items()->exists()) {
@@ -70,7 +76,7 @@ class ProcurementRequestService
                 'procurement_type' => Warehouse::TYPE_FOOD,
                 'status' => ProcurementRequest::STATUS_DRAFT,
                 'price_status' => 'draft',
-                'notes' => 'Dibuat otomatis dari kebutuhan bahan ' . $plan->plan_number . '.',
+                'notes' => 'Dibuat otomatis dari kebutuhan bahan '.$plan->plan_number.'.',
                 'created_by' => $actor->id,
             ]);
 
@@ -256,7 +262,7 @@ class ProcurementRequestService
             'price_status' => 'finalized',
             'price_finalized_by' => $user->id,
             'price_finalized_at' => now(),
-            'finance_notes' => filled($notes) ? trim(($request->finance_notes ? $request->finance_notes . "\n" : '') . $notes) : $request->finance_notes,
+            'finance_notes' => filled($notes) ? trim(($request->finance_notes ? $request->finance_notes."\n" : '').$notes) : $request->finance_notes,
         ])->save();
     }
 
@@ -397,20 +403,19 @@ class ProcurementRequestService
             throw ValidationException::withMessages(['items' => 'Daftar bahan masih kosong.']);
         }
 
-        if ($request->items->contains(fn($item): bool => blank($item->supplier_id))) {
+        if ($request->items->contains(fn ($item): bool => blank($item->supplier_id))) {
             throw ValidationException::withMessages([
                 'items' => 'Supplier wajib dipilih Staf Gudang untuk seluruh bahan.',
             ]);
         }
 
-        if ($request->items->contains(fn($item): bool => (float) $item->estimated_unit_price <= 0)) {
+        if ($request->items->contains(fn ($item): bool => (float) $item->estimated_unit_price <= 0)) {
             throw ValidationException::withMessages([
                 'items' => 'Harga satuan wajib diisi untuk seluruh bahan.',
             ]);
         }
 
-        if ($request->items->contains(fn ($item): bool =>
-            blank($item->measurement_unit_id)
+        if ($request->items->contains(fn ($item): bool => blank($item->measurement_unit_id)
             || (float) $item->requested_quantity <= 0
         )) {
             throw ValidationException::withMessages([
@@ -491,7 +496,7 @@ class ProcurementRequestService
 
     private function ensureUnitAccess(User $user, int $unitId): void
     {
-        if (! app(\App\Support\V3\SystemUnit::class)->owns($unitId)) {
+        if (! app(SystemUnit::class)->owns($unitId)) {
             throw ValidationException::withMessages([
                 'unit' => 'Data bukan milik Unit SPPG aktif Anda.',
             ]);

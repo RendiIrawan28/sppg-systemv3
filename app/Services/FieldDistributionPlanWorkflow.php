@@ -18,6 +18,16 @@ class FieldDistributionPlanWorkflow
         $plan->load('destinations.recipientGroups');
         $issues = [];
 
+        if ($plan->distribution_date) {
+            $holiday = app(MenuServiceCalendarService::class)->holidayFor(
+                (int) $plan->sppg_unit_id,
+                $plan->distribution_date,
+            );
+            if ($holiday) {
+                $issues[] = $plan->distribution_date->format('d-m-Y')." merupakan hari libur pelayanan: {$holiday->name}. Rencana Distribusi tidak dapat diaktifkan.";
+            }
+        }
+
         if (blank($plan->service_date) || blank($plan->production_date)) {
             $issues[] = 'Tanggal layanan dan tanggal produksi dari siklus menu belum valid.';
         }

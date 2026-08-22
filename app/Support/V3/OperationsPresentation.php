@@ -18,6 +18,7 @@ final class OperationsPresentation
             ProcurementRequest::STATUS_FINANCE_VERIFIED => 'Harga Diverifikasi Keuangan',
             ProcurementRequest::STATUS_APPROVED => 'Harga Final Kepala SPPG',
             ProcurementRequest::STATUS_ORDERED => 'Dipesan Staf Gudang',
+            ProcurementRequest::STATUS_CANCELLED => 'Dibatalkan - Libur Pelayanan',
         ];
     }
 

@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Enums\NutritionRecordStatus;
 use App\Models\MenuCycle;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -12,8 +11,7 @@ class MenuCycleService
     public function __construct(
         private readonly MenuServiceCalendarService $calendar,
         private readonly MenuNutritionWarningService $warnings,
-    ) {
-    }
+    ) {}
 
     public function rebuildDays(MenuCycle $cycle): void
     {
@@ -42,8 +40,8 @@ class MenuCycleService
                     ['day_number' => $day['day_number']],
                     [
                         ...$day,
-                        'menu_id' => $old?->menu_id,
-                        'source_menu_id' => $old?->source_menu_id,
+                        'menu_id' => $this->calendar->isHoliday((int) $locked->sppg_unit_id, $day['service_date']) ? null : $old?->menu_id,
+                        'source_menu_id' => $this->calendar->isHoliday((int) $locked->sppg_unit_id, $day['service_date']) ? null : $old?->source_menu_id,
                         'snapshot_version' => $old?->snapshot_version ?? 0,
                         'snapshot_created_at' => $old?->snapshot_created_at,
                         'field_distribution_plan_id' => $old?->field_distribution_plan_id,
@@ -89,13 +87,19 @@ class MenuCycleService
         $checkedMenus = [];
 
         foreach ($cycle->days as $day) {
+            if ($day->isHoliday()) {
+                continue;
+            }
+
             if (! $day->menu) {
                 $blocking[] = "Hari ke-{$day->day_number} belum memiliki menu.";
+
                 continue;
             }
 
             if ((int) $day->menu->sppg_unit_id !== (int) $cycle->sppg_unit_id) {
                 $blocking[] = "Menu hari ke-{$day->day_number} berasal dari Unit SPPG lain.";
+
                 continue;
             }
 
@@ -140,7 +144,4 @@ class MenuCycleService
             'field_planning' => 'Alur lama sinkronisasi dari Siklus Menu ke Rencana Distribusi sudah dinonaktifkan. Asisten Lapangan membuat Rencana Distribusi langsung dari siklus aktif dan periode penerima aktif.',
         ]);
     }
-
-        
-    
 }

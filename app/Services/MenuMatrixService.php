@@ -17,10 +17,25 @@ class MenuMatrixService
     /** @return array<int, array<string, mixed>> */
     public function rows(MenuCycle $cycle, User $actor): array
     {
-        $cycle->load(['days' => fn ($query) => $query->with('menu.items')->orderBy('day_number')]);
+        $cycle->load(['days' => fn ($query) => $query->with(['menu.items', 'latestRevisionRequest'])->orderBy('day_number')]);
+
+        if ($cycle->isEditable()) {
+            foreach ($cycle->days as $day) {
+                if ($day->menu_id && $day->isHoliday()) {
+                    $day->update([
+                        'menu_id' => null,
+                        'source_menu_id' => null,
+                        'snapshot_version' => 0,
+                        'snapshot_created_at' => null,
+                    ]);
+                    $day->setRelation('menu', null);
+                }
+            }
+        }
 
         return $cycle->days->mapWithKeys(function (MenuCycleDay $day) use ($cycle, $actor): array {
             $menu = $day->menu;
+            $holiday = $day->holidayInfo();
 
             return [(int) $day->getKey() => [
                 'day_id' => (int) $day->getKey(),
@@ -37,10 +52,16 @@ class MenuMatrixService
                 'fruit' => $this->componentValue($menu, MenuComponentType::Fruit),
                 'notes' => $menu?->notes ?? '',
                 'status_label' => $menu?->status?->label() ?? 'Belum ada menu',
+                'is_holiday' => $holiday !== null,
+                'holiday_name' => $holiday?->name,
+                'has_holiday_conflict' => $holiday !== null && $menu !== null,
+                'holiday_revision_request_id' => $day->latestRevisionRequest?->getKey(),
+                'holiday_revision_status' => $day->latestRevisionRequest?->status?->value,
                 'can_edit' => ($actor->is_super_admin || $actor->can('menus.update'))
                     && $cycle->isEditable()
+                    && $holiday === null
                     && ($menu === null || $menu->isEditable()),
-                'can_assign' => ($actor->is_super_admin || $actor->can('menus.update')) && $cycle->isEditable(),
+                'can_assign' => ($actor->is_super_admin || $actor->can('menus.update')) && $cycle->isEditable() && $holiday === null,
             ]];
         })->all();
     }
@@ -50,6 +71,7 @@ class MenuMatrixService
     {
         $this->authorize($actor, 'menus.update');
         $day = $this->day($cycle, $dayId);
+        $this->assertServiceDay($day);
 
         if (! $cycle->isEditable()) {
             throw ValidationException::withMessages(['cycle' => 'Siklus sudah diajukan atau dikunci.']);
@@ -127,6 +149,7 @@ class MenuMatrixService
         }
 
         $day = $this->day($cycle, $dayId);
+        $this->assertServiceDay($day);
         $menu = Menu::query()
             ->where('sppg_unit_id', $cycle->sppg_unit_id)
             ->where('is_cycle_snapshot', false)
@@ -146,6 +169,7 @@ class MenuMatrixService
     {
         $this->authorize($actor, 'menus.update');
         $day = $this->day($cycle, $dayId);
+        $this->assertServiceDay($day);
 
         if (! $cycle->isEditable() || ! $day->menu_id) {
             throw ValidationException::withMessages(['menu' => 'Simpan menu pada siklus yang masih editable terlebih dahulu.']);
@@ -155,6 +179,7 @@ class MenuMatrixService
         if (! $next) {
             throw ValidationException::withMessages(['day' => 'Tidak ada hari berikutnya dalam siklus.']);
         }
+        $this->assertServiceDay($next);
 
         $next->update(['menu_id' => $day->menu_id, 'source_menu_id' => null, 'snapshot_version' => 0, 'snapshot_created_at' => null]);
         $day->menu?->update(['service_date' => null]);
@@ -164,6 +189,7 @@ class MenuMatrixService
     {
         $this->authorize($actor, 'menus.update');
         $day = $this->day($cycle, $dayId);
+        $this->assertServiceDay($day);
 
         if (! $cycle->isEditable() || ! $day->menu) {
             throw ValidationException::withMessages(['menu' => 'Menu belum tersedia atau siklus sudah dikunci.']);
@@ -295,6 +321,15 @@ class MenuMatrixService
         }
 
         return $candidate;
+    }
+
+    private function assertServiceDay(MenuCycleDay $day): void
+    {
+        if ($day->isHoliday()) {
+            throw ValidationException::withMessages([
+                'day' => "Hari ke-{$day->day_number} adalah libur pelayanan ({$day->holidayName()}) dan tidak dapat diberi menu.",
+            ]);
+        }
     }
 
     private function authorize(User $actor, string $permission): void

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\MenuDayRevisionStatus;
+use App\Services\MenuServiceCalendarService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -88,5 +89,29 @@ class MenuCycleDay extends Model
                 ),
             ))
             ->exists();
+    }
+
+    public function holidayInfo(): ?object
+    {
+        $this->loadMissing('cycle');
+
+        if (! $this->cycle || ! $this->service_date) {
+            return null;
+        }
+
+        return app(MenuServiceCalendarService::class)->holidayFor(
+            (int) $this->cycle->sppg_unit_id,
+            $this->service_date,
+        );
+    }
+
+    public function isHoliday(): bool
+    {
+        return $this->holidayInfo() !== null;
+    }
+
+    public function holidayName(): ?string
+    {
+        return $this->holidayInfo()?->name;
     }
 }

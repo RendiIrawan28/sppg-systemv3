@@ -10,6 +10,7 @@ enum NutritionRecordStatus: string
     case Approved = 'approved';
     case Active = 'active';
     case Archived = 'archived';
+    case Cancelled = 'cancelled';
 
     public function label(): string
     {
@@ -20,6 +21,7 @@ enum NutritionRecordStatus: string
             self::Approved => 'Disetujui',
             self::Active => 'Aktif',
             self::Archived => 'Diarsipkan',
+            self::Cancelled => 'Dibatalkan',
         };
     }
 
@@ -32,6 +34,7 @@ enum NutritionRecordStatus: string
             self::Approved => 'success',
             self::Active => 'primary',
             self::Archived => 'gray',
+            self::Cancelled => 'danger',
         };
     }
 

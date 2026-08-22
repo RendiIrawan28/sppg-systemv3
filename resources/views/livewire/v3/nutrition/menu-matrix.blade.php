@@ -114,6 +114,27 @@
                         </div><span class="self-start rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600">{{ $row['status_label'] }}</span>
                     </div>
 
+                    @if ($row['is_holiday'])
+                    <div class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-5 text-center">
+                        <p class="text-xs font-black uppercase tracking-[.16em] text-amber-700">Libur Pelayanan</p>
+                        <p class="mt-1 text-sm font-bold text-slate-900">{{ $row['holiday_name'] }}</p>
+                        <p class="mt-1 text-xs text-slate-600">Tidak diperlukan menu pada tanggal ini.</p>
+                        @if ($row['has_holiday_conflict'])
+                        <p class="mt-3 text-xs font-semibold text-rose-700">Menu lama masih terhubung. Siklus yang telah dikunci wajib melalui proses revisi.</p>
+                        <div class="mt-3 flex flex-wrap justify-center gap-2">
+                            @if(!$row['holiday_revision_request_id'] && (auth()->user()->is_super_admin || auth()->user()->can('menus.submit')))
+                            <button wire:click="requestHolidayRevision({{ $dayId }})" class="rounded-lg bg-amber-600 px-3 py-2 text-[10px] font-bold text-white">Ajukan pelepasan menu</button>
+                            @elseif($row['holiday_revision_status'] === 'pending_authorization')
+                            <span class="rounded-lg bg-white px-3 py-2 text-[10px] font-bold text-amber-700 ring-1 ring-amber-200">Menunggu persetujuan revisi</span>
+                            @if(auth()->user()->is_super_admin || auth()->user()->can('menus.approve'))
+                            <button wire:click="authorizeHolidayRevision({{ $row['holiday_revision_request_id'] }})" wire:confirm="Setujui pelepasan menu dari tanggal libur ini?" class="rounded-lg bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white">Setujui pelepasan</button>
+                            @endif
+                            @endif
+                        </div>
+                        @endif
+                    </div>
+                    @else
+
                     @if ($row['can_assign'])<div class="mt-4 flex flex-col gap-2 sm:flex-row"><select wire:model="rows.{{ $dayId }}.selected_menu_id" class="h-10 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-xs">
                             <option value="">Pilih menu draft yang sudah ada</option>@foreach ($menuOptions as $option)<option value="{{ $option->id }}">{{ $option->code }} — {{ $option->name }}</option>@endforeach
                         </select><button wire:click="assignExisting({{ $dayId }})" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600">Gunakan</button></div>@endif
@@ -156,6 +177,7 @@
                         @endif
                         @endif
                     </div>
+                    @endif
                 </article>
                 @endforeach
             </div>

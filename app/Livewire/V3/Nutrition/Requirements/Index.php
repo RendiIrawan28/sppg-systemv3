@@ -3,8 +3,8 @@
 namespace App\Livewire\V3\Nutrition\Requirements;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
-use App\Models\NutritionRequirementPlan;
 use App\Models\MenuCycleDay;
+use App\Models\NutritionRequirementPlan;
 use App\Services\NutritionRequirementFromBeneficiaryPeriodService;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -75,7 +75,6 @@ class Index extends Component
             'readyCount' => (clone $base)->whereHas('procurementRequest')->count(),
             'menuDays' => MenuCycleDay::query()
                 ->with(['menu', 'cycle.beneficiaryPeriod'])
-                ->whereNotNull('menu_id')
                 ->whereHas('cycle', fn ($query) => $query
                     ->where('sppg_unit_id', $unit->getKey())
                     ->whereIn('status', ['approved', 'active']))

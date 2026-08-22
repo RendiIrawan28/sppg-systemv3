@@ -4,12 +4,16 @@ use App\Enums\UserRole;
 use App\Models\SppgUnit;
 use App\Models\User;
 use App\Models\WashingSession;
+use App\Support\Mobile\MobileWorkspaceRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 uses(RefreshDatabase::class);
+
+beforeEach(fn () => $this->travelTo(Carbon::parse('2026-08-24 09:00:00')));
 
 function mobileWashingActor(string $name = 'Petugas Pencucian'): User
 {
@@ -62,7 +66,7 @@ beforeEach(function (): void {
 });
 
 it('locks automatic session data and exposes only the action for the current washing stage', function (): void {
-    $definition = app(\App\Support\Mobile\MobileWorkspaceRegistry::class)->definitions()['pencucian'];
+    $definition = app(MobileWorkspaceRegistry::class)->definitions()['pencucian'];
     expect($definition['allow_update'])->toBeFalse();
     foreach ($definition['fields'] as $field) {
         expect($field['editable'])->toBeFalse();

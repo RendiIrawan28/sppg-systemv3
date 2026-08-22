@@ -15,11 +15,18 @@ class ProcurementRequest extends Model
     use SoftDeletes;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_SUBMITTED = 'submitted_to_finance';
+
     public const STATUS_REVISION = 'finance_revision';
+
     public const STATUS_FINANCE_VERIFIED = 'verified_by_finance';
+
     public const STATUS_APPROVED = 'approved_by_head';
+
     public const STATUS_ORDERED = 'ordered_by_warehouse';
+
+    public const STATUS_CANCELLED = 'cancelled';
 
     protected $fillable = [
         'uuid', 'sppg_unit_id', 'request_number', 'request_date', 'needed_date',
@@ -63,17 +70,60 @@ class ProcurementRequest extends Model
         });
     }
 
-    public function uniqueIds(): array { return ['uuid']; }
-    public function sppgUnit(): BelongsTo { return $this->belongsTo(SppgUnit::class); }
-    public function nutritionRequirementPlan(): BelongsTo { return $this->belongsTo(NutritionRequirementPlan::class); }
-    public function fieldDistributionPlan(): BelongsTo { return $this->belongsTo(FieldDistributionPlan::class); }
-    public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
-    public function items(): HasMany { return $this->hasMany(ProcurementRequestItem::class); }
-    public function creator(): BelongsTo { return $this->belongsTo(User::class, 'created_by'); }
-    public function submitter(): BelongsTo { return $this->belongsTo(User::class, 'submitted_by'); }
-    public function approver(): BelongsTo { return $this->belongsTo(User::class, 'approved_by'); }
-    public function priceFinalizer(): BelongsTo { return $this->belongsTo(User::class, 'price_finalized_by'); }
-    public function orderer(): BelongsTo { return $this->belongsTo(User::class, 'ordered_by'); }
+    public function uniqueIds(): array
+    {
+        return ['uuid'];
+    }
+
+    public function sppgUnit(): BelongsTo
+    {
+        return $this->belongsTo(SppgUnit::class);
+    }
+
+    public function nutritionRequirementPlan(): BelongsTo
+    {
+        return $this->belongsTo(NutritionRequirementPlan::class);
+    }
+
+    public function fieldDistributionPlan(): BelongsTo
+    {
+        return $this->belongsTo(FieldDistributionPlan::class);
+    }
+
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
+    }
+
+    public function items(): HasMany
+    {
+        return $this->hasMany(ProcurementRequestItem::class);
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function submitter(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'submitted_by');
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function priceFinalizer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'price_finalized_by');
+    }
+
+    public function orderer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'ordered_by');
+    }
 
     public function isEditable(): bool
     {

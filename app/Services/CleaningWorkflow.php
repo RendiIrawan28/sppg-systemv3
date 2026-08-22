@@ -15,6 +15,12 @@ class CleaningWorkflow
 {
     public function start(CleaningSession $session, User $actor, array $data = []): CleaningSession
     {
+        try {
+            app(MenuServiceCalendarService::class)->assertOperationalDate((int) $session->sppg_unit_id, $session->scheduled_date, 'Kebersihan');
+        } catch (\DomainException $exception) {
+            throw ValidationException::withMessages(['scheduled_date' => $exception->getMessage()]);
+        }
+
         return DB::transaction(function () use ($session, $actor, $data): CleaningSession {
             $session = $this->lockedSession($session);
             $this->ensureEditable($session);
@@ -124,6 +130,7 @@ class CleaningWorkflow
         foreach ($sessions as $dailySession) {
             if ($dailySession->state !== CleaningSessionState::Ready) {
                 $issues[] = $dailySession->cleaningArea?->name.' belum selesai.';
+
                 continue;
             }
 

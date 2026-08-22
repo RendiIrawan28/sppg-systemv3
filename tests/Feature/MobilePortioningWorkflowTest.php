@@ -15,11 +15,14 @@ use App\Services\PortioningWorkflow;
 use App\Services\PreparationOutputService;
 use App\Services\WarehouseWithdrawalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Sanctum;
 use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
+
+beforeEach(fn () => $this->travelTo(Carbon::parse('2026-08-24 09:00:00')));
 
 function portioningTestContext(string $suffix = 'MAIN'): array
 {

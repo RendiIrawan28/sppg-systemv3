@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\UserRole;
 use App\Models\AttendanceDevice;
 use App\Models\AttendanceRegistrationSession;
 use App\Models\AttendanceSession;
@@ -152,6 +153,20 @@ class VolunteerAttendanceService
                 }
             }
 
+            $holiday = app(MenuServiceCalendarService::class)->holidayFor((int) $device->sppg_unit_id, $eventAt);
+            $allowedForPreService = $holiday
+                && $this->isPreServiceWorker($user)
+                && app(MenuServiceCalendarService::class)->hasServiceOnNextDay((int) $device->sppg_unit_id, $eventAt);
+            if ($holiday && ! $allowedForPreService) {
+                return $this->storeTap($device, $user, null, $uid, $requestId, 'service_holiday', 'blocked', 'Libur pelayanan.', $eventAt, $offline, [
+                    'status' => 'success',
+                    'action' => 'service_holiday',
+                    'pegawai' => $user->name,
+                    'message' => "Presensi masuk ditutup karena {$holiday->name}.",
+                    'recorded_at' => $eventAt->toIso8601String(),
+                ]);
+            }
+
             $session = AttendanceSession::query()->create([
                 'sppg_unit_id' => $device->sppg_unit_id,
                 'user_id' => $user->getKey(),
@@ -170,6 +185,24 @@ class VolunteerAttendanceService
                 'recorded_at' => $eventAt->toIso8601String(),
             ]);
         });
+    }
+
+    private function isPreServiceWorker(User $user): bool
+    {
+        if ($user->is_super_admin) {
+            return true;
+        }
+
+        return $user->hasAnyRole([
+            UserRole::AdminSppg->value,
+            UserRole::KepalaSppg->value,
+            UserRole::StafGudang->value,
+            UserRole::KepalaDivisiPersiapan->value,
+            UserRole::PetugasPersiapan->value,
+            UserRole::KepalaDivisiPengolahan->value,
+            UserRole::PetugasPengolahan->value,
+            UserRole::Satpam->value,
+        ]);
     }
 
     public function autoCheckOutOverdue(?Carbon $asOf = null): int

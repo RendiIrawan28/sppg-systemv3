@@ -14,6 +14,7 @@ use App\Services\PreparationOutputService;
 use App\Services\ProcessingWorkflow;
 use App\Services\WarehouseWithdrawalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\Sanctum;
@@ -22,6 +23,7 @@ use Livewire\Livewire;
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
+    $this->travelTo(Carbon::parse('2026-08-24 09:00:00'));
     Storage::fake('public');
 });
 

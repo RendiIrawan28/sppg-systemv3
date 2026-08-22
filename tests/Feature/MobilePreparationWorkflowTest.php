@@ -11,12 +11,14 @@ use App\Models\User;
 use App\Models\WarehouseWithdrawal;
 use App\Services\PreparationSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
+    $this->travelTo(Carbon::parse('2026-08-24 09:00:00'));
     Storage::fake('public');
 });
 

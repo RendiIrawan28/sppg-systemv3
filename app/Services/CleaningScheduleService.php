@@ -21,6 +21,10 @@ final class CleaningScheduleService
         $unitId = $unit instanceof SppgUnit ? $unit->getKey() : $unit;
         $scheduledDate = Carbon::parse($date)->toDateString();
 
+        if (app(MenuServiceCalendarService::class)->isHoliday((int) $unitId, $scheduledDate)) {
+            return collect();
+        }
+
         return DB::transaction(function () use ($unitId, $scheduledDate, $actor): Collection {
             $areas = CleaningArea::query()
                 ->where('sppg_unit_id', $unitId)

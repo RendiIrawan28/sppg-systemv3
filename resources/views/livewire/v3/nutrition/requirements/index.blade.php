@@ -12,7 +12,7 @@
                     <h2 class="mt-4 text-2xl font-bold sm:text-3xl">Kebutuhan dihitung dari Master Penerima.</h2>
                     <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-300">Pilih hari pelayanan dari siklus menu. Sistem menggunakan porsi master periode aktif, resep, BDD, susut, buffer siklus, satuan pembelian, dan aturan pembulatan Master Bahan.</p>
                 </div>
-                <span class="inline-flex h-11 items-center rounded-xl border border-white/15 bg-white/10 px-4 text-xs font-bold text-white">Tidak bergantung pada Rencana Distribusi</span>
+
             </div>
             <div class="mt-6 grid gap-3 sm:grid-cols-3">
                 <div class="rounded-2xl border border-white/10 bg-white/[.07] px-4 py-3"><p class="text-[10px] uppercase text-slate-400">Perhitungan</p><p class="mt-1 text-xl font-bold">{{ number_format($planCount, 0, ',', '.') }}</p></div>
@@ -27,8 +27,12 @@
             <div class="mt-4 grid gap-3 lg:grid-cols-2">
                 @forelse($menuDays as $day)
                     <div class="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 p-4 sm:flex-row sm:items-center">
-                        <div><p class="text-sm font-bold text-slate-800">{{ $day->service_date?->translatedFormat('d M Y') }} · {{ $day->menu?->name }}</p><p class="mt-1 text-xs text-slate-500">{{ $day->cycle?->name }} · Periode: {{ $day->cycle?->beneficiaryPeriod?->name ?? 'dicari otomatis sesuai tanggal' }}</p></div>
-                        @if(auth()->user()->is_super_admin || auth()->user()->can('nutrition.manage'))<button wire:click="generate({{ $day->id }})" wire:loading.attr="disabled" class="h-10 shrink-0 rounded-xl bg-sky-600 px-4 text-xs font-bold text-white">Hitung kebutuhan</button>@endif
+                        @if($day->isHoliday())
+                            <div><p class="text-xs font-black uppercase tracking-wider text-amber-700">Libur Pelayanan</p><p class="mt-1 text-sm font-bold text-slate-800">{{ $day->service_date?->translatedFormat('d M Y') }} · {{ $day->holidayName() }}</p><p class="mt-1 text-xs text-slate-500">Tidak ada kebutuhan bahan dan pengadaan untuk tanggal ini.</p></div>
+                        @else
+                            <div><p class="text-sm font-bold text-slate-800">{{ $day->service_date?->translatedFormat('d M Y') }} · {{ $day->menu?->name ?? 'Menu belum tersedia' }}</p><p class="mt-1 text-xs text-slate-500">{{ $day->cycle?->name }} · Periode: {{ $day->cycle?->beneficiaryPeriod?->name ?? 'dicari otomatis sesuai tanggal' }}</p></div>
+                            @if($day->menu && (auth()->user()->is_super_admin || auth()->user()->can('nutrition.manage')))<button wire:click="generate({{ $day->id }})" wire:loading.attr="disabled" class="h-10 shrink-0 rounded-xl bg-sky-600 px-4 text-xs font-bold text-white">Hitung kebutuhan</button>@endif
+                        @endif
                     </div>
                 @empty
                     <p class="text-sm text-slate-500">Belum ada hari pelayanan dengan menu pada siklus disetujui/aktif.</p>

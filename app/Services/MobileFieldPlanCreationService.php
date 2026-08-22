@@ -24,31 +24,38 @@ class MobileFieldPlanCreationService
             ->whereDate('distribution_date', '>=', $start)->pluck('id', 'distribution_date');
 
         return collect(range(0, 365))->map(function (int $offset) use ($unitId, $start, $plans): array {
-                $distributionDate = $start->copy()->addDays($offset)->toDateString();
-                $hasPlan = $plans->has($distributionDate);
-                $unavailableReason = null;
-                if (! $hasPlan) {
+            $distributionDate = $start->copy()->addDays($offset)->toDateString();
+            $hasPlan = $plans->has($distributionDate);
+            $unavailableReason = null;
+            $holiday = app(MenuServiceCalendarService::class)->holidayFor($unitId, $distributionDate);
+            if (! $hasPlan) {
+                if ($holiday) {
+                    $unavailableReason = "Libur pelayanan: {$holiday->name}.";
+                } else {
                     try {
                         $this->confirmationService->readyPeriod($unitId, $distributionDate);
                     } catch (DomainException $exception) {
                         $unavailableReason = $exception->getMessage();
                     }
                 }
+            }
 
-                return [
-                    'id' => $start->copy()->addDays($offset)->timestamp,
-                    'cycle_code' => null, 'cycle_name' => null, 'day_number' => $offset + 1, 'label_code' => null,
-                    'menu_name' => 'Tidak terikat menu',
-                    'distribution_date' => $distributionDate,
-                    'service_date' => $distributionDate, 'production_date' => $distributionDate,
-                    'is_rapel' => false,
-                    'has_plan' => $hasPlan,
-                    'is_available' => ! $hasPlan && $unavailableReason === null,
-                    'unavailable_reason' => $hasPlan
-                        ? 'Rencana distribusi untuk tanggal ini sudah tersedia.'
-                        : $unavailableReason,
-                ];
-            })->values()->all();
+            return [
+                'id' => $start->copy()->addDays($offset)->timestamp,
+                'cycle_code' => null, 'cycle_name' => null, 'day_number' => $offset + 1, 'label_code' => null,
+                'menu_name' => 'Tidak terikat menu',
+                'distribution_date' => $distributionDate,
+                'service_date' => $distributionDate, 'production_date' => $distributionDate,
+                'is_rapel' => false,
+                'is_holiday' => $holiday !== null,
+                'holiday_name' => $holiday?->name,
+                'has_plan' => $hasPlan,
+                'is_available' => ! $hasPlan && $unavailableReason === null,
+                'unavailable_reason' => $hasPlan
+                    ? 'Rencana distribusi untuk tanggal ini sudah tersedia.'
+                    : $unavailableReason,
+            ];
+        })->values()->all();
     }
 
     /** @param array<string, mixed> $data */
@@ -68,6 +75,11 @@ class MobileFieldPlanCreationService
         }
         if (now()->startOfDay()->gt(Carbon::parse($distributionDate)->startOfDay())) {
             throw ValidationException::withMessages(['distribution_date' => 'Tanggal distribusi tidak boleh sebelum hari ini.']);
+        }
+        try {
+            app(MenuServiceCalendarService::class)->assertOperationalDate($unitId, $distributionDate, 'Pembuatan Rencana Distribusi');
+        } catch (DomainException $exception) {
+            throw ValidationException::withMessages(['distribution_date' => $exception->getMessage()]);
         }
         if (FieldDistributionPlan::query()->where('sppg_unit_id', $unitId)->whereDate('distribution_date', $distributionDate)->exists()) {
             throw ValidationException::withMessages([

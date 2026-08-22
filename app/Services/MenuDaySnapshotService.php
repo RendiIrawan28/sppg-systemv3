@@ -14,8 +14,7 @@ class MenuDaySnapshotService
 {
     public function __construct(
         private readonly MenuCloneService $cloneService,
-    ) {
-    }
+    ) {}
 
     /**
      * Membuat salinan independen untuk setiap hari saat siklus diajukan.
@@ -30,6 +29,10 @@ class MenuDaySnapshotService
                 ->findOrFail($cycle->getKey());
 
             foreach ($locked->days as $day) {
+                if ($day->isHoliday()) {
+                    continue;
+                }
+
                 $this->snapshotDay($locked, $day, $user);
             }
         });

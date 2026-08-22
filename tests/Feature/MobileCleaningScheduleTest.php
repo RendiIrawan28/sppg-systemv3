@@ -6,11 +6,14 @@ use App\Models\CleaningSession;
 use App\Models\SppgUnit;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
 uses(RefreshDatabase::class);
+
+beforeEach(fn () => $this->travelTo(Carbon::parse('2026-08-24 09:00:00')));
 
 function mobileCleaningActor(): User
 {

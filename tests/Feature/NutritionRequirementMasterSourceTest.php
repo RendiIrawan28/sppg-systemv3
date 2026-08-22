@@ -14,8 +14,11 @@ use App\Services\NutritionRequirementCalculator;
 use App\Services\NutritionRequirementFromBeneficiaryPeriodService;
 use App\Services\ProcurementRequestService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 
 uses(RefreshDatabase::class);
+
+beforeEach(fn () => $this->travelTo(Carbon::parse('2026-08-24 09:00:00')));
 
 it('uses 3200 master recipients instead of 3050 operational portions and stays idempotent', function (): void {
     $unit = SppgUnit::query()->create([

@@ -1,19 +1,23 @@
 <?php
 
+use App\Enums\UserRole;
 use App\Models\AttendanceDevice;
 use App\Models\AttendanceRegistrationSession;
 use App\Models\AttendanceSession;
 use App\Models\AttendanceTap;
+use App\Models\FieldDistributionPlan;
 use App\Models\SppgUnit;
 use App\Models\User;
 use App\Services\VolunteerAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-08-03T09:00:00+07:00'));
     $this->unit = SppgUnit::query()->create(['code' => 'SPPG-TEST', 'name' => 'SPPG Test', 'slug' => 'sppg-test', 'is_active' => true]);
     $this->user = User::query()->create(['employee_number' => 'A1B2C3D4', 'name' => 'Relawan Test', 'email' => 'relawan@example.test', 'password' => 'password', 'is_active' => true]);
     $this->deviceKey = 'secret-device-key';
@@ -22,29 +26,29 @@ beforeEach(function (): void {
 
 it('records check in, ignores duplicate tap, and records check out with volunteer name', function (): void {
     $service = app(VolunteerAttendanceService::class);
-    Carbon::setTestNow('2026-08-02 04:00:00');
+    Carbon::setTestNow('2026-08-03 04:00:00');
     $checkIn = $service->recordTap($this->device, 'a1 b2-c3d4', 'tap-1');
-    Carbon::setTestNow('2026-08-02 04:00:30');
+    Carbon::setTestNow('2026-08-03 04:00:30');
     $duplicate = $service->recordTap($this->device, 'A1B2C3D4', 'tap-2');
-    Carbon::setTestNow('2026-08-02 10:00:00');
+    Carbon::setTestNow('2026-08-03 10:00:00');
     $checkOut = $service->recordTap($this->device, 'A1B2C3D4', 'tap-3');
 
     expect($checkIn)->toMatchArray(['action' => 'check_in', 'pegawai' => 'Relawan Test'])
         ->and($duplicate['action'])->toBe('duplicate_tap')
         ->and($checkOut)->toMatchArray(['action' => 'check_out', 'pegawai' => 'Relawan Test'])
-        ->and(AttendanceSession::query()->first()->work_date->toDateString())->toBe('2026-08-02')
+        ->and(AttendanceSession::query()->first()->work_date->toDateString())->toBe('2026-08-03')
         ->and(AttendanceSession::query()->first()->check_out_at->format('H:i'))->toBe('10:00');
 });
 
 it('requires six hours after check out before another check in', function (): void {
     $service = app(VolunteerAttendanceService::class);
-    Carbon::setTestNow('2026-08-02 04:00:00');
+    Carbon::setTestNow('2026-08-03 04:00:00');
     $service->recordTap($this->device, 'A1B2C3D4', 'tap-1');
-    Carbon::setTestNow('2026-08-02 10:00:00');
+    Carbon::setTestNow('2026-08-03 10:00:00');
     $service->recordTap($this->device, 'A1B2C3D4', 'tap-2');
-    Carbon::setTestNow('2026-08-02 12:00:00');
+    Carbon::setTestNow('2026-08-03 12:00:00');
     $blocked = $service->recordTap($this->device, 'A1B2C3D4', 'tap-3');
-    Carbon::setTestNow('2026-08-02 16:00:00');
+    Carbon::setTestNow('2026-08-03 16:00:00');
     $newSession = $service->recordTap($this->device, 'A1B2C3D4', 'tap-4');
 
     expect($blocked['action'])->toBe('wait_6_hours')
@@ -55,10 +59,10 @@ it('requires six hours after check out before another check in', function (): vo
 
 it('blocks check out until the volunteer has worked for four hours', function (): void {
     $service = app(VolunteerAttendanceService::class);
-    Carbon::setTestNow('2026-08-02 07:00:00');
+    Carbon::setTestNow('2026-08-03 07:00:00');
     $service->recordTap($this->device, 'A1B2C3D4', 'tap-minimum-work-1');
 
-    Carbon::setTestNow('2026-08-02 10:00:00');
+    Carbon::setTestNow('2026-08-03 10:00:00');
     $blocked = $service->recordTap($this->device, 'A1B2C3D4', 'tap-minimum-work-2');
 
     expect($blocked['action'])->toBe('wait_4_hours')
@@ -66,7 +70,7 @@ it('blocks check out until the volunteer has worked for four hours', function ()
         ->and(AttendanceSession::query()->sole()->check_out_at)->toBeNull()
         ->and(AttendanceTap::query()->latest('id')->first()->result)->toBe('blocked');
 
-    Carbon::setTestNow('2026-08-02 11:00:00');
+    Carbon::setTestNow('2026-08-03 11:00:00');
     $checkOut = $service->recordTap($this->device, 'A1B2C3D4', 'tap-minimum-work-3');
 
     expect($checkOut['action'])->toBe('check_out')
@@ -75,14 +79,14 @@ it('blocks check out until the volunteer has worked for four hours', function ()
 
 it('keeps a cross-midnight session on the check-in date', function (): void {
     $service = app(VolunteerAttendanceService::class);
-    Carbon::setTestNow('2026-08-02 22:00:00');
+    Carbon::setTestNow(Carbon::parse('2026-08-03T22:00:00+07:00'));
     $service->recordTap($this->device, 'A1B2C3D4', 'tap-1');
-    Carbon::setTestNow('2026-08-03 02:00:00');
+    Carbon::setTestNow(Carbon::parse('2026-08-04T02:00:00+07:00'));
     $service->recordTap($this->device, 'A1B2C3D4', 'tap-2');
 
     $session = AttendanceSession::query()->first();
-    expect($session->work_date->toDateString())->toBe('2026-08-02')
-        ->and($session->check_out_at->toDateString())->toBe('2026-08-03');
+    expect($session->work_date->toDateString())->toBe('2026-08-03')
+        ->and($session->check_out_at->toDateString())->toBe('2026-08-04');
 });
 
 it('rejects requests without valid device credentials', function (): void {
@@ -128,6 +132,25 @@ it('stores an offline UTC tap using the local application time', function (): vo
         ->and($session->source)->toBe('rfid_offline')
         ->and($tap->tapped_at->format('Y-m-d H:i:s'))->toBe('2026-08-03 20:02:11')
         ->and($tap->is_offline)->toBeTrue();
+});
+
+it('allows warehouse and H-1 divisions to check in on a holiday before an active service day', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-08-23T09:00:00+07:00'));
+    $this->user->assignRole(Role::findOrCreate(UserRole::StafGudang->value, 'web'));
+    FieldDistributionPlan::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'distribution_date' => '2026-08-24',
+        'service_date' => '2026-08-24',
+        'production_date' => '2026-08-23',
+        'status' => 'activated',
+        'planned_total_portions' => 100,
+    ]);
+
+    $response = app(VolunteerAttendanceService::class)
+        ->recordTap($this->device, 'A1B2C3D4', 'tap-h1');
+
+    expect($response['action'])->toBe('check_in')
+        ->and(AttendanceSession::query()->sole()->work_date->toDateString())->toBe('2026-08-23');
 });
 
 it('registers a scanned card to the selected user during the two minute window', function (): void {
