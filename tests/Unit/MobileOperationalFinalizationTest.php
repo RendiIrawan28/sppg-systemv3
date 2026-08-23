@@ -22,12 +22,13 @@ it('routes the approved preparation report through the mobile document controlle
         ->toContain('PreparationSessionCalculationPdfController');
 });
 
-it('only allows processing and portioning to be started from their active plans on mobile', function (): void {
+it('creates processing manually while portioning still starts from an active plan on mobile', function (): void {
     $definitions = app(MobileWorkspaceRegistry::class)->definitions();
 
     expect($definitions['pengolahan']['allow_create'])->toBeTrue()
-        ->and(collect($definitions['pengolahan']['fields'])->firstWhere('name', 'field_distribution_plan_id'))
-        ->not->toBeNull()
+        ->and(collect($definitions['pengolahan']['fields'])->firstWhere('name', 'production_date')['create_only'])->toBeTrue()
+        ->and(collect($definitions['pengolahan']['fields'])->firstWhere('name', 'product_name')['create_only'])->toBeTrue()
+        ->and(collect($definitions['pengolahan']['fields'])->firstWhere('name', 'field_distribution_plan_id'))->toBeNull()
         ->and($definitions['pemorsian']['allow_create'])->toBeTrue()
         ->and(collect($definitions['pemorsian']['fields'])->firstWhere('name', 'field_distribution_plan_id'))
         ->not->toBeNull();
@@ -51,14 +52,12 @@ it('exposes workflow modules needed by field operations', function (): void {
         ->toContain('gudang-penyesuaian')
         ->toContain('gudang-pengambilan')
         ->toContain('gudang-retur')
-        ->toContain('hasil-persiapan')
-        ->toContain('hasil-persiapan-pengolahan')
-        ->toContain('hasil-persiapan-pemorsian')
         ->toContain('pengambilan-ompreng')
         ->toContain('ba-limbah-persiapan')
         ->toContain('ba-limbah-pencucian')
         ->toContain('ba-limbah-kebersihan')
-        ->toContain('lapangan-laporan');
+        ->toContain('lapangan-laporan')
+        ->not->toContain('hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian');
 });
 
 it('blocks expired preparation output from being offered to another division', function (): void {

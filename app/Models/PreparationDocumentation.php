@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PreparationDocumentation extends Model
 {
-    protected $fillable = ['preparation_session_id', 'photo_path', 'captured_at', 'created_by'];
+    protected $fillable = ['preparation_session_id', 'preparation_session_item_id', 'photo_path', 'captured_at', 'created_by'];
 
     protected function casts(): array
     {
@@ -17,5 +17,10 @@ class PreparationDocumentation extends Model
     public function session(): BelongsTo
     {
         return $this->belongsTo(PreparationSession::class, 'preparation_session_id');
+    }
+
+    public function item(): BelongsTo
+    {
+        return $this->belongsTo(PreparationSessionItem::class, 'preparation_session_item_id');
     }
 }

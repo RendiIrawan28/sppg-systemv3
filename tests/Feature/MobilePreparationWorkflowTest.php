@@ -4,11 +4,14 @@ use App\Models\Ingredient;
 use App\Models\InventoryLot;
 use App\Models\MeasurementUnit;
 use App\Models\PreparationReturn;
+use App\Models\PreparationOutputWithdrawal;
 use App\Models\PreparationSession;
+use App\Models\ProcessingBatch;
 use App\Models\SppgUnit;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
+use App\Models\WasteHandoverReport;
 use App\Services\PreparationSessionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -73,7 +76,7 @@ it('allows preparation to finish while warehouse verification is still pending',
         'petugas_id' => $user->id,
         'started_at' => now()->subHour(),
     ]);
-    $session->items()->create([
+    $item = $session->items()->create([
         'ingredient_id' => $ingredient->id,
         'ingredient_name_snapshot' => $ingredient->name,
         'unit_snapshot' => 'kg',
@@ -84,7 +87,8 @@ it('allows preparation to finish while warehouse verification is still pending',
         'clean_weight_kg' => 9,
         'waste_weight_kg' => 1,
     ]);
-    $session->resultDocumentation()->create([
+    $item->resultDocumentation()->create([
+        'preparation_session_id' => $session->id,
         'photo_path' => 'mobile/persiapan/hasil.jpg',
         'captured_at' => now(),
         'created_by' => $user->id,
@@ -96,7 +100,7 @@ it('allows preparation to finish while warehouse verification is still pending',
         ->and($withdrawal->refresh()->status)->toBe(WarehouseWithdrawal::WAITING);
 });
 
-it('saves required preparation result photo before inserting its documentation row', function (): void {
+it('saves a result photo on each preparation item', function (): void {
     $unit = SppgUnit::query()->create([
         'code' => 'SPPG-PREP-PHOTO',
         'name' => 'SPPG Foto Persiapan',
@@ -128,23 +132,47 @@ it('saves required preparation result photo before inserting its documentation r
         'petugas_id' => $user->id,
         'started_at' => now(),
     ]);
+    $measurementUnit = MeasurementUnit::query()->create([
+        'code' => 'kg-photo', 'name' => 'Kilogram Foto', 'symbol' => 'kg',
+        'unit_type' => 'weight', 'to_base_factor' => 1000, 'is_active' => true,
+    ]);
+    $ingredient = Ingredient::query()->create([
+        'sppg_unit_id' => $unit->id, 'measurement_unit_id' => $measurementUnit->id,
+        'code' => 'WORTEL-PHOTO', 'name' => 'Wortel', 'category' => 'vegetable',
+        'edible_portion_percent' => 100, 'loss_factor' => 1, 'rounding_mode' => 'up',
+        'nutrition_reference_grams' => 100, 'is_active' => true,
+    ]);
+    $item = $session->items()->create([
+        'ingredient_id' => $ingredient->id,
+        'ingredient_name_snapshot' => 'Wortel',
+        'unit_snapshot' => 'kg',
+        'received_quantity' => 5,
+        'received_weight_kg' => 5,
+        'clean_weight_kg' => 0,
+        'waste_weight_kg' => 0,
+    ]);
     $photo = 'data:image/png;base64,'.base64_encode(base64_decode(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
     ));
 
-    $this->postJson("/api/mobile/operational-modules/persiapan/records/{$session->id}/relations/resultDocumentation", [
-        'fields' => [],
-        'files' => ['photo_path' => $photo],
-    ])->assertCreated()
-        ->assertJsonPath('message', 'Foto hasil Persiapan berhasil disimpan.');
+    $this->putJson("/api/mobile/operational-modules/persiapan/records/{$session->id}/relations/items/{$item->id}", [
+        'fields' => [
+            'condition_status' => 'good',
+            'processed_quantity' => 4,
+            'waste_quantity' => 1,
+            'output_target_division' => 'processing',
+            'notes' => null,
+        ],
+        'files' => ['result_photo_path' => $photo],
+    ])->assertOk();
 
-    $documentation = $session->resultDocumentation()->firstOrFail();
+    $documentation = $item->resultDocumentation()->firstOrFail();
     expect($documentation->photo_path)->not->toBeNull()
         ->and($documentation->captured_at)->not->toBeNull();
     Storage::disk('public')->assertExists($documentation->photo_path);
 });
 
-it('creates a preparation output from a dropdown item without manual name or unit', function (): void {
+it('creates preparation output automatically from an updated preparation item', function (): void {
     $unit = SppgUnit::query()->create([
         'code' => 'SPPG-PREP-OUTPUT',
         'name' => 'SPPG Hasil Persiapan',
@@ -208,23 +236,82 @@ it('creates a preparation output from a dropdown item without manual name or uni
         'waste_weight_kg' => 1,
     ]);
 
-    $this->postJson('/api/mobile/operational-modules/hasil-persiapan/records', [
+    $photo = 'data:image/png;base64,'.base64_encode(base64_decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+    ));
+    $this->putJson("/api/mobile/operational-modules/persiapan/records/{$session->id}/relations/items/{$sourceItem->id}", [
         'fields' => [
-            'preparation_session_item_id' => $sourceItem->id,
-            'quantity' => 5,
-            'target_division' => 'both',
-            'storage_location' => 'langsung_digunakan',
-            'expires_at' => now()->addHours(2)->toIso8601String(),
+            'condition_status' => 'good',
+            'processed_quantity' => 5,
+            'waste_quantity' => 1,
+            'output_target_division' => 'processing',
+            'notes' => null,
+        ],
+        'files' => ['result_photo_path' => $photo],
+    ])->assertOk();
+
+    $this->putJson("/api/mobile/operational-modules/persiapan/records/{$session->id}/relations/items/{$sourceItem->id}", [
+        'fields' => [
+            'condition_status' => 'good',
+            'processed_quantity' => 5,
+            'waste_quantity' => 1,
+            'output_target_division' => 'processing',
             'notes' => null,
         ],
         'files' => [],
-    ])->assertCreated();
+    ])->assertOk();
 
     $output = $session->outputs()->firstOrFail();
-    expect($output->output_name)->toBe('Wortel Bersih')
+    $wasteReport = WasteHandoverReport::query()->sole();
+    expect($output->output_name)->toBe('Wortel Bersih siap')
         ->and($output->unit_snapshot)->toBe('kg')
-        ->and($output->storage_location)->toBe('langsung_digunakan')
-        ->and((float) $output->quantity)->toBe(5.0);
+        ->and($output->target_division)->toBe('processing')
+        ->and((float) $output->quantity)->toBe(5.0)
+        ->and(WasteHandoverReport::query()->count())->toBe(1)
+        ->and($wasteReport->items()->count())->toBe(1)
+        ->and((float) $wasteReport->items()->sole()->quantity)->toBe(1.0);
+
+    $this->postJson("/api/mobile/operational-modules/persiapan/records/{$session->id}/actions/complete")
+        ->assertOk();
+    $actions = collect($this->getJson("/api/mobile/operational-modules/persiapan/records/{$session->id}")
+        ->assertOk()->json('data.capabilities.actions'))->pluck('key');
+    expect($actions)->toContain('handover_processing');
+
+    $this->postJson("/api/mobile/operational-modules/persiapan/records/{$session->id}/actions/handover_processing", [
+        'fields' => [
+            'preparation_output_id' => $output->id,
+            'requested_quantity' => 5,
+        ],
+    ])->assertOk();
+
+    $handover = PreparationOutputWithdrawal::query()->sole();
+    expect($handover->destination_division)->toBe('processing')
+        ->and($handover->status)->toBe(PreparationOutputWithdrawal::WAITING)
+        ->and($handover->processing_batch_id)->toBeNull();
+
+    $batch = ProcessingBatch::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'production_date' => today(),
+        'menu_name_snapshot' => 'Menu Uji',
+        'product_name' => 'Menu Uji',
+        'target_output_quantity' => 5,
+        'target_output_unit' => 'kg',
+        'state' => 'in_progress',
+        'status' => 'draft',
+        'started_at' => now(),
+        'petugas_id' => $user->id,
+        'petugas_name_snapshot' => $user->name,
+    ]);
+    $processingActions = collect($this->getJson("/api/mobile/operational-modules/pengolahan/records/{$batch->id}")
+        ->assertOk()->json('data.capabilities.actions'))->pluck('key');
+    expect($processingActions)->toContain('receive_preparation_output');
+
+    $this->postJson("/api/mobile/operational-modules/pengolahan/records/{$batch->id}/actions/receive_preparation_output", [
+        'fields' => ['withdrawal_id' => $handover->id],
+    ])->assertOk();
+
+    expect($handover->refresh()->status)->toBe(PreparationOutputWithdrawal::VERIFIED)
+        ->and($handover->processing_batch_id)->toBe($batch->id);
 });
 
 it('submits a preparation return on mobile and restores stock only after warehouse verification', function (): void {

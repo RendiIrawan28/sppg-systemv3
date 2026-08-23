@@ -54,6 +54,8 @@ class ProcessingBatch extends Model
         'verified_by',
         'verified_at',
         'review_notes',
+        'portioning_session_id', 'portioning_handed_over_at', 'portioning_handed_over_by',
+        'portioning_received_at', 'portioning_received_by',
     ];
 
     protected function casts(): array
@@ -74,6 +76,8 @@ class ProcessingBatch extends Model
             'submitted_at' => 'datetime',
             'division_approved_at' => 'datetime',
             'verified_at' => 'datetime',
+            'portioning_handed_over_at' => 'datetime',
+            'portioning_received_at' => 'datetime',
         ];
     }
 
@@ -272,5 +276,10 @@ class ProcessingBatch extends Model
     public function preparationOutputWithdrawals(): HasMany
     {
         return $this->hasMany(PreparationOutputWithdrawal::class);
+    }
+
+    public function portioningSession(): BelongsTo
+    {
+        return $this->belongsTo(PortioningSession::class);
     }
 }

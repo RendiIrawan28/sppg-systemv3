@@ -277,7 +277,8 @@ class Form extends Component
         $status = $record?->status;
         $approval = app(OperationalReportApprovalService::class);
         $actor = auth()->user();
-        $canReview = $record && $this->canForDivision($record->division_type, 'approve')
+        $canReview = $record && $record->source_type !== 'preparation_session'
+            && $this->canForDivision($record->division_type, 'approve')
             && $approval->isReviewable($status)
             && (($status === OperationalReportStatus::Submitted && ! $approval->isHeadSppg($actor))
                 || ($status === OperationalReportStatus::DivisionApproved && $approval->isHeadSppg($actor)));
@@ -287,7 +288,7 @@ class Form extends Component
             'record' => $record,
             'editable' => $editable,
             'divisionOptions' => $this->divisionOptions('update') + $this->divisionOptions('view'),
-            'canSubmit' => $record && $editable && $this->canForDivision($record->division_type, 'submit'),
+            'canSubmit' => $record && $record->source_type !== 'preparation_session' && $editable && $this->canForDivision($record->division_type, 'submit'),
             'canReview' => $canReview,
         ])->layout('layouts.v3', ['title' => $record ? 'Berita Acara Limbah' : 'Buat Berita Acara Limbah']);
     }

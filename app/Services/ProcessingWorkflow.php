@@ -306,8 +306,8 @@ class ProcessingWorkflow
     private function validateBeforeComplete(ProcessingBatch $batch): void
     {
         $errors = [];
-        if (! $this->hasMaterialInput($batch)) {
-            $errors['materialUsages'] = 'Minimal satu bahan dari Gudang atau hasil Persiapan harus tersedia sebelum Pengolahan diselesaikan.';
+        if (! $this->hasManualMaterialRecord($batch)) {
+            $errors['materialUsages'] = 'Minimal satu bahan baku aktual wajib dicatat sebelum Pengolahan diselesaikan.';
         }
         $finalTemperatures = $batch->temperatureLogs
             ->where('checkpoint', ProcessingTemperatureCheckpoint::Final);
@@ -349,15 +349,14 @@ class ProcessingWorkflow
         }
     }
 
-    private function hasMaterialInput(ProcessingBatch $batch): bool
+    private function hasManualMaterialRecord(ProcessingBatch $batch): bool
     {
-        if ($batch->materialUsages->isNotEmpty()) {
-            return true;
-        }
-
-        return $batch->preparationOutputWithdrawals
-            ->contains(fn ($withdrawal): bool => in_array($withdrawal->status, ['waiting', 'verified'], true)
-                && (float) ($withdrawal->verified_quantity ?: $withdrawal->requested_quantity) > 0);
+        return $batch->materialUsages->contains(
+            fn ($usage): bool => $usage->source_type === 'manual'
+                && filled($usage->material_name)
+                && (float) $usage->quantity > 0
+                && filled($usage->unit_name),
+        );
     }
 
     private function writeHistory(

@@ -1,7 +1,6 @@
 <?php
 
 use App\Livewire\V3\Processing\Index;
-use App\Models\FieldDistributionPlan;
 use App\Models\PreparationOutput;
 use App\Models\PreparationOutputWithdrawal;
 use App\Models\PreparationSession;
@@ -9,7 +8,6 @@ use App\Models\ProcessingBatch;
 use App\Models\SppgUnit;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
-use App\Services\FieldOperationalPlanGenerator;
 use App\Services\PreparationOutputService;
 use App\Services\ProcessingWorkflow;
 use App\Services\WarehouseWithdrawalService;
@@ -27,7 +25,54 @@ beforeEach(function (): void {
     Storage::fake('public');
 });
 
-it('starts processing from an active plan before any material is taken', function (): void {
+it('keeps an in-progress batch visible on mobile even when it started on the previous day', function (): void {
+    $unit = SppgUnit::query()->create([
+        'code' => 'SPPG-CROSS-DAY',
+        'name' => 'SPPG Produksi Lintas Hari',
+        'slug' => 'sppg-produksi-lintas-hari',
+        'is_active' => true,
+    ]);
+    $user = User::query()->create([
+        'name' => 'Petugas Produksi Lintas Hari',
+        'email' => 'produksi-lintas-hari@example.test',
+        'password' => 'password',
+        'is_active' => true,
+        'is_super_admin' => true,
+    ]);
+    Sanctum::actingAs($user, ['mobile']);
+
+    $active = ProcessingBatch::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'production_date' => today()->subDay(),
+        'menu_name_snapshot' => 'Produksi H-1',
+        'product_name' => 'Produksi H-1',
+        'state' => 'in_progress',
+        'status' => 'draft',
+        'started_at' => now()->subDay(),
+    ]);
+    ProcessingBatch::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'production_date' => today()->subDay(),
+        'menu_name_snapshot' => 'Produksi Selesai',
+        'product_name' => 'Produksi Selesai',
+        'state' => 'completed',
+        'status' => 'draft',
+        'started_at' => now()->subDay(),
+        'completed_at' => now()->subHours(20),
+    ]);
+
+    $response = $this->getJson('/api/mobile/operational-modules/pengolahan/records?view=active')
+        ->assertOk();
+
+    expect(collect($response->json('data'))->pluck('id')->all())->toBe([$active->id]);
+
+    $today = today()->toDateString();
+    $legacyResponse = $this->getJson("/api/mobile/operational-modules/pengolahan/records?date_from={$today}&date_to={$today}")
+        ->assertOk();
+    expect(collect($legacyResponse->json('data'))->pluck('id'))->toContain($active->id);
+});
+
+it('starts a manual processing batch before any material is taken', function (): void {
     $unit = SppgUnit::query()->create([
         'code' => 'SPPG-START-FIRST',
         'name' => 'SPPG Mulai Dulu',
@@ -41,36 +86,23 @@ it('starts processing from an active plan before any material is taken', functio
         'is_active' => true,
         'is_super_admin' => true,
     ]);
-    $plan = FieldDistributionPlan::query()->create([
-        'sppg_unit_id' => $unit->id,
-        'plan_number' => 'RDL/START/0001',
-        'plan_year' => 2026,
-        'sequence_number' => 1,
-        'distribution_date' => today(),
-        'production_date' => today(),
-        'menu_name_snapshot' => 'Nasi Kuning',
-        'planned_total_portions' => 100,
-        'status' => 'activated',
-        'created_by' => $user->id,
-    ]);
     Sanctum::actingAs($user, ['mobile']);
 
     $this->postJson('/api/mobile/operational-modules/pengolahan/records', [
-        'fields' => ['field_distribution_plan_id' => $plan->id],
+        'fields' => ['production_date' => today()->toDateString(), 'product_name' => 'Nasi Kuning'],
     ])->assertCreated()
         ->assertJsonPath('data.state', 'in_progress');
 
     $batch = ProcessingBatch::query()->sole();
-    expect($batch->field_distribution_plan_id)->toBe($plan->id)
+    expect($batch->field_distribution_plan_id)->toBeNull()
+        ->and($batch->product_name)->toBe('Nasi Kuning')
         ->and($batch->materialUsages()->count())->toBe(0)
         ->and($batch->started_at)->not->toBeNull();
 
     expect(fn () => app(ProcessingWorkflow::class)->complete($batch, $user))
         ->toThrow(ValidationException::class);
 
-    $sameBatch = app(FieldOperationalPlanGenerator::class)->generateProcessingBatch($plan, $user);
-    expect($sameBatch->id)->toBe($batch->id)
-        ->and(ProcessingBatch::query()->count())->toBe(1);
+    expect(ProcessingBatch::query()->count())->toBe(1);
 });
 
 it('allows an empty active production to be cancelled but blocks warehouse pickup before start', function (): void {
@@ -115,7 +147,7 @@ it('allows an empty active production to be cancelled but blocks warehouse picku
         ->and($cancelled->notes)->toContain('Salah memilih rencana produksi');
 });
 
-it('starts the same production-first flow from the website workspace', function (): void {
+it('starts the same manual production flow from the website workspace', function (): void {
     $unit = SppgUnit::query()->create([
         'code' => 'SPPG-WEB-START',
         'name' => 'SPPG Website Pengolahan',
@@ -129,23 +161,11 @@ it('starts the same production-first flow from the website workspace', function 
         'is_active' => true,
         'is_super_admin' => true,
     ]);
-    $plan = FieldDistributionPlan::query()->create([
-        'sppg_unit_id' => $unit->id,
-        'plan_number' => 'RDL/WEB/0001',
-        'plan_year' => 2026,
-        'sequence_number' => 1,
-        'distribution_date' => today(),
-        'production_date' => today(),
-        'menu_name_snapshot' => 'Menu Website',
-        'planned_total_portions' => 75,
-        'status' => 'activated',
-        'created_by' => $user->id,
-    ]);
-
     Livewire::actingAs($user)
         ->test(Index::class)
-        ->set('selectedPlanId', (string) $plan->id)
-        ->call('startSelectedPlan')
+        ->set('newProductionDate', today()->toDateString())
+        ->set('newProductName', 'Menu Website')
+        ->call('createManualBatch')
         ->assertHasNoErrors()
         ->assertSet('selectedId', ProcessingBatch::query()->sole()->id);
 

@@ -42,7 +42,6 @@ final class Navigation
             ]),
             $this->module('persiapan', 'Persiapan', 'clipboard', [
                 $this->item('Pekerjaan persiapan', 'clipboard', route('v3.preparation.index'), request()->routeIs('v3.preparation.*'), $this->allowed($user, 'preparation.view')),
-                $this->item('Hasil persiapan', 'box', route('v3.preparation-outputs.index'), request()->routeIs('v3.preparation-outputs.*'), $this->allowed($user, 'preparation.view') || $this->allowed($user, 'processing.view') || $this->allowed($user, 'portioning.view')),
             ]),
             $this->module('pengolahan', 'Pengolahan', 'nutrition', [
                 $this->item('Pekerjaan pengolahan', 'settings', route('v3.processing.index'), request()->routeIs('v3.processing.*'), $this->allowed($user, 'processing.view')),

@@ -20,23 +20,24 @@ it('exposes the missing mobile workflows for processing returns and distribution
         ->toContain('photo_path');
 });
 
-it('keeps processing identity and material sources automatic on mobile', function (): void {
+it('keeps processing identity locked after create and allows manual actual materials on mobile', function (): void {
     $definition = app(MobileWorkspaceRegistry::class)->definitions()['pengolahan'];
     $fields = collect($definition['fields'])->keyBy('name');
     $materialFields = collect($definition['relations']['materialUsages']['fields'])->keyBy('name');
     $documentationFields = collect($definition['relations']['documentations']['fields'])->keyBy('name');
 
-    expect($fields['production_date']['editable'])->toBeFalse()
+    expect($fields['production_date']['create_only'])->toBeTrue()
+        ->and($fields['product_name']['create_only'])->toBeTrue()
         ->and($fields['menu_name_snapshot']['editable'])->toBeFalse()
-        ->and($fields['product_name']['editable'])->toBeFalse()
         ->and($fields['target_output_quantity']['editable'])->toBeFalse()
         ->and($fields['target_output_unit']['editable'])->toBeFalse()
         ->and($fields['petugas_id']['editable'])->toBeFalse()
         ->and($fields['notes']['editable'] ?? true)->toBeTrue();
 
-    foreach ($materialFields as $field) {
-        expect($field['editable'])->toBeFalse();
-    }
+    expect($materialFields['material_name']['editable'])->toBeTrue()
+        ->and($materialFields['quantity']['editable'])->toBeTrue()
+        ->and($materialFields['unit_name']['editable'])->toBeTrue()
+        ->and($materialFields['source_reference']['editable'])->toBeFalse();
 
     expect($documentationFields['output_unit']['type'])->toBe('select')
         ->and($documentationFields['output_unit']['options'])->toBe('processing_output_units');
@@ -176,12 +177,21 @@ it('keeps waste handover source choices and warehouse evidence visible on mobile
 
     expect($preparationWasteFields['source_id']['options'])
         ->toBe('preparation_sessions')
+        ->and($definitions['ba-limbah-persiapan']['allow_create'])->toBeFalse()
+        ->and($definitions['ba-limbah-persiapan']['allow_delete'])->toBeFalse()
+        ->and($preparationWasteFields['source_id']['editable'])->toBeFalse()
+        ->and($preparationWasteFields['first_party_name']['editable'] ?? true)->toBeTrue()
         ->and($warehouseWithdrawalFields)->toContain('photo_path')
         ->and($warehouseReturnFields)->toContain('photo_path')
         ->and($incidentFields)->toContain('evidence_photo');
 
     $source = file_get_contents(app_path('Support/Mobile/MobileWorkspaceRegistry.php'));
     expect($source)->toContain("if (\$source === 'preparation_sessions')");
+
+    $constant = (new ReflectionClass(MobileWorkspaceRegistry::class))->getReflectionConstant('ROLE_MODULES');
+    $roleModules = $constant->getValue();
+    expect($roleModules[UserRole::KepalaDivisiPersiapan->value])->toContain('ba-limbah-persiapan')
+        ->and($roleModules[UserRole::PetugasPersiapan->value])->toContain('ba-limbah-persiapan');
 });
 
 it('lets kepala sppg complete final operational approvals from mobile', function (): void {

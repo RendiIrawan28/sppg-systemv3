@@ -261,4 +261,9 @@ class PortioningSession extends Model
         return $this->hasMany(PreparationOutputWithdrawal::class);
     }
 
+    public function processingBatches(): HasMany
+    {
+        return $this->hasMany(ProcessingBatch::class);
+    }
+
 }

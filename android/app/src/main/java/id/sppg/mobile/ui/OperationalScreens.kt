@@ -186,7 +186,7 @@ fun OperationalRecordListScreen(
                 item {
                     WorkHistoryTabs(showHistory) { history ->
                         showHistory = history
-                        onFilterChange(null, if (module == "gudang-stok" && !history) null else {
+                        onFilterChange(null, if (module in setOf("gudang-stok", "pengolahan") && !history) null else {
                             (if (history) historyDate else LocalDate.now()).format(apiDateFormatter)
                         })
                     }

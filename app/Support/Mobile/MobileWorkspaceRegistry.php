@@ -48,12 +48,12 @@ class MobileWorkspaceRegistry
         ],
         UserRole::AsistenLapangan->value => ['lapangan-insiden', 'lapangan-laporan'],
         UserRole::StafGudang->value => ['gudang', 'gudang-non-pangan', 'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'gudang-retur', 'gudang-stok', 'gudang-stok-non-pangan', 'gudang-stok-awal', 'gudang-stok-awal-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan'],
-        UserRole::KepalaDivisiPersiapan->value => ['pengambilan-gudang-persiapan', 'pengambilan-non-pangan', 'persiapan', 'hasil-persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
-        UserRole::PetugasPersiapan->value => ['pengambilan-gudang-persiapan', 'pengambilan-non-pangan', 'persiapan', 'hasil-persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
-        UserRole::KepalaDivisiPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengambilan-non-pangan', 'pengolahan', 'hasil-persiapan-pengolahan', 'lapangan-insiden'],
-        UserRole::PetugasPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengambilan-non-pangan', 'pengolahan', 'hasil-persiapan-pengolahan', 'lapangan-insiden'],
-        UserRole::KepalaDivisiPemorsian->value => ['pengambilan-gudang-pemorsian', 'pengambilan-non-pangan', 'pemorsian', 'hasil-persiapan-pemorsian', 'lapangan-insiden'],
-        UserRole::PetugasPemorsian->value => ['pengambilan-gudang-pemorsian', 'pengambilan-non-pangan', 'pemorsian', 'hasil-persiapan-pemorsian', 'lapangan-insiden'],
+        UserRole::KepalaDivisiPersiapan->value => ['pengambilan-gudang-persiapan', 'pengambilan-non-pangan', 'persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
+        UserRole::PetugasPersiapan->value => ['pengambilan-gudang-persiapan', 'pengambilan-non-pangan', 'persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
+        UserRole::KepalaDivisiPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengambilan-non-pangan', 'pengolahan', 'lapangan-insiden'],
+        UserRole::PetugasPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengambilan-non-pangan', 'pengolahan', 'lapangan-insiden'],
+        UserRole::KepalaDivisiPemorsian->value => ['pengambilan-gudang-pemorsian', 'pengambilan-non-pangan', 'pemorsian', 'lapangan-insiden'],
+        UserRole::PetugasPemorsian->value => ['pengambilan-gudang-pemorsian', 'pengambilan-non-pangan', 'pemorsian', 'lapangan-insiden'],
         UserRole::KepalaDivisiDistribusi->value => ['pengambilan-non-pangan', 'distribusi', 'pengambilan-ompreng-tugas', 'pengambilan-ompreng', 'lapangan-insiden'],
         UserRole::PetugasDistribusi->value => ['pengambilan-non-pangan', 'distribusi', 'pengambilan-ompreng-tugas', 'pengambilan-ompreng', 'lapangan-insiden'],
         UserRole::KepalaDivisiPencucian->value => ['pengambilan-non-pangan', 'pencucian', 'ba-limbah-pencucian', 'lapangan-insiden'],
@@ -105,8 +105,9 @@ class MobileWorkspaceRegistry
 
             if ($slug === 'pengolahan') {
                 $definition['allow_create'] = true;
-                $definition['description'] = 'Pilih rencana aktif dan mulai produksi. Setelah berjalan, ambil bahan dari Gudang atau hasil Persiapan.';
+                $definition['description'] = 'Buat batch produksi manual, catat bahan baku aktual, hasil akhir, suhu, lalu serahkan ke Pemorsian.';
                 $definition['fields'] = collect($definition['fields'])
+                    ->reject(fn (array $field): bool => in_array($field['name'], ['production_date', 'product_name'], true))
                     ->map(function (array $field): array {
                         if ($field['name'] !== 'notes') {
                             $field['editable'] = false;
@@ -115,13 +116,13 @@ class MobileWorkspaceRegistry
 
                         return $field;
                     })->all();
-                array_unshift($definition['fields'], [
-                    ...$this->field('field_distribution_plan_id', 'Rencana produksi aktif', 'select', true, 'processing_active_plans'),
-                    'create_only' => true,
-                ]);
+                array_unshift($definition['fields'],
+                    [...$this->field('production_date', 'Tanggal produksi', 'date', true), 'create_only' => true, 'detail_only' => false],
+                    [...$this->field('product_name', 'Nama produk/menu', 'text', true), 'create_only' => true, 'detail_only' => false],
+                );
                 $definition['relations']['materialUsages']['fields'] = collect($definition['relations']['materialUsages']['fields'])
                     ->map(function (array $field): array {
-                        $field['editable'] = false;
+                        $field['editable'] = ! in_array($field['name'], ['source_reference'], true);
 
                         return $field;
                     })->all();
@@ -199,6 +200,7 @@ class MobileWorkspaceRegistry
 
                         return $field;
                     })->all();
+                $definition['relations']['supplies']['label'] = 'Bahan dan hasil produksi yang tersedia';
                 $definition['relations']['supplies']['fields'] = collect($definition['relations']['supplies']['fields'])
                     ->map(function (array $field): array {
                         $field['editable'] = false;
@@ -282,9 +284,6 @@ class MobileWorkspaceRegistry
         }
 
         $definitions += [
-            'hasil-persiapan' => $this->preparationOutputDefinition('preparation'),
-            'hasil-persiapan-pengolahan' => $this->preparationOutputDefinition('processing'),
-            'hasil-persiapan-pemorsian' => $this->preparationOutputDefinition('portioning'),
             'pengambilan-ompreng-tugas' => $this->containerCollectionTaskDefinition(),
             'pengambilan-ompreng' => $this->containerCollectionDefinition(),
             'ba-limbah-persiapan' => $this->wasteHandoverDefinition('preparation'),
@@ -891,6 +890,7 @@ class MobileWorkspaceRegistry
             'date' => 'preparation_date',
             'allow_create' => false,
             'allow_delete' => false,
+            'with' => ['wasteHandoverReport'],
             'fields' => [
                 [...$this->field('preparation_date', 'Tanggal persiapan', 'date'), 'editable' => false],
                 [...$this->field('purpose_reference', 'Referensi kebutuhan'), 'editable' => false],
@@ -899,6 +899,8 @@ class MobileWorkspaceRegistry
                 [...$this->field('petugas_id', 'Penanggung jawab', 'select', false, 'users'), 'editable' => false],
                 [...$this->field('started_at', 'Mulai', 'datetime'), 'editable' => false],
                 [...$this->field('completed_at', 'Selesai', 'datetime'), 'editable' => false],
+                [...$this->field('waste_report_number', 'Berita acara limbah'), 'editable' => false],
+                [...$this->field('waste_report_status', 'Status berita acara limbah'), 'editable' => false],
                 $this->field('notes', 'Catatan sesi', 'textarea'),
             ],
             'relations' => [
@@ -906,14 +908,12 @@ class MobileWorkspaceRegistry
                     [...$this->field('ingredient_name_snapshot', 'Bahan'), 'editable' => false],
                     [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
                     [...$this->field('received_quantity', 'Diterima', 'number'), 'editable' => false],
-                    $this->field('processed_quantity', 'Hasil bersih', 'number'),
-                    $this->field('waste_quantity', 'Sisa/limbah', 'number'),
-                    [...$this->field('condition_status', 'Kondisi'), 'editable' => false],
+                    $this->field('condition_status', 'Kondisi', 'select', true, ['good' => 'Baik', 'fair' => 'Sedang', 'damaged' => 'Rusak']),
+                    $this->field('processed_quantity', 'Hasil siap', 'number'),
+                    $this->field('waste_quantity', 'Limbah', 'number'),
+                    $this->field('output_target_division', 'Tujuan hasil siap', 'select', true, ['processing' => 'Pengolahan', 'portioning' => 'Pemorsian']),
+                    $this->field('result_photo_path', 'Foto hasil bahan', 'file'),
                     $this->field('notes', 'Catatan bahan', 'textarea'),
-                ]),
-                'resultDocumentation' => $this->relation('Dokumentasi hasil Persiapan', [
-                    $this->field('photo_path', 'Foto hasil Persiapan', 'file', true),
-                    [...$this->field('captured_at', 'Waktu foto', 'datetime'), 'editable' => false],
                 ]),
                 'returns' => $this->relation('Retur ke Gudang', [
                     $this->field('preparation_session_item_id', 'Bahan yang diretur', 'select', true, 'preparation_session_items'),
@@ -1307,6 +1307,7 @@ class MobileWorkspaceRegistry
     /** @return array<string, mixed> */
     private function wasteHandoverDefinition(string $division): array
     {
+        $isPreparation = $division === 'preparation';
         $permission = match ($division) {
             'washing' => 'washing',
             'cleaning' => 'cleaning',
@@ -1314,43 +1315,45 @@ class MobileWorkspaceRegistry
         };
 
         return [
-            'label' => 'Berita Acara Limbah',
-            'description' => 'Berita acara serah-terima limbah divisi yang terhubung ke pekerjaan sumber.',
+            'label' => $isPreparation ? 'BA Limbah Persiapan' : 'Berita Acara Limbah',
+            'description' => $isPreparation
+                ? 'Lengkapi pihak penyerah dan penerima pada berita acara yang dibuat otomatis dari Persiapan.'
+                : 'Berita acara serah-terima limbah divisi yang terhubung ke pekerjaan sumber.',
             'model' => WasteHandoverReport::class,
             'permission' => $permission,
             'number' => 'report_number',
             'date' => 'report_date',
-            'allow_create' => true,
-            'allow_delete' => true,
+            'allow_create' => ! $isPreparation,
+            'allow_delete' => ! $isPreparation,
             'where' => ['division_type' => $division],
             'fields' => [
-                $this->field('report_date', 'Tanggal laporan', 'date', true),
+                [...$this->field('report_date', 'Tanggal laporan', 'date', true), 'editable' => ! $isPreparation],
                 $this->field('handed_over_at', 'Waktu serah-terima', 'datetime', true),
-                $this->field('source_type', 'Jenis pekerjaan sumber', 'select', true, [
+                [...$this->field('source_type', 'Jenis pekerjaan sumber', 'select', true, [
                     $division.'_session' => match ($division) {
                         'washing' => 'Sesi Pencucian',
                         'cleaning' => 'Sesi Kebersihan',
                         default => 'Sesi Persiapan',
                     },
-                ]),
-                $this->field('source_id', 'Pekerjaan sumber', 'select', true, $division.'_sessions'),
-                $this->field('source_reference', 'Referensi pekerjaan'),
+                ]), 'editable' => ! $isPreparation],
+                [...$this->field('source_id', 'Pekerjaan sumber', 'select', true, $division.'_sessions'), 'editable' => ! $isPreparation],
+                [...$this->field('source_reference', 'Referensi pekerjaan'), 'editable' => ! $isPreparation],
                 $this->field('first_party_name', 'Pihak pertama', 'text', true),
                 $this->field('first_party_position', 'Jabatan pihak pertama', 'text', true),
                 $this->field('first_party_address', 'Alamat pihak pertama', 'textarea', true),
                 $this->field('second_party_name', 'Pihak kedua', 'text', true),
                 $this->field('second_party_position', 'Jabatan pihak kedua', 'text', true),
                 $this->field('second_party_address', 'Alamat pihak kedua', 'textarea', true),
-                $this->field('status', 'Status'),
+                [...$this->field('status', 'Status'), 'editable' => false],
                 $this->field('notes', 'Catatan'),
             ],
             'relations' => [
                 'items' => $this->relation('Daftar limbah', [
-                    $this->field('waste_type', 'Jenis limbah', 'text', true),
-                    $this->field('quantity', 'Jumlah', 'number', true),
-                    $this->field('unit', 'Satuan', 'text', true),
-                    $this->field('photo_path', 'Dokumentasi', 'file'),
-                    $this->field('notes', 'Catatan'),
+                    [...$this->field('waste_type', 'Jenis limbah', 'text', true), 'editable' => ! $isPreparation],
+                    [...$this->field('quantity', 'Jumlah', 'number', true), 'editable' => ! $isPreparation],
+                    [...$this->field('unit', 'Satuan', 'text', true), 'editable' => ! $isPreparation],
+                    [...$this->field('photo_path', 'Dokumentasi', 'file'), 'editable' => ! $isPreparation],
+                    [...$this->field('notes', 'Catatan'), 'editable' => ! $isPreparation],
                 ]),
             ],
         ];

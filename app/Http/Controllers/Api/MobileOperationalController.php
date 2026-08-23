@@ -39,6 +39,8 @@ use App\Services\PortioningWorkflow;
 use App\Services\PreparationOutputService;
 use App\Services\PreparationReturnService;
 use App\Services\PreparationSessionService;
+use App\Services\PreparationWasteReportSyncService;
+use App\Services\ProcessingPortioningHandoverService;
 use App\Services\ProcessingReturnService;
 use App\Services\ProcessingWorkflow;
 use App\Services\SecurityMonitoringService;
@@ -148,8 +150,13 @@ class MobileOperationalController extends Controller
             'status' => ['nullable', 'string', 'max:50'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'view' => ['nullable', Rule::in(['active'])],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
+        $includeCrossDayProcessing = $module === 'pengolahan'
+            && blank($filters['view'] ?? null)
+            && ($filters['date_from'] ?? null) === now()->toDateString()
+            && ($filters['date_to'] ?? null) === now()->toDateString();
         $model = $definition['model'];
         $query = $model::query()
             ->where('sppg_unit_id', $systemUnit->id())
@@ -165,10 +172,29 @@ class MobileOperationalController extends Controller
             })
             ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query
                 ->where('status', $status))
-            ->when($filters['date_from'] ?? null, fn (Builder $query, string $date) => $query
-                ->whereDate($definition['date'], '>=', $date))
-            ->when($filters['date_to'] ?? null, fn (Builder $query, string $date) => $query
-                ->whereDate($definition['date'], '<=', $date));
+            ->when($filters['date_from'] ?? null, function (Builder $query, string $date) use ($definition, $includeCrossDayProcessing): void {
+                $includeCrossDayProcessing
+                    ? $query->where(fn (Builder $dateQuery) => $dateQuery
+                        ->whereDate($definition['date'], '>=', $date)
+                        ->orWhere('state', 'in_progress'))
+                    : $query->whereDate($definition['date'], '>=', $date);
+            })
+            ->when($filters['date_to'] ?? null, function (Builder $query, string $date) use ($definition, $includeCrossDayProcessing): void {
+                $includeCrossDayProcessing
+                    ? $query->where(fn (Builder $dateQuery) => $dateQuery
+                        ->whereDate($definition['date'], '<=', $date)
+                        ->orWhere('state', 'in_progress'))
+                    : $query->whereDate($definition['date'], '<=', $date);
+            });
+        if ($module === 'pengolahan' && ($filters['view'] ?? null) === 'active') {
+            $query->where(function (Builder $activeQuery) use ($definition): void {
+                $activeQuery->where('state', 'in_progress')
+                    ->orWhere(function (Builder $plannedQuery) use ($definition): void {
+                        $plannedQuery->where('state', 'planned')
+                            ->whereDate($definition['date'], now()->toDateString());
+                    });
+            });
+        }
         $this->applyDefinitionScope($query, $definition);
         $this->applyDistributionActorScope($query, $module, $request->user());
 
@@ -497,25 +523,19 @@ class MobileOperationalController extends Controller
                 if ($module === 'pengolahan') {
                     $fields = $request->validate([
                         'fields' => ['present', 'array'],
-                        'fields.field_distribution_plan_id' => ['required', 'integer'],
+                        'fields.production_date' => ['required', 'date'],
+                        'fields.product_name' => ['required', 'string', 'max:255'],
                     ])['fields'];
-                    $plan = FieldDistributionPlan::query()
-                        ->where('sppg_unit_id', $unitId)
-                        ->where('status', 'activated')
-                        ->findOrFail((int) $fields['field_distribution_plan_id']);
-                    $batch = app(FieldOperationalPlanGenerator::class)
-                        ->generateProcessingBatch($plan, $request->user());
-
-                    if ($batch->state->value === 'planned') {
-                        return app(ProcessingWorkflow::class)->start($batch, $request->user());
-                    }
-                    if ($batch->state->value !== 'in_progress') {
-                        throw ValidationException::withMessages([
-                            'fields.field_distribution_plan_id' => 'Rencana ini sudah memiliki batch yang tidak dapat dimulai kembali.',
-                        ]);
-                    }
-
-                    return $batch;
+                    $batch = ProcessingBatch::create([
+                        'sppg_unit_id' => $unitId,
+                        'production_date' => $fields['production_date'],
+                        'service_date' => $fields['production_date'],
+                        'product_name' => trim($fields['product_name']),
+                        'menu_name_snapshot' => trim($fields['product_name']),
+                        'target_output_quantity' => 0, 'target_output_unit' => 'porsi',
+                        'created_by' => $request->user()->getKey(), 'updated_by' => $request->user()->getKey(),
+                    ]);
+                    return app(ProcessingWorkflow::class)->start($batch, $request->user());
                 }
 
                 if ($module === 'pemorsian') {
@@ -804,10 +824,18 @@ class MobileOperationalController extends Controller
                     'gudang-retur' => $this->runPreparationReturnAction($action, $item, $actor, $fields, $notes),
                     'gudang-retur-pengolahan' => $this->runProcessingReturnAction($action, $item, $actor, $fields, $notes),
                     'lapangan-konfirmasi' => $this->runDailyBeneficiaryConfirmationAction($action, $item, $actor),
-                    'persiapan' => $this->runPreparationAction($action, $item, $actor, $notes),
+                    'persiapan' => $this->runPreparationAction($action, $item, $actor, $fields, $notes),
                     'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => $this->runPreparationOutputAction($module, $action, $item, $actor, $fields, $notes),
-                    'pengolahan' => $this->runStandardAction(app(ProcessingWorkflow::class), $action, $item, $actor, $notes),
-                    'pemorsian' => $this->runPortioningAction($action, $item, $actor, $notes),
+                    'pengolahan' => $action === 'complete'
+                        ? app(ProcessingPortioningHandoverService::class)->completeAndHandover($item, $actor)
+                        : ($action === 'receive_preparation_output'
+                            ? $this->runPreparationOutputReceive($item, $actor, (int) ($fields['withdrawal_id'] ?? 0))
+                            : $this->runStandardAction(app(ProcessingWorkflow::class), $action, $item, $actor, $notes)),
+                    'pemorsian' => $action === 'receive_processing_batch'
+                        ? $this->runPortioningReceiveBatch($item, $actor, (int) ($fields['processing_batch_id'] ?? 0))
+                        : ($action === 'receive_preparation_output'
+                            ? $this->runPreparationOutputReceive($item, $actor, (int) ($fields['withdrawal_id'] ?? 0))
+                            : $this->runPortioningAction($action, $item, $actor, $notes)),
                     'distribusi' => $this->runDistributionAction($action, $item, $actor, $data, $notes),
                     'pengambilan-ompreng' => $this->runContainerCollectionAction(
                         $action, $item, $actor, $fields, $notes, $storedPhoto,
@@ -1093,6 +1121,9 @@ class MobileOperationalController extends Controller
             $request, $module, $record, $relation, $registry, $systemUnit, 'update',
         );
         $child = $parent->{$relation}()->whereKey($item)->firstOrFail();
+        if ($module === 'pengolahan' && $relation === 'materialUsages') {
+            abort_unless($child->source_type === 'manual', 422, 'Bahan yang berasal dari integrasi Gudang tidak dapat diubah dari catatan aktual.');
+        }
 
         if (in_array($module, ['gudang', 'gudang-non-pangan'], true) && $relation === 'items') {
             $fields = $request->validate([
@@ -1174,6 +1205,16 @@ class MobileOperationalController extends Controller
             $this->recalculateParent($parent);
         });
 
+        if ($module === 'persiapan' && $relation === 'items') {
+            $parent->refresh()->load('items');
+            app(PreparationOutputService::class)->syncSessionOutputs(
+                $parent,
+                $request->user(),
+                $parent->items->mapWithKeys(fn ($row): array => [$row->getKey() => $row->output_target_division ?: 'processing'])->all(),
+            );
+            app(PreparationWasteReportSyncService::class)->sync($parent, $request->user());
+        }
+
         return response()->json([
             'message' => 'Rincian berhasil diperbarui.',
             'data' => $this->relationItemData($child->refresh(), $relationDefinition, $registry, (int) $systemUnit->id()),
@@ -1193,6 +1234,9 @@ class MobileOperationalController extends Controller
             $request, $module, $record, $relation, $registry, $systemUnit, 'delete',
         );
         $child = $parent->{$relation}()->whereKey($item)->firstOrFail();
+        if ($module === 'pengolahan' && $relation === 'materialUsages') {
+            abort_unless($child->source_type === 'manual', 422, 'Bahan yang berasal dari integrasi Gudang tidak dapat dihapus dari catatan aktual.');
+        }
         DB::transaction(function () use ($parent, $relationDefinition, $child): void {
             foreach ($relationDefinition['fields'] as $field) {
                 if (($field['type'] ?? null) === 'file' && filled($child->getAttribute($field['name']))) {
@@ -1217,7 +1261,8 @@ class MobileOperationalController extends Controller
         SystemUnit $systemUnit,
     ): JsonResponse {
         $supported = ($module === 'distribusi' && in_array($relation, ['stops', 'incidents'], true))
-            || ($module === 'pencucian' && $relation === 'checklistItems');
+            || ($module === 'pencucian' && $relation === 'checklistItems')
+            || (in_array($module, ['pengolahan', 'pemorsian'], true) && $relation === 'preparationOutputWithdrawals');
         abort_unless($supported, 404);
         [, $parent] = $this->relationContext(
             $request, $module, $record, $relation, $registry, $systemUnit, 'action',
@@ -1225,6 +1270,14 @@ class MobileOperationalController extends Controller
         $child = $parent->{$relation}()->whereKey($item)->firstOrFail();
         $available = collect($this->relationActions($request, $module, $parent, $relation, $child))->pluck('key');
         abort_unless($available->contains($action), 422, 'Tindakan rincian tidak tersedia.');
+
+        if (in_array($module, ['pengolahan', 'pemorsian'], true) && $relation === 'preparationOutputWithdrawals') {
+            abort_unless($action === 'accept', 422);
+            app(PreparationOutputService::class)->verifyWithdrawal(
+                $child, $request->user(), (float) $child->requested_quantity,
+            );
+            return response()->json(['message' => 'Hasil Persiapan berhasil diterima.']);
+        }
 
         if ($module === 'pencucian') {
             $fields = $request->validate([
@@ -1828,7 +1881,7 @@ class MobileOperationalController extends Controller
                     'planned' => [$this->actionDefinition('start', 'Mulai pekerjaan')],
                     'in_progress' => $module === 'pengolahan'
                         ? array_values(array_filter([
-                            $this->actionDefinition('complete', 'Selesaikan pekerjaan'),
+                            $this->actionDefinition('complete', 'Selesaikan & Serahkan ke Pemorsian'),
                             app(ProcessingWorkflow::class)->canCancel($item)
                                 ? $this->actionDefinition('cancel', 'Batalkan produksi', true)
                                 : null,
@@ -1923,6 +1976,67 @@ class MobileOperationalController extends Controller
                 },
                 default => [],
             };
+
+            if ($module === 'persiapan' && $state === 'completed') {
+                foreach (['processing' => 'Pengolahan', 'portioning' => 'Pemorsian'] as $division => $label) {
+                    $outputs = $item->outputs()->where('target_division', $division)
+                        ->where('available_quantity', '>', 0)
+                        ->get()
+                        ->mapWithKeys(fn ($output): array => [
+                            (string) $output->getKey() => $output->output_name.' · '.number_format((float) $output->available_quantity, 3, ',', '.').' '.$output->unit_snapshot,
+                        ])->all();
+                    if ($outputs !== []) {
+                        $actions[] = $this->actionDefinition('handover_'.$division, 'Serahkan ke '.$label, false, [
+                            $this->actionField('preparation_output_id', 'Hasil siap', 'select', true, null, $outputs),
+                            $this->actionField('requested_quantity', 'Jumlah diserahkan', 'number', true),
+                        ]);
+                    }
+                }
+            }
+
+            if (in_array($module, ['pengolahan', 'pemorsian'], true) && $state === 'in_progress') {
+                $division = $module === 'pengolahan' ? 'processing' : 'portioning';
+                $targetColumn = $division === 'processing' ? 'processing_batch_id' : 'portioning_session_id';
+                $pendingOutputs = PreparationOutputWithdrawal::query()
+                    ->with('output')
+                    ->where('destination_division', $division)
+                    ->where('status', PreparationOutputWithdrawal::WAITING)
+                    ->whereNull($targetColumn)
+                    ->whereHas('output', fn (Builder $query) => $query->where('sppg_unit_id', $item->sppg_unit_id))
+                    ->orderBy('taken_at')
+                    ->get()
+                    ->mapWithKeys(fn (PreparationOutputWithdrawal $withdrawal): array => [
+                        (string) $withdrawal->getKey() => sprintf(
+                            '%s · %s %s',
+                            $withdrawal->output?->output_name,
+                            number_format((float) $withdrawal->requested_quantity, 3, ',', '.'),
+                            $withdrawal->unit_snapshot,
+                        ),
+                    ])->all();
+                if ($pendingOutputs !== []) {
+                    array_unshift($actions, $this->actionDefinition(
+                        'receive_preparation_output',
+                        'Terima Hasil Persiapan',
+                        false,
+                        [$this->actionField('withdrawal_id', 'Hasil yang diserahkan', 'select', true, null, $pendingOutputs)],
+                    ));
+                }
+            }
+
+            if ($module === 'pemorsian' && in_array($state, ['planned', 'in_progress'], true)) {
+                $ready = ProcessingBatch::query()
+                    ->where('sppg_unit_id', $item->sppg_unit_id)
+                    ->whereNotNull('portioning_handed_over_at')->whereNull('portioning_received_at')
+                    ->latest('portioning_handed_over_at')->get()
+                    ->mapWithKeys(fn (ProcessingBatch $batch): array => [
+                        (string) $batch->getKey() => $batch->batch_number.' · '.$batch->product_name.' · '.number_format((float) $batch->actual_output_quantity, 3, ',', '.').' '.$batch->actual_output_unit,
+                    ])->all();
+                if ($ready !== []) {
+                    array_unshift($actions, $this->actionDefinition('receive_processing_batch', 'Terima Batch Pengolahan', false, [
+                        $this->actionField('processing_batch_id', 'Batch siap', 'select', true, null, $ready),
+                    ]));
+                }
+            }
         }
 
         if (in_array($state, ['completed', 'ready', 'returned'], true)
@@ -1934,11 +2048,13 @@ class MobileOperationalController extends Controller
             $actions[] = $this->actionDefinition('submit', 'Ajukan laporan');
         }
         if (str_starts_with($module, 'ba-limbah-')
+            && $module !== 'ba-limbah-persiapan'
             && in_array($status, ['draft', 'revision_required'], true)
             && $actor->can($permission.'.submit')) {
             $actions[] = $this->actionDefinition('submit', 'Ajukan berita acara');
         }
-        if (in_array($status, ['submitted', 'division_approved'], true)
+        if ($module !== 'ba-limbah-persiapan'
+            && in_array($status, ['submitted', 'division_approved'], true)
             && $actor->can($permission.'.approve')) {
             $actions[] = $this->actionDefinition('verify', 'Setujui laporan');
             $actions[] = $this->actionDefinition('revision', 'Minta revisi', true);
@@ -2247,8 +2363,19 @@ class MobileOperationalController extends Controller
         return $item->refresh();
     }
 
-    private function runPreparationAction(string $action, Model $item, $actor, ?string $notes): Model
+    private function runPreparationAction(string $action, Model $item, $actor, array $fields, ?string $notes): Model
     {
+        if (in_array($action, ['handover_processing', 'handover_portioning'], true)) {
+            $division = $action === 'handover_processing' ? 'processing' : 'portioning';
+            $output = $item->outputs()->where('target_division', $division)->findOrFail((int) ($fields['preparation_output_id'] ?? 0));
+            app(PreparationOutputService::class)->requestWithdrawal($output, $actor, [
+                'destination_division' => $division,
+                'requested_quantity' => (float) ($fields['requested_quantity'] ?? 0),
+                'defer_target' => true,
+                'notes' => $notes,
+            ]);
+            return $item->refresh();
+        }
         $service = app(PreparationSessionService::class);
         match ($action) {
             'start' => $service->start($item, $actor),
@@ -2259,6 +2386,15 @@ class MobileOperationalController extends Controller
         };
 
         return $item;
+    }
+
+    private function runPreparationOutputReceive(Model $target, $actor, int $withdrawalId): Model
+    {
+        abort_unless($target instanceof ProcessingBatch || $target instanceof PortioningSession, 422);
+        $withdrawal = PreparationOutputWithdrawal::query()->findOrFail($withdrawalId);
+        app(PreparationOutputService::class)->receiveUnassignedWithdrawal($withdrawal, $target, $actor);
+
+        return $target->refresh();
     }
 
     private function runStandardAction(object $service, string $action, Model $item, $actor, ?string $notes): Model
@@ -2295,6 +2431,14 @@ class MobileOperationalController extends Controller
         }
 
         return $this->runStandardAction(app(PortioningWorkflow::class), $action, $item, $actor, $notes);
+    }
+
+    private function runPortioningReceiveBatch(Model $item, $actor, int $batchId): Model
+    {
+        abort_unless($item instanceof PortioningSession && $batchId > 0, 422);
+        $batch = ProcessingBatch::query()->where('sppg_unit_id', $item->sppg_unit_id)->findOrFail($batchId);
+        app(ProcessingPortioningHandoverService::class)->receive($batch, $item, $actor);
+        return $item->refresh();
     }
 
     private function runDistributionAction(string $action, Model $item, $actor, array $data, ?string $notes): Model
@@ -2562,14 +2706,12 @@ class MobileOperationalController extends Controller
             'lapangan-konfirmasi' => $relation === 'items' ? ['update'] : [],
             'persiapan' => match ($relation) {
                 'items' => $this->preparationDataIsEditable($parent) ? ['update'] : [],
-                'resultDocumentation' => ! $this->preparationDataIsEditable($parent)
-                    ? []
-                    : ($parent?->resultDocumentation()->exists() ? ['update'] : ['create']),
                 'returns' => $this->preparationDataIsEditable($parent) ? ['create'] : [],
                 default => [],
             },
             'pengolahan' => match ($relation) {
-                'materialUsages', 'preparationOutputWithdrawals' => [],
+                'materialUsages' => $parent instanceof ProcessingBatch && $parent->isOperationalInputEditable() ? ['create', 'update', 'delete'] : [],
+                'preparationOutputWithdrawals' => ['action'],
                 'temperatureLogs', 'documentations' => $parent instanceof ProcessingBatch
                     && $parent->isOperationalInputEditable()
                         ? ['create', 'update', 'delete'] : [],
@@ -2584,7 +2726,8 @@ class MobileOperationalController extends Controller
                 'routeRecords' => ['create', 'update', 'delete'],
                 'leftoverRecords' => $parent?->getAttribute('leftover_mode') === 'present'
                     ? ['create', 'update', 'delete'] : [],
-                'supplies', 'preparationOutputWithdrawals' => [],
+                'supplies' => [],
+                'preparationOutputWithdrawals' => ['action'],
                 default => [],
             },
             'distribusi' => match ($relation) {
@@ -2620,7 +2763,8 @@ class MobileOperationalController extends Controller
                 && $parent?->isReportDue()
                 ? ['create']
                 : [],
-            'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan' => $relation === 'items'
+            'ba-limbah-persiapan' => [],
+            'ba-limbah-pencucian', 'ba-limbah-kebersihan' => $relation === 'items'
                 ? ['create', 'update', 'delete']
                 : [],
             default => [],
@@ -2706,6 +2850,16 @@ class MobileOperationalController extends Controller
             };
             $path = "mobile/{$module}/{$relation}/".Str::uuid().'.'.$extension;
             Storage::disk('public')->put($path, $contents);
+            if ($module === 'persiapan' && $relation === 'items' && $field['name'] === 'result_photo_path') {
+                $oldPath = $item->resultDocumentation?->photo_path;
+                $item->resultDocumentation()->updateOrCreate([], [
+                    'preparation_session_id' => $item->preparation_session_id,
+                    'photo_path' => $path, 'captured_at' => now(),
+                    'created_by' => $request->user()->getKey(),
+                ]);
+                if ($oldPath && $oldPath !== $path) Storage::disk('public')->delete($oldPath);
+                continue;
+            }
             $oldPath = $item->getAttribute($field['name']);
             $item->setAttribute($field['name'], $path);
             if ($item->isFillable('photo_original_name')) {
@@ -2768,6 +2922,12 @@ class MobileOperationalController extends Controller
         Request $request,
     ): array {
         $defaults = match ([$module, $relation]) {
+            ['pengolahan', 'materialUsages'] => [
+                'source_type' => 'manual',
+                'source_reference' => 'Catatan pemakaian aktual',
+                'received_by' => $request->user()->getKey(),
+                'received_at' => now(),
+            ],
             ['pengolahan', 'temperatureLogs'] => [
                 'checkpoint' => 'final',
                 'measured_by' => $request->user()->getKey(),
@@ -3012,6 +3172,11 @@ class MobileOperationalController extends Controller
                 $item['form_fields'] = $this->formFields($itemRelationDefinition, $model, $registry, $unitId, true);
                 $item['can_update'] = $editable && in_array('update', $operations, true);
                 $item['can_delete'] = $editable && in_array('delete', $operations, true);
+                if ($module === 'pengolahan' && $key === 'materialUsages'
+                    && $model->getAttribute('source_type') !== 'manual') {
+                    $item['can_update'] = false;
+                    $item['can_delete'] = false;
+                }
                 $item['actions'] = $this->relationActions(
                     $request,
                     $module,
@@ -3035,6 +3200,13 @@ class MobileOperationalController extends Controller
         string $relation,
         Model $item,
     ): array {
+        if (in_array($module, ['pengolahan', 'pemorsian'], true)
+            && $relation === 'preparationOutputWithdrawals'
+            && $this->scalarValue($item->getAttribute('status')) === PreparationOutputWithdrawal::WAITING
+            && $request->user()?->can(($module === 'pengolahan' ? 'processing' : 'portioning').'.update')) {
+            return [$this->actionDefinition('accept', 'Terima hasil Persiapan')];
+        }
+
         if ($module === 'pencucian'
             && $relation === 'checklistItems'
             && $request->user()?->can('washing.update')

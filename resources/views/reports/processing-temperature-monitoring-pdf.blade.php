@@ -27,6 +27,10 @@
         .officer { width: 18%; }
         .initial { width: 14%; }
         .center { text-align: center; }
+        .documentation-title { margin: 14px 0 7px; font-size: 11px; font-weight: bold; }
+        .photo-card { width: 33.33%; height: 158px; text-align: center; vertical-align: top; }
+        .photo { max-width: 100%; max-height: 115px; object-fit: contain; }
+        .caption { margin-top: 4px; font-size: 8px; line-height: 1.35; }
     </style>
 </head>
 <body>
@@ -85,5 +89,39 @@
             @endfor
         </tbody>
     </table>
+
+    @if($logs->isNotEmpty())
+        <div class="documentation-title">DOKUMENTASI PEMANTAUAN SUHU</div>
+        <table>
+            @foreach($logs->chunk(3) as $photos)
+                <tr>
+                    @foreach($photos as $log)
+                        @php
+                            $photoFile = $log->photo_path ? storage_path('app/public/'.$log->photo_path) : null;
+                            $photoSource = $photoFile && is_file($photoFile)
+                                ? 'data:'.(mime_content_type($photoFile) ?: 'image/jpeg').';base64,'.base64_encode(file_get_contents($photoFile))
+                                : null;
+                        @endphp
+                        <td class="photo-card">
+                            @if($photoSource)
+                                <img class="photo" src="{{ $photoSource }}" alt="Dokumentasi suhu {{ $log->product_name }}">
+                            @else
+                                Foto tidak tersedia
+                            @endif
+                            <div class="caption">
+                                <strong>{{ $log->product_name }}</strong><br>
+                                {{ $log->checked_at?->format('d-m-Y H:i') }} ·
+                                {{ number_format((float) $log->temperature_celsius, 1, ',', '.') }} °C ·
+                                {{ $log->measured_name_snapshot ?: $log->measuredBy?->name ?: $batch->petugas_name_snapshot }}
+                            </div>
+                        </td>
+                    @endforeach
+                    @for($empty = $photos->count(); $empty < 3; $empty++)
+                        <td class="photo-card"></td>
+                    @endfor
+                </tr>
+            @endforeach
+        </table>
+    @endif
 </body>
 </html>

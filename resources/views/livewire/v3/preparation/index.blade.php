@@ -5,8 +5,7 @@
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
             <p class="text-xs font-bold uppercase tracking-widest text-cyan-200">Kontrol Persiapan</p>
             <h2 class="mt-2 text-2xl font-bold">Catat hasil, sisa, dan retur bahan.</h2>
-            <p class="mt-2 max-w-3xl text-sm text-slate-300">Sesi muncul otomatis segera setelah pengambilan dicatat. Lengkapi hasil bersih, limbah, retur bila ada, dan satu foto hasil Persiapan.</p>
-            <a wire:navigate href="{{ route('v3.preparation-outputs.index') }}" class="mt-4 inline-flex h-10 items-center rounded-xl bg-white/10 px-4 text-xs font-bold text-white hover:bg-white/20">Buka Penyimpanan Hasil Persiapan</a>
+            <p class="mt-2 max-w-3xl text-sm text-slate-300">Sesi muncul otomatis setelah pengambilan dicatat. Lengkapi kondisi, hasil siap, limbah, tujuan, dan foto setiap bahan.</p>
         </section>
 
         <div class="grid gap-5 xl:grid-cols-[350px_minmax(0,1fr)]">
@@ -48,17 +47,35 @@
 
                     <div class="rounded-2xl border border-slate-200 bg-white p-5">
                         <h3 class="font-bold">Bahan Persiapan</h3>
-                        <p class="mt-1 text-xs text-slate-500">Hasil bersih + limbah + retur terverifikasi harus sama dengan jumlah yang diterima.</p>
+                        <p class="mt-1 text-xs text-slate-500">Hasil siap + limbah + retur yang dicatat harus sama dengan jumlah yang diterima.</p>
                         <div class="mt-4 space-y-3">
                             @foreach($selected->items as $item)
                                 <div class="rounded-xl bg-slate-50 p-4">
                                     <div class="flex justify-between gap-3"><b>{{ $item->ingredient_name_snapshot }}</b><span class="text-xs">Diterima {{ number_format((float) ($item->received_quantity ?? $item->received_weight_kg), 3, ',', '.') }} {{ $item->unit_snapshot }}</span></div>
-                                    <div class="mt-3 grid gap-3 md:grid-cols-4">
-                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Hasil bersih</span><input wire:model="items.{{ $item->id }}.processed_quantity" @disabled(!$canEdit || $selected->state !== 'in_progress') type="number" min="0" step=".001" class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="0 {{ $item->unit_snapshot }}"></label>
+                                    <div class="mt-3 grid gap-3 md:grid-cols-3">
+                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Kondisi</span><select wire:model="items.{{ $item->id }}.condition_status" @disabled(!$canEdit || $selected->state !== 'in_progress') class="h-10 w-full rounded-lg border px-3 text-sm"><option value="good">Baik</option><option value="fair">Sedang</option><option value="damaged">Rusak</option></select></label>
+                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Hasil siap</span><input wire:model="items.{{ $item->id }}.processed_quantity" @disabled(!$canEdit || $selected->state !== 'in_progress') type="number" min="0" step=".001" class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="0 {{ $item->unit_snapshot }}"></label>
                                         <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Limbah/sisa</span><input wire:model="items.{{ $item->id }}.waste_quantity" @disabled(!$canEdit || $selected->state !== 'in_progress') type="number" min="0" step=".001" class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="0 {{ $item->unit_snapshot }}"></label>
-                                        <div><span class="mb-1 block text-[11px] font-semibold text-slate-500">Dikembalikan ke Gudang</span><div class="flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700">{{ number_format((float) $item->returns->where('status', \App\Models\PreparationReturn::VERIFIED)->sum('actual_quantity'), 3, ',', '.') }} {{ $item->unit_snapshot }}</div></div>
+                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Tujuan hasil siap</span><select wire:model="items.{{ $item->id }}.target_division" @disabled(!$canEdit || $selected->state !== 'in_progress') class="h-10 w-full rounded-lg border px-3 text-sm"><option value="processing">Pengolahan</option><option value="portioning">Pemorsian</option></select></label>
+                                        <div><span class="mb-1 block text-[11px] font-semibold text-slate-500">Retur dicatat</span><div class="flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700">{{ number_format((float) $item->returns->sum(fn($return) => $return->status === \App\Models\PreparationReturn::VERIFIED ? $return->actual_quantity : ($return->status === \App\Models\PreparationReturn::WAITING ? $return->requested_quantity : 0)), 3, ',', '.') }} {{ $item->unit_snapshot }}</div></div>
                                         <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Catatan</span><input wire:model="items.{{ $item->id }}.notes" @disabled(!$canEdit || $selected->state !== 'in_progress') class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="Opsional"></label>
                                     </div>
+                                    <div class="mt-3 rounded-xl border border-sky-100 bg-white p-3">
+                                        <p class="text-xs font-bold text-slate-700">Foto hasil {{ $item->ingredient_name_snapshot }} @if((float)$item->processed_quantity > 0)<span class="text-rose-600">*</span>@endif</p>
+                                        @if($item->resultDocumentation)<x-v3.documentation-button :url="Storage::disk('public')->url($item->resultDocumentation->photo_path)" :title="'Hasil '.$item->ingredient_name_snapshot" label="Lihat foto" class="mt-2" />@endif
+                                        @if($canEdit && $selected->state === 'in_progress')<input wire:model="itemPhotos.{{ $item->id }}" type="file" accept="image/*" capture="environment" class="mt-2 block w-full text-xs">@endif
+                                    </div>
+                                    @php($output = $item->outputs->first())
+                                    @if($selected->state === 'completed' && $output && (float)$output->available_quantity > 0)
+                                        <div class="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                                            <p class="text-xs font-bold text-emerald-900">Hasil Siap · {{ number_format((float)$output->available_quantity, 3, ',', '.') }} {{ $output->unit_snapshot }} · tujuan {{ $output->target_division === 'processing' ? 'Pengolahan' : 'Pemorsian' }}</p>
+                                            <div class="mt-2 grid gap-2 md:grid-cols-[minmax(0,1fr)_150px_auto]">
+                                                <select wire:model="handoverTargets.{{ $item->id }}" class="h-10 rounded-lg border px-3 text-sm"><option value="">Pilih pekerjaan tujuan</option>@foreach(($output->target_division === 'processing' ? $processingTargets : $portioningTargets) as $id => $label)<option value="{{ $id }}">{{ $label }}</option>@endforeach</select>
+                                                <input wire:model="handoverQuantities.{{ $item->id }}" type="number" min="0" step=".001" class="h-10 rounded-lg border px-3 text-sm" placeholder="{{ $output->available_quantity }}">
+                                                <button wire:click="handoverOutput({{ $item->id }})" class="rounded-lg bg-emerald-600 px-4 text-xs font-bold text-white">Serahkan</button>
+                                            </div>
+                                        </div>
+                                    @endif
                                     @if($item->returns->isNotEmpty())
                                         <div class="mt-3 space-y-2">
                                             @foreach($item->returns as $return)
@@ -90,36 +107,17 @@
                     @if($totalPreparationWaste > 0)
                         <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5">
                             <h3 class="font-bold text-amber-900">Berita Acara Serah Terima Limbah</h3>
-                            <p class="mt-1 text-xs text-amber-700">Menggunakan satu format bersama untuk Persiapan, Pencucian, dan Kebersihan.</p>
+                            <p class="mt-1 text-xs text-amber-700">Dibuat dan disinkronkan otomatis dari jumlah limbah setiap bahan. Tidak memerlukan proses pengajuan.</p>
                             <div class="mt-4 flex flex-wrap gap-2">
                                 @if($selected->wasteHandoverReport)
                                     <a wire:navigate href="{{ route('v3.waste-handovers.show', $selected->wasteHandoverReport) }}" class="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white">Buka berita acara</a>
                                     <a target="_blank" href="{{ route('v3.waste-handovers.pdf', $selected->wasteHandoverReport) }}" class="rounded-xl border border-amber-300 bg-white px-4 py-2 text-xs font-bold text-amber-800">Unduh PDF</a>
-                                @elseif($canEdit)
-                                    <a wire:navigate href="{{ route('v3.waste-handovers.create', ['division'=>'preparation','source_type'=>'preparation_session','source_id'=>$selected->id,'source_reference'=>$selected->session_number]) }}" class="rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white">Buat berita acara limbah</a>
+                                @else
+                                    <span class="text-xs font-semibold text-amber-800">Tekan Simpan untuk membuat berita acara otomatis.</span>
                                 @endif
                             </div>
                         </div>
                     @endif
-
-                    <div class="rounded-2xl border border-slate-200 bg-white p-5">
-                        <h3 class="font-bold">Foto hasil Persiapan</h3>
-                        <p class="mt-1 text-xs text-slate-500">Cukup satu foto yang memperlihatkan keseluruhan hasil Persiapan.</p>
-                        @if($selected->resultDocumentation)
-                            <x-v3.documentation-button
-                                :url="Storage::disk('public')->url($selected->resultDocumentation->photo_path)"
-                                :title="'Hasil Persiapan · '.$selected->session_number"
-                                label="Lihat foto hasil"
-                                class="mt-3"
-                            />
-                        @endif
-                        @if($canEdit && in_array($selected->state, ['in_progress', 'completed'], true))
-                            <div class="mt-4 flex flex-col gap-2 sm:flex-row">
-                                <input wire:model="documentationPhoto" type="file" accept="image/*" capture="environment" class="min-w-0 flex-1 text-xs">
-                                <button wire:click="uploadDocumentation" class="rounded-lg bg-sky-600 px-4 py-2 text-xs font-bold text-white">{{ $selected->resultDocumentation ? 'Ganti foto hasil' : 'Simpan foto hasil' }}</button>
-                            </div>
-                        @endif
-                    </div>
 
                     @if($canEdit && $selected->state === 'in_progress') <div class="flex justify-end"><button wire:click="complete" class="rounded-xl bg-emerald-600 px-5 py-3 text-xs font-bold text-white">Selesaikan Persiapan</button></div> @endif
 

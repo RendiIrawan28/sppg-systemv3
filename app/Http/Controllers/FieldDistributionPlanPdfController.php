@@ -9,9 +9,14 @@ use Symfony\Component\HttpFoundation\Response;
 
 class FieldDistributionPlanPdfController extends Controller
 {
-    public function __invoke(Request $request, FieldDistributionPlan $fieldDistributionPlan): Response
-    {
-        $this->authorizeExport($request, $fieldDistributionPlan);
+    public function __invoke(
+        Request $request,
+        FieldDistributionPlan $fieldDistributionPlan
+    ): Response {
+        $this->authorizeExport(
+            $request,
+            $fieldDistributionPlan
+        );
 
         $fieldDistributionPlan->loadMissing([
             'sppgUnit',
@@ -21,19 +26,27 @@ class FieldDistributionPlanPdfController extends Controller
         ]);
 
         $filename = sprintf(
-            'rencana-distribusi-%s.pdf',
-            str_replace(['/', '\\'], '-', (string) $fieldDistributionPlan->plan_number)
+            'Rencana Distribusi Tanggal %s.pdf',
+            $fieldDistributionPlan->distribution_date?->format('d-m-Y')
         );
 
-        return Pdf::loadView('reports.field-distribution-plan-pdf', [
-            'plan' => $fieldDistributionPlan,
-        ])
+        return Pdf::loadView(
+            'reports.field-distribution-plan-pdf',
+            [
+                'plan' => $fieldDistributionPlan,
+            ]
+        )
             ->setPaper('a4', 'landscape')
             ->download($filename);
     }
 
-    private function authorizeExport(Request $request, FieldDistributionPlan $fieldDistributionPlan): void
-    {
-        $this->authorizeSystemRecord($fieldDistributionPlan, 'field_planning.export');
+    private function authorizeExport(
+        Request $request,
+        FieldDistributionPlan $fieldDistributionPlan
+    ): void {
+        $this->authorizeSystemRecord(
+            $fieldDistributionPlan,
+            'field_planning.export'
+        );
     }
 }

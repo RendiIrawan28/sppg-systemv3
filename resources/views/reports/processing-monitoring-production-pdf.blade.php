@@ -26,25 +26,24 @@
         .footer { margin-top: 12px; width: 100%; }
         .signature { width: 32%; text-align: center; font-size: 9px; }
         .signature-space { height: 38px; }
+        .summary { margin-top: 12px; }
+        .summary td { height: auto; padding: 5px 7px; }
+        .summary-label { width: 13%; font-weight: bold; background: #f1f5f9; }
+        .documentation-title { margin: 14px 0 7px; font-size: 11px; font-weight: bold; }
+        .photo-card { width: 33.33%; height: 150px; text-align: center; vertical-align: top; }
+        .photo { max-width: 100%; max-height: 112px; object-fit: contain; }
+        .caption { margin-top: 4px; font-size: 8px; }
     </style>
 </head>
 <body>
     @php
         $materials = $batch->materialUsages
+            ->where('source_type', 'manual')
             ->map(fn ($item) => (object) [
                 'material_name' => $item->material_name,
                 'quantity' => $item->quantity,
                 'unit_name' => $item->unit_name,
             ])
-            ->concat(
-                $batch->preparationOutputWithdrawals
-                    ->where('status', 'verified')
-                    ->map(fn ($withdrawal) => (object) [
-                        'material_name' => $withdrawal->output?->output_name.' (hasil Persiapan)',
-                        'quantity' => $withdrawal->verified_quantity,
-                        'unit_name' => $withdrawal->unit_snapshot,
-                    ]),
-            )
             ->values();
         $finishedOutputs = $batch->documentations
             ->where('documentation_type', 'finished_output')
@@ -102,6 +101,59 @@
             @endfor
         </tbody>
     </table>
+
+    <table class="summary">
+        <tr>
+            <td class="summary-label">Nomor Batch</td>
+            <td>{{ $batch->batch_number }}</td>
+            <td class="summary-label">Produk/Menu</td>
+            <td>{{ $batch->product_name ?: $batch->menu_name_snapshot }}</td>
+        </tr>
+        <tr>
+            <td class="summary-label">Jam Mulai</td>
+            <td>{{ $batch->started_at?->format('d-m-Y H:i') ?: '-' }}</td>
+            <td class="summary-label">Jam Selesai</td>
+            <td>{{ $batch->completed_at?->format('d-m-Y H:i') ?: '-' }}</td>
+        </tr>
+        <tr>
+            <td class="summary-label">Petugas</td>
+            <td>{{ $batch->petugas_name_snapshot ?: $batch->petugas?->name ?: '-' }}</td>
+            <td class="summary-label">Catatan</td>
+            <td>{{ $batch->notes ?: '-' }}</td>
+        </tr>
+    </table>
+
+    @if($finishedOutputs->isNotEmpty())
+        <div class="documentation-title">DOKUMENTASI HASIL PRODUKSI</div>
+        <table>
+            @foreach($finishedOutputs->chunk(3) as $photos)
+                <tr>
+                    @foreach($photos as $photo)
+                        @php
+                            $photoFile = $photo->photo_path ? storage_path('app/public/'.$photo->photo_path) : null;
+                            $photoSource = $photoFile && is_file($photoFile)
+                                ? 'data:'.(mime_content_type($photoFile) ?: 'image/jpeg').';base64,'.base64_encode(file_get_contents($photoFile))
+                                : null;
+                        @endphp
+                        <td class="photo-card">
+                            @if($photoSource)
+                                <img class="photo" src="{{ $photoSource }}" alt="Dokumentasi hasil produksi">
+                            @else
+                                Foto tidak tersedia
+                            @endif
+                            <div class="caption">
+                                {{ number_format((float) $photo->output_quantity, 3, ',', '.') }} {{ $photo->output_unit }}
+                                @if($photo->caption) — {{ $photo->caption }} @endif
+                            </div>
+                        </td>
+                    @endforeach
+                    @for($empty = $photos->count(); $empty < 3; $empty++)
+                        <td class="photo-card"></td>
+                    @endfor
+                </tr>
+            @endforeach
+        </table>
+    @endif
 
     <table class="footer">
         <tr>

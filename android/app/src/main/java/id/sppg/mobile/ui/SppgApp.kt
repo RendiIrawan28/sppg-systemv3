@@ -387,14 +387,11 @@ private fun AuthenticatedContent(
             moduleLabel = current.label,
             onBack = { screen = AppScreen.Dashboard },
             onLoad = {
-                if (operationalState.activeModule == it) {
-                    operationalViewModel.refreshRecords()
-                } else {
-                    operationalViewModel.loadRecords(
-                        it,
-                        date = if (it == "gudang-stok") null else LocalDate.now().toString(),
-                    )
-                }
+                operationalViewModel.loadRecords(
+                    it,
+                    force = true,
+                    date = if (it == "gudang-stok" || it == "pengolahan") null else LocalDate.now().toString(),
+                )
             },
             onRefresh = operationalViewModel::refreshRecords,
             onFilterChange = operationalViewModel::filterRecords,

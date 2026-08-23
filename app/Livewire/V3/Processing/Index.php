@@ -6,12 +6,14 @@ use App\Enums\OperationalReportStatus;
 use App\Enums\ProcessingBatchState;
 use App\Enums\ProcessingTemperatureCheckpoint;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
-use App\Models\FieldDistributionPlan;
+use App\Models\Ingredient;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingDocumentation;
-use App\Services\FieldOperationalPlanGenerator;
 use App\Services\ProcessingReturnService;
 use App\Services\ProcessingWorkflow;
+use App\Services\ProcessingPortioningHandoverService;
+use App\Services\PreparationOutputService;
+use App\Models\PreparationOutputWithdrawal;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -27,7 +29,9 @@ class Index extends Component
 
     public ?int $selectedId = null;
 
-    public string $selectedPlanId = '';
+    public string $newProductionDate = '';
+    public string $newProductName = '';
+    public array $manualMaterials = [];
 
     public string $cancellationReason = '';
 
@@ -55,11 +59,13 @@ class Index extends Component
     {
         $this->currentUnit();
         abort_unless($this->allowed('processing.view'), 403);
+        $this->newProductionDate = today()->format('Y-m-d');
     }
 
     public function select(int $id): void
     {
         $batch = $this->record($id)->load([
+            'materialUsages',
             'temperatureLogs',
             'documentations',
         ]);
@@ -97,6 +103,12 @@ class Index extends Component
             ])
             ->all();
         $this->temperaturePhotos = [];
+        $this->manualMaterials = $batch->materialUsages->where('source_type', 'manual')->values()->map(fn ($usage) => [
+            'id' => $usage->id, 'ingredient_id' => $usage->ingredient_id,
+            'material_name' => $usage->material_name, 'quantity' => $usage->quantity,
+            'unit_name' => $usage->unit_name, 'notes' => $usage->notes,
+        ])->all();
+        if ($batch->state === ProcessingBatchState::InProgress && $this->manualMaterials === []) $this->addManualMaterial();
         if ($batch->state === ProcessingBatchState::InProgress && $this->cookedProducts === []) {
             $this->addCookedProduct();
         }
@@ -105,11 +117,47 @@ class Index extends Component
         }
     }
 
+    public function addManualMaterial(): void
+    {
+        $this->manualMaterials[] = ['id' => null, 'ingredient_id' => null, 'material_name' => '', 'quantity' => '', 'unit_name' => '', 'notes' => ''];
+    }
+
+    public function removeManualMaterial(int $index): void
+    {
+        unset($this->manualMaterials[$index]);
+        $this->manualMaterials = array_values($this->manualMaterials);
+    }
+
+    public function createManualBatch(ProcessingWorkflow $workflow): void
+    {
+        abort_unless($this->allowed('processing.update'), 403);
+        $data = $this->validate([
+            'newProductionDate' => ['required', 'date'],
+            'newProductName' => ['required', 'string', 'max:255'],
+        ]);
+        $batch = DB::transaction(function () use ($data, $workflow): ProcessingBatch {
+            $batch = ProcessingBatch::create([
+                'sppg_unit_id' => $this->currentUnit()->getKey(),
+                'production_date' => $data['newProductionDate'],
+                'service_date' => $data['newProductionDate'],
+                'product_name' => trim($data['newProductName']),
+                'menu_name_snapshot' => trim($data['newProductName']),
+                'target_output_quantity' => 0,
+                'target_output_unit' => 'porsi',
+                'created_by' => auth()->id(), 'updated_by' => auth()->id(),
+            ]);
+
+            return $workflow->start($batch, auth()->user());
+        });
+        $this->newProductName = '';
+        $this->select($batch->getKey());
+    }
+
     public function addCookedProduct(): void
     {
         $this->cookedProducts[] = [
             'temperature_id' => null,
-            'product_name' => '',
+            'product_name' => $this->selectedId ? $this->record($this->selectedId)->product_name : '',
             'temperature_celsius' => '',
             'cooked_at' => now()->format('Y-m-d\TH:i'),
             'temperature_photo_path' => null,
@@ -167,6 +215,12 @@ class Index extends Component
             'finishedOutputDocumentations.*.caption' => ['nullable', 'string', 'max:255'],
             'finishedOutputDocumentations.*.captured_at' => ['required', 'date'],
             'finishedOutputPhotos.*' => ['nullable', 'image', 'max:5120'],
+            'manualMaterials' => ['required', 'array', 'min:1'],
+            'manualMaterials.*.ingredient_id' => ['nullable', 'integer'],
+            'manualMaterials.*.material_name' => ['required', 'string', 'max:255'],
+            'manualMaterials.*.quantity' => ['required', 'numeric', 'gt:0'],
+            'manualMaterials.*.unit_name' => ['required', 'string', 'max:80'],
+            'manualMaterials.*.notes' => ['nullable', 'string', 'max:1000'],
         ]);
 
         foreach ($this->cookedProducts as $index => $product) {
@@ -191,15 +245,30 @@ class Index extends Component
         try {
             DB::transaction(function () use ($batch, &$newPaths, &$oldPaths): void {
                 $batch->update([
-                    'product_name' => collect($this->cookedProducts)
-                        ->pluck('product_name')
-                        ->filter()
-                        ->implode(', '),
                     'notes' => filled($this->notes) ? trim($this->notes) : null,
                     'petugas_id' => $batch->petugas_id ?: auth()->id(),
                     'petugas_name_snapshot' => $batch->petugas_name_snapshot ?: auth()->user()->name,
                     'updated_by' => auth()->id(),
                 ]);
+
+                $keptMaterials = [];
+                foreach ($this->manualMaterials as $index => $material) {
+                    $usage = $batch->materialUsages()->updateOrCreate(
+                        ['id' => $material['id'] ?: null],
+                        [
+                            'source_type' => 'manual', 'source_id' => null, 'source_item_id' => null,
+                            'ingredient_id' => filled($material['ingredient_id']) ? $material['ingredient_id'] : null,
+                            'material_name' => trim($material['material_name']),
+                            'quantity' => $material['quantity'], 'unit_name' => trim($material['unit_name']),
+                            'source_reference' => 'Catatan pemakaian aktual',
+                            'received_by' => auth()->id(), 'received_at' => now(),
+                            'notes' => filled($material['notes']) ? trim($material['notes']) : null,
+                            'sort_order' => $index + 1,
+                        ],
+                    );
+                    $keptMaterials[] = $usage->id;
+                }
+                $batch->materialUsages()->where('source_type', 'manual')->whereNotIn('id', $keptMaterials)->delete();
 
                 $keptTemperatures = [];
                 foreach ($this->cookedProducts as $index => $product) {
@@ -324,30 +393,13 @@ class Index extends Component
         $this->select($batch->id);
     }
 
-    public function startSelectedPlan(
-        FieldOperationalPlanGenerator $generator,
-        ProcessingWorkflow $workflow,
-    ): void {
-        abort_unless($this->allowed('processing.update'), 403);
-        $data = $this->validate([
-            'selectedPlanId' => ['required', 'integer'],
-        ], [], ['selectedPlanId' => 'rencana produksi']);
-        $plan = FieldDistributionPlan::query()
-            ->where('sppg_unit_id', $this->currentUnit()->getKey())
-            ->where('status', 'activated')
-            ->findOrFail((int) $data['selectedPlanId']);
-        $batch = $generator->generateProcessingBatch($plan, auth()->user());
-        if ($batch->state === ProcessingBatchState::Planned) {
-            $batch = $workflow->start($batch, auth()->user());
-        } elseif ($batch->state !== ProcessingBatchState::InProgress) {
-            throw ValidationException::withMessages([
-                'selectedPlanId' => 'Rencana ini sudah memiliki batch Pengolahan yang tidak dapat dimulai kembali.',
-            ]);
-        }
-
-        $this->selectedPlanId = '';
-        $this->select($batch->getKey());
-        session()->flash('v3.status', 'Produksi dimulai. Silakan ambil bahan dari Gudang atau Hasil Persiapan.');
+    public function acceptPreparationOutput(int $withdrawalId, PreparationOutputService $service): void
+    {
+        $withdrawal = PreparationOutputWithdrawal::query()
+            ->where('processing_batch_id', $this->selectedId)->findOrFail($withdrawalId);
+        $service->verifyWithdrawal($withdrawal, auth()->user(), (float) $withdrawal->requested_quantity);
+        $this->select($this->selectedId);
+        session()->flash('v3.status', 'Hasil Persiapan diterima ke batch Pengolahan.');
     }
 
     public function cancel(ProcessingWorkflow $workflow): void
@@ -366,14 +418,14 @@ class Index extends Component
         session()->flash('v3.status', 'Produksi berhasil dibatalkan.');
     }
 
-    public function complete(ProcessingWorkflow $workflow): void
+    public function complete(ProcessingPortioningHandoverService $handover): void
     {
         $this->save();
-        $batch = $workflow->complete($this->record($this->selectedId), auth()->user());
+        $batch = $handover->completeAndHandover($this->record($this->selectedId), auth()->user());
         $this->select($batch->id);
         session()->flash(
             'v3.status',
-            'Pengolahan selesai. Data suhu dan hasil akhir telah tersimpan.',
+            'Batch selesai, dikunci, dan siap diterima Pemorsian.',
         );
     }
 
@@ -434,24 +486,12 @@ class Index extends Component
                 'temperatureLogs',
                 'documentations',
                 'petugas',
+                'portioningSession',
             ])
             ->where('sppg_unit_id', $unit->id)
             ->latest('production_date')
             ->latest('id')
             ->get();
-        $activePlans = FieldDistributionPlan::query()
-            ->with('processingBatch')
-            ->where('sppg_unit_id', $unit->id)
-            ->where('status', 'activated')
-            ->latest('production_date')
-            ->latest('id')
-            ->get()
-            ->filter(fn (FieldDistributionPlan $plan): bool => ! $plan->processingBatch
-                || in_array($plan->processingBatch->state, [
-                    ProcessingBatchState::Planned,
-                    ProcessingBatchState::InProgress,
-                ], true))
-            ->values();
         $selected = $this->selectedId
             ? $records->firstWhere('id', $this->selectedId)
             : null;
@@ -463,8 +503,14 @@ class Index extends Component
         return view('livewire.v3.processing.index', [
             ...$this->shellData($unit),
             'records' => $records,
-            'activePlans' => $activePlans,
             'selected' => $selected,
+            'ingredientSuggestions' => Ingredient::query()
+                ->with('measurementUnit')
+                ->where('sppg_unit_id', $unit->id)
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->limit(500)
+                ->get(),
             'cancellableBatchIds' => $cancellableBatchIds,
             'canEdit' => $this->allowed('processing.update'),
             'canSubmit' => $this->allowed('processing.submit'),

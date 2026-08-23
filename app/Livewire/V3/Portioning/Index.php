@@ -11,6 +11,10 @@ use App\Models\PortioningRouteRecord;
 use App\Models\PortioningSession;
 use App\Services\FieldOperationalPlanGenerator;
 use App\Services\PortioningWorkflow;
+use App\Services\ProcessingPortioningHandoverService;
+use App\Models\ProcessingBatch;
+use App\Models\PreparationOutputWithdrawal;
+use App\Services\PreparationOutputService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -115,6 +119,25 @@ class Index extends Component
         $session = $workflow->start($this->record($this->selectedId), auth()->user());
         $this->select($session->id);
         session()->flash('v3.status', 'Pemorsian dimulai. Catat rute pertama beserta jumlah dan dokumentasinya.');
+    }
+
+    public function receiveProcessingBatch(int $batchId, ProcessingPortioningHandoverService $service): void
+    {
+        abort_unless($this->allowed('portioning.update'), 403);
+        $session = $this->record($this->selectedId);
+        $batch = ProcessingBatch::query()->where('sppg_unit_id', $this->currentUnit()->getKey())->findOrFail($batchId);
+        $service->receive($batch, $session, auth()->user());
+        $this->select($session->getKey());
+        session()->flash('v3.status', 'Batch Pengolahan diterima dan tersedia untuk Pemorsian.');
+    }
+
+    public function acceptPreparationOutput(int $withdrawalId, PreparationOutputService $service): void
+    {
+        $withdrawal = PreparationOutputWithdrawal::query()
+            ->where('portioning_session_id', $this->selectedId)->findOrFail($withdrawalId);
+        $service->verifyWithdrawal($withdrawal, auth()->user(), (float) $withdrawal->requested_quantity);
+        $this->select($this->selectedId);
+        session()->flash('v3.status', 'Hasil Persiapan diterima ke sesi Pemorsian.');
     }
 
     public function createFromProductionPlan(
@@ -441,6 +464,7 @@ class Index extends Component
                 'routeRecords',
                 'leftoverRecords',
                 'supplies',
+                'processingBatches',
                 'petugas',
             ])
             ->where('sppg_unit_id', $unit->id)
@@ -448,6 +472,11 @@ class Index extends Component
             ->latest('id')
             ->get();
         $selected = $this->selectedId ? $records->firstWhere('id', $this->selectedId) : null;
+        $readyProcessingBatches = ProcessingBatch::query()
+            ->where('sppg_unit_id', $unit->id)
+            ->whereNotNull('portioning_handed_over_at')
+            ->whereNull('portioning_received_at')
+            ->latest('portioning_handed_over_at')->get();
         $routesRecorded = $this->routeRecords !== [];
         $leftoverDeclared = $this->leftoverMode === 'none'
             || ($this->leftoverMode === 'present' && $this->leftovers !== []);
@@ -460,6 +489,7 @@ class Index extends Component
             ...$this->shellData($unit),
             'records' => $records,
             'selected' => $selected,
+            'readyProcessingBatches' => $readyProcessingBatches,
             'productionPlans' => $productionPlans,
             'selectedProductionPlan' => $selectedProductionPlan,
             'routesRecorded' => $routesRecorded,

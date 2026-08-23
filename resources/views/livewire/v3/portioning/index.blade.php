@@ -106,6 +106,34 @@
                 @endphp
 
                 <section class="space-y-5">
+                    <section class="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+                        <h3 class="font-bold text-emerald-900">Batch Pengolahan Siap</h3>
+                        <p class="mt-1 text-xs text-emerald-700">Terima setiap batch secara terpisah. Target porsi tetap mengikuti rencana distribusi.</p>
+                        <div class="mt-3 space-y-2">
+                            @forelse($readyProcessingBatches as $batch)
+                                <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white p-3">
+                                    <div><b>{{ $batch->batch_number }} · {{ $batch->product_name }}</b><p class="text-xs text-slate-500">{{ number_format((float)$batch->actual_output_quantity, 3, ',', '.') }} {{ $batch->actual_output_unit }} · diserahkan {{ $batch->portioning_handed_over_at?->format('H:i') }}</p></div>
+                                    @if($canEdit && in_array($selected->state, [\App\Enums\PortioningSessionState::Planned, \App\Enums\PortioningSessionState::InProgress], true))<button wire:click="receiveProcessingBatch({{ $batch->id }})" class="rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white">Terima Batch</button>@endif
+                                </div>
+                            @empty
+                                <p class="rounded-xl bg-white p-3 text-xs text-slate-500">Belum ada batch baru yang diserahkan.</p>
+                            @endforelse
+                        </div>
+                    </section>
+                    @if($selected->processingBatches->isNotEmpty())
+                        <section class="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+                            <h3 class="font-bold text-sky-900">Batch Pengolahan Diterima</h3>
+                            <p class="mt-1 text-xs text-sky-700">Jumlah di bawah memakai hasil aktual dan satuan asli dari Pengolahan.</p>
+                            <div class="mt-3 grid gap-3 md:grid-cols-2">
+                                @foreach($selected->processingBatches as $batch)
+                                    <div class="rounded-xl bg-white p-4">
+                                        <b>{{ $batch->batch_number }} · {{ $batch->product_name }}</b>
+                                        <p class="mt-1 text-xs text-slate-500">{{ number_format((float) $batch->actual_output_quantity, 3, ',', '.') }} {{ $batch->actual_output_unit }} · diterima {{ $batch->portioning_received_at?->format('H:i') }}</p>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </section>
+                    @endif
                     <section class="rounded-[26px] bg-[#081d3a] p-5 text-white">
                         <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
                             <div>
@@ -155,7 +183,7 @@
                     @if($canEdit && $selected->state === \App\Enums\PortioningSessionState::InProgress)
                         <div class="grid gap-3 sm:grid-cols-2">
                             <a href="{{ route('v3.warehouse.withdrawals.index') }}" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-center text-sm font-bold text-sky-700">Ambil barang dari Gudang</a>
-                            <a href="{{ route('v3.preparation-outputs.index') }}" class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-700">Ambil hasil Persiapan</a>
+                            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-700">Hasil Persiapan yang diserahkan akan muncul otomatis</div>
                         </div>
                     @endif
 
@@ -163,7 +191,7 @@
                         <h3 class="font-bold text-slate-900">Barang dari Gudang</h3>
                         <p class="mt-1 text-xs text-slate-500">Barang langsung masuk ke sesi. Verifikasi Gudang dilakukan terpisah untuk menyesuaikan stok sistem.</p>
                         <div class="mt-4 grid gap-3 md:grid-cols-2">
-                            @forelse($selected->supplies as $supply)
+                            @forelse($selected->supplies->where('source_type', 'warehouse_withdrawal') as $supply)
                                 <div class="rounded-xl bg-slate-50 p-4"><b>{{ $supply->supply_name }}</b><p class="mt-1 text-xs text-slate-500">{{ number_format((float) $supply->quantity, 3, ',', '.') }} {{ $supply->unit_name }} · {{ $supply->source_reference ?: 'Pengambilan Gudang' }}</p></div>
                             @empty
                                 <div class="rounded-xl border border-dashed p-5 text-sm text-slate-500 md:col-span-2">Belum ada barang yang diambil dari Gudang.</div>
@@ -174,7 +202,6 @@
                     <section class="rounded-2xl border border-slate-200 bg-white p-5">
                         <div class="flex flex-wrap items-center justify-between gap-3">
                             <div><h3 class="font-bold text-slate-900">Hasil dari Divisi Persiapan</h3><p class="mt-1 text-xs text-slate-500">Buah atau bahan siap pakai yang telah diambil untuk sesi Pemorsian ini.</p></div>
-                            <a wire:navigate href="{{ route('v3.preparation-outputs.index') }}" class="rounded-xl border border-sky-200 px-4 py-2 text-xs font-bold text-sky-700">Ambil hasil Persiapan</a>
                         </div>
                         <div class="mt-4 grid gap-3 md:grid-cols-2">
                             @forelse($selected->preparationOutputWithdrawals->whereIn('status', [\App\Models\PreparationOutputWithdrawal::WAITING, \App\Models\PreparationOutputWithdrawal::VERIFIED]) as $withdrawal)
@@ -183,6 +210,7 @@
                                         <div><b>{{ $withdrawal->output?->output_name }}</b><p class="mt-1 text-xs text-slate-500">{{ number_format((float) $withdrawal->used_quantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }} · {{ $withdrawal->output?->storage_location ?: 'Lokasi tidak dicatat' }}</p></div>
                                         <span class="rounded-full px-2 py-1 text-[10px] font-bold {{ $withdrawal->status === \App\Models\PreparationOutputWithdrawal::VERIFIED ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700' }}">{{ $withdrawal->verification_status_label }}</span>
                                     </div>
+                                    @if($withdrawal->status === \App\Models\PreparationOutputWithdrawal::WAITING && $canEdit)<button wire:click="acceptPreparationOutput({{ $withdrawal->id }})" class="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Terima</button>@endif
                                 </div>
                             @empty
                                 <div class="rounded-xl border border-dashed p-5 text-sm text-slate-500 md:col-span-2">Belum ada hasil Persiapan yang diambil untuk sesi ini.</div>

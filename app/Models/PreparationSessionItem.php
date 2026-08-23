@@ -5,10 +5,11 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PreparationSessionItem extends Model
 {
-    protected $fillable = ['preparation_session_id', 'warehouse_withdrawal_item_id', 'ingredient_id', 'inventory_lot_id', 'ingredient_name_snapshot', 'unit_snapshot', 'received_quantity', 'processed_quantity', 'waste_quantity', 'condition_status', 'received_weight_kg', 'clean_weight_kg', 'waste_weight_kg', 'process_method', 'thawing_temperature_celsius', 'notes'];
+    protected $fillable = ['preparation_session_id', 'warehouse_withdrawal_item_id', 'ingredient_id', 'inventory_lot_id', 'ingredient_name_snapshot', 'unit_snapshot', 'received_quantity', 'processed_quantity', 'waste_quantity', 'condition_status', 'output_target_division', 'received_weight_kg', 'clean_weight_kg', 'waste_weight_kg', 'process_method', 'thawing_temperature_celsius', 'notes'];
 
     protected function casts(): array
     {
@@ -28,6 +29,16 @@ class PreparationSessionItem extends Model
     public function outputs(): HasMany
     {
         return $this->hasMany(PreparationOutput::class, 'preparation_session_item_id');
+    }
+
+    public function resultDocumentation(): HasOne
+    {
+        return $this->hasOne(PreparationDocumentation::class);
+    }
+
+    public function getResultPhotoPathAttribute(): ?string
+    {
+        return $this->resultDocumentation?->photo_path;
     }
 
 }

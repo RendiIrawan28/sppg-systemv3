@@ -15,7 +15,7 @@ class PreparationSessionCalculationPdfController extends Controller
         $this->authorizeSystemRecord($session, 'preparation.export');
         abort_unless($session->status === OperationalReportStatus::Verified, 409, 'Laporan hanya dapat diunduh setelah disetujui Kepala SPPG.');
 
-        $session->load(['sppgUnit', 'petugas', 'items.returns']);
+        $session->load(['sppgUnit', 'petugas', 'items.returns', 'items.resultDocumentation']);
 
         return Pdf::loadView('reports.preparation-session-calculation-pdf', [
             'session' => $session,

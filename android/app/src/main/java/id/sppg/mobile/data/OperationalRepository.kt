@@ -53,6 +53,7 @@ class OperationalRepository(
             status = status,
             dateFrom = date,
             dateTo = date,
+            view = if (module == "pengolahan" && date == null) "active" else null,
             page = page,
         )
         if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())

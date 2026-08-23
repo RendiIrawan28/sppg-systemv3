@@ -38,18 +38,19 @@ it('keeps preparation snapshots read only while exposing only operational inputs
     $definition = app(MobileWorkspaceRegistry::class)->definitions()['persiapan'];
     $parentFields = collect($definition['fields'])->keyBy('name');
     $itemFields = collect($definition['relations']['items']['fields'])->keyBy('name');
-    $documentationFields = collect($definition['relations']['resultDocumentation']['fields'])->keyBy('name');
 
     foreach (['preparation_date', 'purpose_reference', 'state', 'status', 'petugas_id', 'started_at', 'completed_at'] as $field) {
         expect($parentFields[$field]['editable'])->toBeFalse();
     }
-    foreach (['ingredient_name_snapshot', 'unit_snapshot', 'received_quantity', 'condition_status'] as $field) {
+    foreach (['ingredient_name_snapshot', 'unit_snapshot', 'received_quantity'] as $field) {
         expect($itemFields[$field]['editable'])->toBeFalse();
     }
 
-    expect($itemFields['processed_quantity']['editable'] ?? true)->toBeTrue()
+    expect($itemFields['condition_status']['editable'] ?? true)->toBeTrue()
+        ->and($itemFields['processed_quantity']['editable'] ?? true)->toBeTrue()
         ->and($itemFields['waste_quantity']['editable'] ?? true)->toBeTrue()
-        ->and($documentationFields['captured_at']['editable'])->toBeFalse();
+        ->and($itemFields['output_target_division']['editable'] ?? true)->toBeTrue()
+        ->and($itemFields['result_photo_path']['type'])->toBe('file');
 });
 
 it('locks preparation reports after submission and approval', function (): void {
@@ -66,16 +67,16 @@ it('locks preparation reports after submission and approval', function (): void 
     expect($session->isReportEditable())->toBeFalse();
 });
 
-it('uses guided dropdowns for preparation output instead of manual name and unit', function (): void {
-    $fields = collect(app(MobileWorkspaceRegistry::class)->definitions()['hasil-persiapan']['fields'])
-        ->keyBy('name');
+it('keeps preparation output internal and exposes destination on each prepared item', function (): void {
+    $definitions = app(MobileWorkspaceRegistry::class)->definitions();
+    $fields = collect($definitions['persiapan']['relations']['items']['fields'])->keyBy('name');
 
-    expect($fields['preparation_session_item_id']['type'])->toBe('select')
-        ->and($fields['preparation_session_item_id']['options'])->toBe('preparation_session_items')
-        ->and($fields['output_name']['editable'])->toBeFalse()
-        ->and($fields['unit_snapshot']['editable'])->toBeFalse()
-        ->and($fields['target_division']['type'])->toBe('select')
-        ->and($fields['storage_location']['type'])->toBe('select');
+    expect($definitions)->not->toHaveKey('hasil-persiapan')
+        ->and($fields['output_target_division']['type'])->toBe('select')
+        ->and($fields['output_target_division']['options'])->toBe([
+            'processing' => 'Pengolahan',
+            'portioning' => 'Pemorsian',
+        ]);
 });
 
 it('allows daily reports to be regenerated from mobile', function (): void {

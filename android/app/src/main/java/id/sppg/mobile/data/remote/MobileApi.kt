@@ -102,6 +102,7 @@ interface MobileApi {
         @Query("status") status: String? = null,
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,
+        @Query("view") view: String? = null,
         @Query("per_page") perPage: Int = 50,
         @Query("page") page: Int = 1,
     ): Response<OperationalRecordsResponse>

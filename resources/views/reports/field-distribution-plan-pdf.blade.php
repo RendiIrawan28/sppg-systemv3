@@ -110,7 +110,6 @@
     <table class="signatures">
         <tr>
             <td>Disusun oleh,<br>Asisten Lapangan<div class="space"></div><strong>{{ $plan->creator?->name ?? '________________' }}</strong></td>
-            <td>Diperiksa oleh,<br>Admin / Koordinator<div class="space"></div><strong>________________</strong></td>
             <td>Disetujui oleh,<br>Kepala SPPG<div class="space"></div><strong>{{ $plan->approver?->name ?? '________________' }}</strong></td>
         </tr>
     </table>

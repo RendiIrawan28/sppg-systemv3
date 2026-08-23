@@ -7,6 +7,7 @@ use App\Models\PortioningSession;
 use App\Models\PreparationOutput;
 use App\Models\PreparationOutputWithdrawal;
 use App\Models\PreparationSession;
+use App\Models\ProcessingBatch;
 use App\Models\SppgUnit;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
@@ -277,4 +278,80 @@ it('shows direct leftover choices and opens leftover entry only when food remain
         ->toBe('Tidak ada sisa makanan');
     expect(collect($none->json('data.sections'))->firstWhere('key', 'leftoverRecords')['can_create'])
         ->toBeFalse();
+});
+
+it('receives one completed processing batch while another batch remains in progress', function (): void {
+    [$unit, $user, $plan] = portioningTestContext('MULTIBATCH');
+    $session = app(FieldOperationalPlanGenerator::class)->generatePortioningSession($plan, $user);
+    $batch = ProcessingBatch::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'production_date' => today(),
+        'service_date' => today(),
+        'menu_name_snapshot' => 'Ayam Bumbu Kuning',
+        'product_name' => 'Ayam Bumbu Kuning',
+        'target_output_quantity' => 1100,
+        'target_output_unit' => 'pack',
+        'state' => 'in_progress',
+        'status' => 'draft',
+        'petugas_id' => $user->id,
+        'petugas_name_snapshot' => $user->name,
+        'started_at' => now()->subHour(),
+    ]);
+    $batch->materialUsages()->create([
+        'source_type' => 'manual',
+        'material_name' => 'Ayam',
+        'quantity' => 50,
+        'unit_name' => 'kg',
+        'received_by' => $user->id,
+        'received_at' => now(),
+    ]);
+    $batch->temperatureLogs()->create([
+        'checked_at' => now(),
+        'checkpoint' => 'final',
+        'product_name' => 'Ayam Bumbu Kuning',
+        'temperature_celsius' => 76.5,
+        'measured_by' => $user->id,
+        'measured_name_snapshot' => $user->name,
+        'photo_path' => 'processing/temperature/ayam.jpg',
+    ]);
+    $batch->documentations()->create([
+        'documentation_type' => 'finished_output',
+        'caption' => 'Hasil ayam matang',
+        'output_quantity' => 1080,
+        'output_unit' => 'pack',
+        'photo_path' => 'processing/output/ayam.jpg',
+        'captured_at' => now(),
+        'created_by' => $user->id,
+    ]);
+    $batch->recalculateTotals();
+    $otherBatch = ProcessingBatch::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'production_date' => today(),
+        'service_date' => today(),
+        'menu_name_snapshot' => 'Sayur',
+        'product_name' => 'Sayur',
+        'target_output_quantity' => 100,
+        'target_output_unit' => 'pack',
+        'state' => 'in_progress',
+        'status' => 'draft',
+        'petugas_id' => $user->id,
+        'started_at' => now(),
+    ]);
+
+    Sanctum::actingAs($user, ['mobile']);
+    $this->postJson("/api/mobile/operational-modules/pengolahan/records/{$batch->id}/actions/complete", [
+        'fields' => [],
+    ])->assertOk();
+
+    $this->postJson("/api/mobile/operational-modules/pemorsian/records/{$session->id}/actions/receive_processing_batch", [
+        'fields' => ['processing_batch_id' => $batch->id],
+    ])->assertOk();
+
+    $supply = $session->supplies()->where('source_type', 'processing_batch')->sole();
+    expect($batch->refresh()->portioning_received_at)->not->toBeNull()
+        ->and($batch->portioning_session_id)->toBe($session->id)
+        ->and($session->refresh()->state)->toBe(PortioningSessionState::InProgress)
+        ->and((float) $supply->quantity)->toBe(1080.0)
+        ->and($supply->unit_name)->toBe('pack')
+        ->and($otherBatch->refresh()->state->value)->toBe('in_progress');
 });

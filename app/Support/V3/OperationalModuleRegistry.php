@@ -63,7 +63,8 @@ final class OperationalModuleRegistry
                     'materialUsages' => $this->relation('Bahan baku digunakan', [
                         $this->field('ingredient_id', 'Bahan', 'select', false, 'ingredients'), $this->field('material_name', 'Nama bahan', 'text', true),
                         $this->field('quantity', 'Jumlah', 'number', true), $this->field('measurement_unit_id', 'Satuan master', 'select', false, 'measurement_units'),
-                        $this->field('unit_name', 'Nama satuan', 'text', true), $this->field('sort_order', 'Urutan', 'number'), $this->field('notes', 'Catatan', 'textarea'),
+                        $this->field('unit_name', 'Nama satuan', 'text', true), $this->field('source_reference', 'Sumber pencatatan'),
+                        $this->field('sort_order', 'Urutan', 'number'), $this->field('notes', 'Catatan', 'textarea'),
                     ]),
                     'temperatureLogs' => $this->relation('Pemantauan suhu', [
                         $this->field('checked_at', 'Waktu makanan matang', 'datetime', true),

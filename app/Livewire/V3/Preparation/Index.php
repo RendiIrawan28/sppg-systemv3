@@ -5,13 +5,17 @@ namespace App\Livewire\V3\Preparation;
 use App\Enums\OperationalReportStatus;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\PreparationSession;
+use App\Models\ProcessingBatch;
+use App\Models\PortioningSession;
 use App\Services\PreparationReturnService;
+use App\Services\PreparationOutputService;
 use App\Services\PreparationSessionService;
+use App\Services\PreparationWasteReportSyncService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
 use Livewire\WithFileUploads;
-use Throwable;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 class Index extends Component
 {
@@ -23,13 +27,15 @@ class Index extends Component
 
     public string $notes = '';
 
-    public mixed $documentationPhoto = null;
+    public array $itemPhotos = [];
 
     public string $reviewNotes = '';
 
     public array $returnQuantities = [];
 
     public array $returnReasons = [];
+    public array $handoverTargets = [];
+    public array $handoverQuantities = [];
 
     public function mount(): void
     {
@@ -39,18 +45,24 @@ class Index extends Component
 
     public function select(int $id): void
     {
-        $session = $this->record($id)->load('items');
+        $session = $this->record($id)->load('items.outputs');
         $this->selectedId = $id;
         $this->notes = (string) $session->notes;
         $this->reviewNotes = (string) $session->review_notes;
         $this->items = $session->items->mapWithKeys(fn ($item) => [$item->id => [
             'processed_quantity' => $item->processed_quantity ?? $item->clean_weight_kg ?? '',
             'waste_quantity' => $item->waste_quantity ?? $item->waste_weight_kg ?? '',
+            'condition_status' => $item->condition_status ?: 'good',
+            'target_division' => $item->output_target_division ?: $item->outputs->first()?->target_division ?: 'processing',
             'notes' => $item->notes ?? '',
         ]])->all();
+        $this->itemPhotos = [];
     }
 
-    public function save(): void
+    public function save(
+        PreparationOutputService $outputs,
+        PreparationWasteReportSyncService $wasteReports,
+    ): void
     {
         abort_unless($this->allowed('preparation.update'), 403);
         $session = $this->record($this->selectedId);
@@ -58,11 +70,16 @@ class Index extends Component
         $this->validate([
             'items.*.processed_quantity' => ['nullable', 'numeric', 'gte:0'],
             'items.*.waste_quantity' => ['nullable', 'numeric', 'gte:0'],
+            'items.*.condition_status' => ['required', 'in:good,fair,damaged'],
+            'items.*.target_division' => ['required', 'in:processing,portioning'],
             'items.*.notes' => ['nullable', 'string', 'max:1000'],
+            'itemPhotos.*' => ['nullable', 'image', 'max:5120'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        DB::transaction(function () use ($session): void {
+        $newPaths = [];
+        $oldPaths = [];
+        DB::transaction(function () use ($session, &$newPaths, &$oldPaths): void {
             foreach ($session->items as $item) {
                 $row = $this->items[$item->id] ?? [];
                 $processed = filled($row['processed_quantity'] ?? null) ? $row['processed_quantity'] : null;
@@ -70,14 +87,35 @@ class Index extends Component
                 $item->update([
                     'processed_quantity' => $processed,
                     'waste_quantity' => $waste,
-                    'condition_status' => 'good',
+                    'condition_status' => $row['condition_status'] ?? 'good',
+                    'output_target_division' => $row['target_division'] ?? 'processing',
                     'clean_weight_kg' => $item->unit_snapshot === 'kg' ? $processed : 0,
                     'waste_weight_kg' => $item->unit_snapshot === 'kg' ? $waste : 0,
                     'notes' => filled($row['notes'] ?? null) ? trim($row['notes']) : null,
                 ]);
+                $upload = $this->itemPhotos[$item->id] ?? null;
+                if ($upload instanceof TemporaryUploadedFile) {
+                    $path = $upload->store('preparation/items/'.today()->format('Y/m/d'), 'public');
+                    $newPaths[] = $path;
+                    $existing = $item->resultDocumentation;
+                    if ($existing?->photo_path) $oldPaths[] = $existing->photo_path;
+                    $item->resultDocumentation()->updateOrCreate([], [
+                        'preparation_session_id' => $session->id,
+                        'photo_path' => $path,
+                        'captured_at' => now(),
+                        'created_by' => auth()->id(),
+                    ]);
+                }
             }
             $session->update(['notes' => filled($this->notes) ? trim($this->notes) : null]);
         });
+        Storage::disk('public')->delete(array_diff($oldPaths, $newPaths));
+        $session->refresh();
+        $outputs->syncSessionOutputs($session, auth()->user(), collect($this->items)->mapWithKeys(
+            fn ($row, $id) => [(int) $id => $row['target_division'] ?? 'processing']
+        )->all());
+        $wasteReports->sync($session, auth()->user());
+        $this->itemPhotos = [];
         session()->flash('v3.status', 'Data Persiapan disimpan.');
     }
 
@@ -85,33 +123,6 @@ class Index extends Component
     {
         $service->start($this->record($this->selectedId), auth()->user());
         $this->select($this->selectedId);
-    }
-
-    public function uploadDocumentation(): void
-    {
-        abort_unless($this->allowed('preparation.update'), 403);
-        $data = $this->validate([
-            'documentationPhoto' => ['required', 'image', 'max:5120'],
-        ]);
-        $session = $this->record($this->selectedId);
-        abort_unless(in_array($session->state, ['in_progress', 'completed'], true), 422);
-        $path = $data['documentationPhoto']->store('preparation/'.today()->format('Y/m/d'), 'public');
-        $existing = $session->resultDocumentation;
-        try {
-            $session->resultDocumentation()->updateOrCreate([], [
-                'photo_path' => $path,
-                'captured_at' => now(),
-                'created_by' => auth()->id(),
-            ]);
-        } catch (Throwable $exception) {
-            Storage::disk('public')->delete($path);
-            throw $exception;
-        }
-        if ($existing?->photo_path && $existing->photo_path !== $path) {
-            Storage::disk('public')->delete($existing->photo_path);
-        }
-        $this->reset('documentationPhoto');
-        session()->flash('v3.status', 'Foto hasil Persiapan disimpan.');
     }
 
     public function submitReturn(int $itemId, PreparationReturnService $service): void
@@ -140,9 +151,28 @@ class Index extends Component
 
     public function complete(PreparationSessionService $service): void
     {
-        $this->save();
+        $this->save(app(PreparationOutputService::class), app(PreparationWasteReportSyncService::class));
         $service->complete($this->record($this->selectedId), auth()->user());
         $this->select($this->selectedId);
+    }
+
+    public function handoverOutput(int $itemId, PreparationOutputService $service): void
+    {
+        $session = $this->record($this->selectedId)->load('items.outputs');
+        $item = $session->items->firstWhere('id', $itemId);
+        $output = $item?->outputs->first();
+        abort_unless($output && $session->state === 'completed', 422);
+        $targetId = (int) ($this->handoverTargets[$itemId] ?? 0);
+        $quantity = (float) ($this->handoverQuantities[$itemId] ?? $output->available_quantity);
+        $service->requestWithdrawal($output, auth()->user(), [
+            'destination_division' => $output->target_division,
+            'requested_quantity' => $quantity,
+            'processing_batch_id' => $output->target_division === 'processing' ? $targetId : null,
+            'portioning_session_id' => $output->target_division === 'portioning' ? $targetId : null,
+            'notes' => 'Diserahkan oleh Divisi Persiapan.',
+        ]);
+        unset($this->handoverTargets[$itemId], $this->handoverQuantities[$itemId]);
+        session()->flash('v3.status', 'Hasil siap diserahkan dan menunggu diterima divisi tujuan.');
     }
 
     public function submit(PreparationSessionService $service): void
@@ -167,7 +197,7 @@ class Index extends Component
     public function render()
     {
         $unit = $this->currentUnit();
-        $records = PreparationSession::with(['items.returns', 'resultDocumentation', 'withdrawal.taker', 'wasteHandoverReport'])
+        $records = PreparationSession::with(['items.returns', 'items.resultDocumentation', 'items.outputs', 'withdrawal.taker', 'wasteHandoverReport'])
             ->where('sppg_unit_id', $unit->id)->latest()->get();
         $selected = $this->selectedId ? $records->firstWhere('id', $this->selectedId) : null;
 
@@ -180,6 +210,8 @@ class Index extends Component
             'canApprove' => $this->allowed('preparation.approve'),
             'canExport' => $this->allowed('preparation.export'),
             'statusLabels' => OperationalReportStatus::options(),
+            'processingTargets' => ProcessingBatch::query()->where('sppg_unit_id', $unit->id)->where('state', 'in_progress')->pluck('batch_number', 'id'),
+            'portioningTargets' => PortioningSession::query()->where('sppg_unit_id', $unit->id)->where('state', 'in_progress')->pluck('session_number', 'id'),
         ])->layout('layouts.v3', ['title' => 'Persiapan']);
     }
 

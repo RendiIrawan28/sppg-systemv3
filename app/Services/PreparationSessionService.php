@@ -66,7 +66,7 @@ class PreparationSessionService
     {
         abort_unless($actor->can('preparation.update'), 403);
         DB::transaction(function () use ($session, $actor): void {
-            $session = PreparationSession::query()->lockForUpdate()->with('items.returns', 'resultDocumentation', 'withdrawal')->findOrFail($session->id);
+            $session = PreparationSession::query()->lockForUpdate()->with('items.returns', 'items.resultDocumentation', 'withdrawal')->findOrFail($session->id);
             if ($session->state !== 'in_progress') {
                 throw ValidationException::withMessages(['state' => 'Sesi belum dikerjakan.']);
             }
@@ -74,17 +74,15 @@ class PreparationSessionService
                 $received = (float) ($item->received_quantity ?? $item->received_weight_kg);
                 $clean = (float) ($item->processed_quantity ?? $item->clean_weight_kg);
                 $waste = (float) ($item->waste_quantity ?? $item->waste_weight_kg);
-                if ($item->returns->where('status', PreparationReturn::WAITING)->isNotEmpty()) {
-                    throw ValidationException::withMessages(['items' => "Retur {$item->ingredient_name_snapshot} masih menunggu verifikasi Gudang."]);
-                }
                 $returned = (float) $item->returns->where('status', PreparationReturn::VERIFIED)->sum('actual_quantity');
+                $returned += (float) $item->returns->where('status', PreparationReturn::WAITING)->sum('requested_quantity');
                 if ($clean < 0 || $waste < 0 || abs(($clean + $waste + $returned) - $received) > 0.01) {
                     throw ValidationException::withMessages(['items' => "Jumlah hasil + sisa + retur {$item->ingredient_name_snapshot} harus sama dengan jumlah diterima."]);
                 }
             }
 
-            if (! $session->resultDocumentation) {
-                throw ValidationException::withMessages(['documentations' => 'Foto hasil Persiapan wajib tersedia.']);
+            if ($session->items->contains(fn ($item): bool => (float) $item->processed_quantity > 0 && ! $item->resultDocumentation)) {
+                throw ValidationException::withMessages(['documentations' => 'Setiap bahan yang menghasilkan Hasil Siap wajib memiliki foto.']);
             }
 
             $session->update(['state' => 'completed', 'completed_at' => now()]);
@@ -98,8 +96,8 @@ class PreparationSessionService
         DB::transaction(function () use ($session, $actor): void {
             $session = PreparationSession::query()->with(['items', 'wasteHandoverReport'])->lockForUpdate()->findOrFail($session->id);
             $hasWaste = $session->items->sum(fn ($item): float => (float) ($item->waste_quantity ?? $item->waste_weight_kg)) > 0;
-            if ($hasWaste && ! $session->wasteHandoverReport?->isOperationallyUsable()) {
-                throw ValidationException::withMessages(['waste' => 'Berita acara limbah harus dibuat dan diajukan sebelum laporan Persiapan diajukan.']);
+            if ($hasWaste && ! $session->wasteHandoverReport) {
+                throw ValidationException::withMessages(['waste' => 'Berita acara limbah otomatis belum tersedia. Simpan data Persiapan terlebih dahulu.']);
             }
             if ($session->state !== 'completed'
                 || ! in_array($session->status, [OperationalReportStatus::Draft, OperationalReportStatus::RevisionRequired], true)) {

@@ -34,6 +34,11 @@
         .signature-title { font-weight: bold; }
         .signature-space { height: 53px; }
         .signature-name { white-space: nowrap; }
+        .documentation-title { margin: 18px 0 7px; font-size: 11px; font-weight: bold; }
+        .photo-grid { table-layout: fixed; }
+        .photo-card { width: 33.33%; height: 145px; border: .7px solid #111; padding: 5px; text-align: center; vertical-align: top; }
+        .photo { max-width: 100%; max-height: 104px; object-fit: contain; }
+        .photo-caption { margin-top: 4px; font-size: 8px; }
     </style>
 </head>
 <body>
@@ -102,6 +107,41 @@
             @endfor
         </tbody>
     </table>
+
+    @php
+        $documentedItems = $session->items->filter(fn ($item) => filled($item->resultDocumentation?->photo_path))->values();
+    @endphp
+    @if($documentedItems->isNotEmpty())
+        <div class="documentation-title">DOKUMENTASI HASIL PERSIAPAN PER BAHAN</div>
+        <table class="photo-grid">
+            @foreach($documentedItems->chunk(3) as $photos)
+                <tr>
+                    @foreach($photos as $item)
+                        @php
+                            $photoFile = storage_path('app/public/'.$item->resultDocumentation->photo_path);
+                            $photoSource = is_file($photoFile)
+                                ? 'data:'.(mime_content_type($photoFile) ?: 'image/jpeg').';base64,'.base64_encode(file_get_contents($photoFile))
+                                : null;
+                        @endphp
+                        <td class="photo-card">
+                            @if($photoSource)
+                                <img class="photo" src="{{ $photoSource }}" alt="Hasil Persiapan {{ $item->ingredient_name_snapshot }}">
+                            @else
+                                Foto tidak tersedia
+                            @endif
+                            <div class="photo-caption">
+                                <strong>{{ $item->ingredient_name_snapshot }}</strong><br>
+                                Hasil siap: {{ number_format((float) $item->processed_quantity, 3, ',', '.') }} {{ $item->unit_snapshot }}
+                            </div>
+                        </td>
+                    @endforeach
+                    @for($empty = $photos->count(); $empty < 3; $empty++)
+                        <td class="photo-card"></td>
+                    @endfor
+                </tr>
+            @endforeach
+        </table>
+    @endif
 
     <div class="signature">
         <div class="signature-title">Dihitung Oleh</div>

@@ -42,6 +42,11 @@ class PreparationSession extends Model
         return $this->hasOne(PreparationDocumentation::class);
     }
 
+    public function resultDocumentations(): HasMany
+    {
+        return $this->hasMany(PreparationDocumentation::class);
+    }
+
     public function histories(): HasMany
     {
         return $this->hasMany(PreparationHistory::class)->latest();
@@ -60,6 +65,16 @@ class PreparationSession extends Model
     public function outputs(): HasMany
     {
         return $this->hasMany(PreparationOutput::class, 'preparation_session_id');
+    }
+
+    public function getWasteReportNumberAttribute(): ?string
+    {
+        return $this->wasteHandoverReport?->report_number;
+    }
+
+    public function getWasteReportStatusAttribute(): ?string
+    {
+        return $this->wasteHandoverReport?->status?->label();
     }
 
     public function isReportEditable(): bool
