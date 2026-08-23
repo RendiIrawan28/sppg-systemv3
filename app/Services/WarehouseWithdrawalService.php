@@ -92,9 +92,11 @@ class WarehouseWithdrawalService
             $referenceType,
             $referenceId,
         );
+        $warehouse = Warehouse::forUnit($unitId, Warehouse::TYPE_FOOD);
 
         return WarehouseWithdrawal::query()->create([
             'sppg_unit_id' => $unitId,
+            'warehouse_id' => $warehouse->getKey(),
             'withdrawal_date' => today(),
             'division_code' => $divisionCode,
             'reference_type' => $referenceType,
@@ -206,6 +208,8 @@ class WarehouseWithdrawalService
             $lot = InventoryLot::query()
                 ->with('ingredient.measurementUnit')
                 ->where('sppg_unit_id', $withdrawal->sppg_unit_id)
+                ->where('warehouse_id', $withdrawal->warehouse_id)
+                ->whereNotNull('ingredient_id')
                 ->lockForUpdate()
                 ->findOrFail($inventoryLotId);
             $this->assertLotCanBeWithdrawn($lot, $quantity, $this->availableQuantity($lot, $withdrawal->getKey()));
@@ -332,6 +336,7 @@ class WarehouseWithdrawalService
             }
 
             [$referenceType, $referenceNumber] = $this->resolveReference($unitId, $divisionCode, $referenceType, $referenceId);
+            $warehouse = Warehouse::forUnit($unitId, Warehouse::TYPE_FOOD);
 
             $rowCollection = collect($rows);
             $requestedByLot = $rowCollection->mapWithKeys(
@@ -348,6 +353,8 @@ class WarehouseWithdrawalService
             $lots = InventoryLot::query()
                 ->with('ingredient.measurementUnit')
                 ->where('sppg_unit_id', $unitId)
+                ->where('warehouse_id', $warehouse->getKey())
+                ->whereNotNull('ingredient_id')
                 ->whereIn('id', $requestedByLot->keys())
                 ->lockForUpdate()
                 ->get()
@@ -373,6 +380,7 @@ class WarehouseWithdrawalService
 
             $withdrawal = WarehouseWithdrawal::query()->create([
                 'sppg_unit_id' => $unitId,
+                'warehouse_id' => $warehouse->getKey(),
                 'withdrawal_date' => today(),
                 'division_code' => $divisionCode,
                 'reference_type' => $referenceType,
@@ -416,6 +424,14 @@ class WarehouseWithdrawalService
         if (! in_array($withdrawal->division_code, $allowedDivisions, true) || ! $withdrawal->items()->exists()) {
             throw ValidationException::withMessages(['items' => 'Divisi dan minimal satu bahan wajib diisi.']);
         }
+        if (! $withdrawal->warehouse_id) {
+            $withdrawal->warehouse_id = Warehouse::forUnit(
+                (int) $withdrawal->sppg_unit_id,
+                $withdrawal->reference_type === 'non_food_operational'
+                    ? Warehouse::TYPE_NON_FOOD
+                    : Warehouse::TYPE_FOOD,
+            )->getKey();
+        }
         $withdrawal->update(['status' => WarehouseWithdrawal::WAITING, 'submitted_at' => now(), 'decision_notes' => null]);
         $withdrawal = $withdrawal->refresh()->load('items');
         if (! $isNonFood) {
@@ -434,6 +450,16 @@ class WarehouseWithdrawalService
             $withdrawal = WarehouseWithdrawal::query()->lockForUpdate()->with('items')->findOrFail($withdrawal->id);
             if ($withdrawal->status !== WarehouseWithdrawal::WAITING) {
                 throw ValidationException::withMessages(['status' => 'Pengambilan tidak sedang menunggu verifikasi Gudang.']);
+            }
+            if (! $withdrawal->warehouse_id) {
+                $withdrawal->warehouse_id = Warehouse::forUnit(
+                    (int) $withdrawal->sppg_unit_id,
+                    $withdrawal->reference_type === 'non_food_operational'
+                        ? Warehouse::TYPE_NON_FOOD
+                        : Warehouse::TYPE_FOOD,
+                )->getKey();
+                $withdrawal->save();
+                $withdrawal->unsetRelation('warehouse');
             }
 
             $lots = InventoryLot::query()

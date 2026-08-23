@@ -89,6 +89,15 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
+private val activeAcrossDatesModules = setOf(
+    "persiapan",
+    "pengolahan",
+    "pemorsian",
+    "distribusi",
+    "pencucian",
+    "kebersihan",
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OperationalRecordListScreen(
@@ -186,7 +195,7 @@ fun OperationalRecordListScreen(
                 item {
                     WorkHistoryTabs(showHistory) { history ->
                         showHistory = history
-                        onFilterChange(null, if (module in setOf("gudang-stok", "pengolahan") && !history) null else {
+                        onFilterChange(null, if (module in activeAcrossDatesModules && !history) null else {
                             (if (history) historyDate else LocalDate.now()).format(apiDateFormatter)
                         })
                     }

@@ -92,6 +92,12 @@ class MobileOperationalController extends Controller
                 $query = $model::query()->where('sppg_unit_id', $systemUnit->id());
                 $this->applyDefinitionScope($query, $definition);
                 $this->applyDistributionActorScope($query, $slug, $request->user());
+                $currentWorkQuery = clone $query;
+                if (in_array($slug, ['persiapan', 'pengolahan', 'pemorsian', 'distribusi', 'pencucian', 'kebersihan'], true)) {
+                    $this->applyActiveWorkflowScope($currentWorkQuery, $slug, $definition);
+                } else {
+                    $currentWorkQuery->whereDate($definition['date'], $today);
+                }
 
                 return [
                     'slug' => $slug,
@@ -99,7 +105,7 @@ class MobileOperationalController extends Controller
                     'description' => $definition['description'],
                     'permission' => $definition['permission'],
                     'record_count' => $query->count(),
-                    'today_count' => (clone $query)->whereDate($definition['date'], $today)->count(),
+                    'today_count' => $currentWorkQuery->count(),
                     'can_create' => ($definition['allow_create'] ?? true)
                         && $request->user()->can($definition['permission'].'.create'),
                     'form_fields' => $this->formFields(
@@ -153,7 +159,7 @@ class MobileOperationalController extends Controller
             'view' => ['nullable', Rule::in(['active'])],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
-        $includeCrossDayProcessing = $module === 'pengolahan'
+        $includeCrossDayWorkflow = in_array($module, ['persiapan', 'pengolahan', 'pemorsian'], true)
             && blank($filters['view'] ?? null)
             && ($filters['date_from'] ?? null) === now()->toDateString()
             && ($filters['date_to'] ?? null) === now()->toDateString();
@@ -172,28 +178,22 @@ class MobileOperationalController extends Controller
             })
             ->when($filters['status'] ?? null, fn (Builder $query, string $status) => $query
                 ->where('status', $status))
-            ->when($filters['date_from'] ?? null, function (Builder $query, string $date) use ($definition, $includeCrossDayProcessing): void {
-                $includeCrossDayProcessing
+            ->when($filters['date_from'] ?? null, function (Builder $query, string $date) use ($definition, $includeCrossDayWorkflow): void {
+                $includeCrossDayWorkflow
                     ? $query->where(fn (Builder $dateQuery) => $dateQuery
                         ->whereDate($definition['date'], '>=', $date)
                         ->orWhere('state', 'in_progress'))
                     : $query->whereDate($definition['date'], '>=', $date);
             })
-            ->when($filters['date_to'] ?? null, function (Builder $query, string $date) use ($definition, $includeCrossDayProcessing): void {
-                $includeCrossDayProcessing
+            ->when($filters['date_to'] ?? null, function (Builder $query, string $date) use ($definition, $includeCrossDayWorkflow): void {
+                $includeCrossDayWorkflow
                     ? $query->where(fn (Builder $dateQuery) => $dateQuery
                         ->whereDate($definition['date'], '<=', $date)
                         ->orWhere('state', 'in_progress'))
                     : $query->whereDate($definition['date'], '<=', $date);
             });
-        if ($module === 'pengolahan' && ($filters['view'] ?? null) === 'active') {
-            $query->where(function (Builder $activeQuery) use ($definition): void {
-                $activeQuery->where('state', 'in_progress')
-                    ->orWhere(function (Builder $plannedQuery) use ($definition): void {
-                        $plannedQuery->where('state', 'planned')
-                            ->whereDate($definition['date'], now()->toDateString());
-                    });
-            });
+        if (($filters['view'] ?? null) === 'active') {
+            $this->applyActiveWorkflowScope($query, $module, $definition);
         }
         $this->applyDefinitionScope($query, $definition);
         $this->applyDistributionActorScope($query, $module, $request->user());
@@ -1414,6 +1414,39 @@ class MobileOperationalController extends Controller
         }
     }
 
+    /** @param array<string, mixed> $definition */
+    private function applyActiveWorkflowScope(Builder $query, string $module, array $definition): void
+    {
+        $activeStates = match ($module) {
+            'persiapan', 'pengolahan', 'pemorsian' => ['planned', 'in_progress'],
+            'distribusi' => ['planned', 'assigned', 'loaded', 'departed', 'destinations_completed'],
+            'pencucian' => ['planned', 'received', 'washing'],
+            'kebersihan' => ['planned', 'in_progress'],
+            default => null,
+        };
+
+        if ($activeStates === null) {
+            return;
+        }
+
+        $ongoingStates = match ($module) {
+            'persiapan', 'pengolahan', 'pemorsian', 'kebersihan' => ['in_progress'],
+            'distribusi' => ['assigned', 'loaded', 'departed', 'destinations_completed'],
+            'pencucian' => ['received', 'washing'],
+            default => [],
+        };
+
+        // Pekerjaan yang sudah dimulai tetap ditampilkan meskipun berasal dari
+        // tanggal sebelumnya. Pekerjaan planned hanya tampil mulai hari ini.
+        $query->where(function (Builder $activeQuery) use ($definition, $ongoingStates): void {
+            $activeQuery->whereIn('state', $ongoingStates)
+                ->orWhere(function (Builder $plannedQuery) use ($definition): void {
+                    $plannedQuery->where('state', 'planned')
+                        ->whereDate($definition['date'], '>=', now()->toDateString());
+                });
+        });
+    }
+
     private function applyDistributionActorScope(Builder $query, string $module, $actor): void
     {
         if ($module !== 'distribusi' || $actor->can('distribution.approve')) {
@@ -1679,7 +1712,7 @@ class MobileOperationalController extends Controller
         if ((str_starts_with($module, 'pengambilan-gudang-') || $module === 'pengambilan-non-pangan')
             && in_array($status, [WarehouseWithdrawal::DRAFT, WarehouseWithdrawal::REVISION], true)
             && (int) $item->taken_by === (int) $actor->getKey()) {
-            return [$this->actionDefinition('submit', 'Ajukan untuk verifikasi Gudang')];
+            return [$this->actionDefinition('submit', 'Selesai mencatat & kirim ke Gudang')];
         }
 
         if (in_array($module, ['gudang-pengambilan', 'gudang-pengambilan-non-pangan'], true)

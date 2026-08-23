@@ -53,7 +53,7 @@ class OperationalRepository(
             status = status,
             dateFrom = date,
             dateTo = date,
-            view = if (module == "pengolahan" && date == null) "active" else null,
+            view = if (module in activeWorkflowModules && date == null) "active" else null,
             page = page,
         )
         if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
@@ -215,6 +215,17 @@ class OperationalRepository(
     private suspend fun authorization(): String {
         val token = sessionStore.current()?.token ?: throw SessionExpiredException()
         return "Bearer $token"
+    }
+
+    private companion object {
+        val activeWorkflowModules = setOf(
+            "persiapan",
+            "pengolahan",
+            "pemorsian",
+            "distribusi",
+            "pencucian",
+            "kebersihan",
+        )
     }
 
     private suspend fun apiException(code: Int, body: String?): IOException =

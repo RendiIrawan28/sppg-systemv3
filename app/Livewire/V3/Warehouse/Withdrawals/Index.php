@@ -154,6 +154,7 @@ class Index extends Component
     public function render()
     {
         $unit = $this->currentUnit();
+        $isNonFood = $this->warehouseType === Warehouse::TYPE_NON_FOOD;
         $warehouse = Warehouse::forUnit($unit->id, $this->warehouseType);
         $lots = InventoryLot::with(['ingredient', 'nonFoodItem'])->where('sppg_unit_id', $unit->id)->where('warehouse_id', $warehouse->id)->where('status', InventoryLot::AVAILABLE)
             ->where('balance_quantity', '>', 0)->where(fn ($q) => $q->whereNull('expired_date')->orWhereDate('expired_date', '>=', today()))
@@ -171,7 +172,14 @@ class Index extends Component
         }
         $lots = $lots->filter(fn (InventoryLot $lot): bool => (float) $lot->available_quantity > 0.0001)->values();
         $records = WarehouseWithdrawal::with(['items', 'taker', 'verifier'])->where('sppg_unit_id', $unit->id)
-            ->where('warehouse_id', $warehouse->id)
+            ->where(function ($query) use ($warehouse, $isNonFood): void {
+                $query->where('warehouse_id', $warehouse->id);
+                if (! $isNonFood) {
+                    // Pengambilan pangan lama dibuat sebelum pemisahan Gudang
+                    // Pangan/Non-Pangan dan belum memiliki warehouse_id.
+                    $query->orWhereNull('warehouse_id');
+                }
+            })
             ->when(! $this->allowed('stock.view'), fn ($q) => $q->where('taken_by', auth()->id()))
             ->latest('id')->paginate(15);
         foreach ($records as $record) {
@@ -188,10 +196,12 @@ class Index extends Component
             'references' => $this->references(),
             'canVerify' => $this->canVerify(),
             'pendingToday' => WarehouseWithdrawal::query()->where('sppg_unit_id', $unit->id)
-                ->where('warehouse_id', $warehouse->id)
+                ->where(fn ($query) => $query->where('warehouse_id', $warehouse->id)
+                    ->when(! $isNonFood, fn ($query) => $query->orWhereNull('warehouse_id')))
                 ->where('status', WarehouseWithdrawal::WAITING)->count(),
             'pendingOverdue' => WarehouseWithdrawal::query()->where('sppg_unit_id', $unit->id)
-                ->where('warehouse_id', $warehouse->id)
+                ->where(fn ($query) => $query->where('warehouse_id', $warehouse->id)
+                    ->when(! $isNonFood, fn ($query) => $query->orWhereNull('warehouse_id')))
                 ->whereDate('withdrawal_date', '<', today())->where('status', WarehouseWithdrawal::WAITING)->count(),
         ])->layout('layouts.v3', ['title' => 'Pengambilan Gudang']);
     }

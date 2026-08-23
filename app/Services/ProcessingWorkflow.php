@@ -6,6 +6,7 @@ use App\Enums\OperationalReportStatus;
 use App\Enums\ProcessingBatchState;
 use App\Enums\ProcessingTemperatureCheckpoint;
 use App\Models\ProcessingBatch;
+use App\Models\PreparationOutputWithdrawal;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
 use Illuminate\Support\Facades\DB;
@@ -306,7 +307,7 @@ class ProcessingWorkflow
     private function validateBeforeComplete(ProcessingBatch $batch): void
     {
         $errors = [];
-        if (! $this->hasManualMaterialRecord($batch)) {
+        if (! $this->hasActualMaterialInput($batch)) {
             $errors['materialUsages'] = 'Minimal satu bahan baku aktual wajib dicatat sebelum Pengolahan diselesaikan.';
         }
         $finalTemperatures = $batch->temperatureLogs
@@ -349,13 +350,22 @@ class ProcessingWorkflow
         }
     }
 
-    private function hasManualMaterialRecord(ProcessingBatch $batch): bool
+    private function hasActualMaterialInput(ProcessingBatch $batch): bool
     {
-        return $batch->materialUsages->contains(
-            fn ($usage): bool => $usage->source_type === 'manual'
-                && filled($usage->material_name)
+        $hasMaterialUsage = $batch->materialUsages->contains(
+            fn ($usage): bool => filled($usage->material_name)
                 && (float) $usage->quantity > 0
                 && filled($usage->unit_name),
+        );
+        if ($hasMaterialUsage) {
+            return true;
+        }
+
+        return $batch->preparationOutputWithdrawals->contains(
+            fn ($withdrawal): bool => in_array($withdrawal->status, [
+                PreparationOutputWithdrawal::WAITING,
+                PreparationOutputWithdrawal::VERIFIED,
+            ], true) && (float) ($withdrawal->verified_quantity ?: $withdrawal->requested_quantity) > 0,
         );
     }
 

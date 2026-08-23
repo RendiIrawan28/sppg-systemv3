@@ -703,7 +703,7 @@ class MobileWorkspaceRegistry
 
         return [
             'label' => $label,
-            'description' => 'Petugas divisi mencatat bahan yang diambil. Staf Gudang memverifikasi setelah barang diambil.',
+            'description' => 'Buat catatan, tambahkan seluruh bahan dan foto, lalu kirim ke Gudang untuk verifikasi stok.',
             'model' => WarehouseWithdrawal::class,
             'permission' => $permission,
             'number' => 'withdrawal_number',

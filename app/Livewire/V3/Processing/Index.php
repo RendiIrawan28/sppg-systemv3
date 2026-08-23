@@ -201,6 +201,17 @@ class Index extends Component
         $batch = $this->record($this->selectedId);
         abort_unless($batch->state === ProcessingBatchState::InProgress, 422);
 
+        // Baris kosong otomatis hanya berfungsi sebagai formulir cepat. Jika bahan
+        // sudah berasal dari Gudang atau hasil Persiapan, petugas tidak perlu
+        // membuat ulang bahan yang sama sebagai catatan manual.
+        $this->manualMaterials = collect($this->manualMaterials)
+            ->reject(fn (array $material): bool => blank($material['material_name'] ?? null)
+                && blank($material['quantity'] ?? null)
+                && blank($material['unit_name'] ?? null)
+                && blank($material['notes'] ?? null))
+            ->values()
+            ->all();
+
         $this->validate([
             'notes' => ['nullable', 'string', 'max:2000'],
             'cookedProducts' => ['required', 'array', 'min:1'],
@@ -215,7 +226,7 @@ class Index extends Component
             'finishedOutputDocumentations.*.caption' => ['nullable', 'string', 'max:255'],
             'finishedOutputDocumentations.*.captured_at' => ['required', 'date'],
             'finishedOutputPhotos.*' => ['nullable', 'image', 'max:5120'],
-            'manualMaterials' => ['required', 'array', 'min:1'],
+            'manualMaterials' => ['array'],
             'manualMaterials.*.ingredient_id' => ['nullable', 'integer'],
             'manualMaterials.*.material_name' => ['required', 'string', 'max:255'],
             'manualMaterials.*.quantity' => ['required', 'numeric', 'gt:0'],
