@@ -72,23 +72,21 @@ class Index extends Component
         $this->selectedId = $id;
         $this->notes = (string) $batch->notes;
         $this->reviewNotes = (string) $batch->review_notes;
-        $this->finishedOutputDocumentations = $batch->documentations
+        $primaryOutput = $batch->documentations
             ->where('documentation_type', 'finished_output')
-            ->values()
-            ->map(function (ProcessingDocumentation $documentation): array {
-                return [
-                    'documentation_id' => $documentation->id,
-                    'output_quantity' => $documentation->output_quantity !== null
-                        ? (string) $documentation->output_quantity
-                        : '',
-                    'output_unit' => (string) $documentation->output_unit,
-                    'caption' => $documentation->caption,
-                    'captured_at' => $documentation->captured_at?->format('Y-m-d\TH:i')
-                        ?: now()->format('Y-m-d\TH:i'),
-                    'photo_path' => $documentation->photo_path,
-                ];
-            })
-            ->all();
+            ->sortBy('sort_order')
+            ->first();
+        $this->finishedOutputDocumentations = $primaryOutput ? [[
+            'documentation_id' => $primaryOutput->id,
+            'output_quantity' => $primaryOutput->output_quantity !== null
+                ? (string) $primaryOutput->output_quantity
+                : '',
+            'output_unit' => (string) $primaryOutput->output_unit,
+            'caption' => $primaryOutput->caption,
+            'captured_at' => $primaryOutput->captured_at?->format('Y-m-d\TH:i')
+                ?: now()->format('Y-m-d\TH:i'),
+            'photo_path' => $primaryOutput->photo_path,
+        ]] : [];
         $this->finishedOutputPhotos = [];
         $this->cookedProducts = $batch->temperatureLogs
             ->where('checkpoint', ProcessingTemperatureCheckpoint::Final)
@@ -174,11 +172,16 @@ class Index extends Component
 
     public function addFinishedOutputDocumentation(): void
     {
+        if ($this->finishedOutputDocumentations !== []) {
+            return;
+        }
+
+        $batch = $this->selectedId ? $this->record($this->selectedId) : null;
         $this->finishedOutputDocumentations[] = [
             'documentation_id' => null,
             'output_quantity' => '',
             'output_unit' => '',
-            'caption' => '',
+            'caption' => $batch?->product_name ?: $batch?->menu_name_snapshot ?: '',
             'captured_at' => now()->format('Y-m-d\TH:i'),
             'photo_path' => null,
         ];
@@ -220,13 +223,13 @@ class Index extends Component
             'cookedProducts.*.cooked_at' => ['required', 'date'],
             'cookedProducts.*.notes' => ['nullable', 'string', 'max:1000'],
             'temperaturePhotos.*' => ['nullable', 'image', 'max:5120'],
-            'finishedOutputDocumentations' => ['required', 'array', 'min:1'],
+            'finishedOutputDocumentations' => ['required', 'array', 'size:1'],
             'finishedOutputDocumentations.*.output_quantity' => ['required', 'numeric', 'gt:0'],
             'finishedOutputDocumentations.*.output_unit' => ['required', 'string', 'max:80'],
             'finishedOutputDocumentations.*.caption' => ['nullable', 'string', 'max:255'],
             'finishedOutputDocumentations.*.captured_at' => ['required', 'date'],
             'finishedOutputPhotos.*' => ['nullable', 'image', 'max:5120'],
-            'manualMaterials' => ['array'],
+            'manualMaterials' => ['required', 'array', 'min:1'],
             'manualMaterials.*.ingredient_id' => ['nullable', 'integer'],
             'manualMaterials.*.material_name' => ['required', 'string', 'max:255'],
             'manualMaterials.*.quantity' => ['required', 'numeric', 'gt:0'],
@@ -304,7 +307,7 @@ class Index extends Component
                         [
                             'checked_at' => $product['cooked_at'],
                             'checkpoint' => ProcessingTemperatureCheckpoint::Final,
-                            'product_name' => trim($product['product_name']),
+                            'product_name' => $batch->product_name ?: $batch->menu_name_snapshot,
                             'temperature_celsius' => $product['temperature_celsius'],
                             'minimum_temperature' => null,
                             'maximum_temperature' => null,
@@ -320,6 +323,7 @@ class Index extends Component
                 }
 
                 $batch->temperatureLogs()
+                    ->where('checkpoint', ProcessingTemperatureCheckpoint::Final)
                     ->whereNotIn('id', $keptTemperatures)
                     ->get()
                     ->each(function ($temperature) use (&$oldPaths): void {
@@ -363,11 +367,9 @@ class Index extends Component
                             'documentation_type' => 'finished_output',
                             'output_quantity' => $outputQuantity,
                             'output_unit' => $outputUnit,
-                            'caption' => filled($documentationData['caption'] ?? null)
-                                ? trim($documentationData['caption'])
-                                : $defaultCaption,
+                            'caption' => $batch->product_name ?: $batch->menu_name_snapshot ?: $defaultCaption,
                             'photo_path' => $outputPhotoPath,
-                            'captured_at' => $documentationData['captured_at'],
+                            'captured_at' => $documentationData['captured_at'] ?: now(),
                             'created_by' => $oldOutputDocumentation?->created_by ?: auth()->id(),
                             'sort_order' => $index + 1,
                         ],
@@ -375,16 +377,8 @@ class Index extends Component
                     $keptOutputDocumentations[] = $outputDocumentation->id;
                 }
 
-                $batch->documentations()
-                    ->where('documentation_type', 'finished_output')
-                    ->whereNotIn('id', $keptOutputDocumentations)
-                    ->get()
-                    ->each(function (ProcessingDocumentation $documentation) use (&$oldPaths): void {
-                        if ($documentation->photo_path) {
-                            $oldPaths[] = $documentation->photo_path;
-                        }
-                        $documentation->delete();
-                    });
+                // Dokumentasi lama yang lebih dari satu tidak dihapus otomatis.
+                // UI baru hanya mengelola satu dokumentasi utama agar histori lama tetap aman.
 
                 $batch->refresh()->recalculateTotals();
             });

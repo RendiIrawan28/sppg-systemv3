@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>Pemantauan Suhu Pengolahan dan Penyajian</title>
     <style>
-        @page { size: A4 landscape; margin: 24px 28px 30px; }
+        @page { size: A4 landscape; margin: 20px 24px 26px; }
         * { box-sizing: border-box; }
         body { margin: 0; color: #000; font-family: DejaVu Sans, sans-serif; font-size: 9px; }
         table { width: 100%; border-collapse: collapse; table-layout: fixed; }
@@ -27,16 +27,16 @@
         .officer { width: 18%; }
         .initial { width: 14%; }
         .center { text-align: center; }
-        .documentation-title { margin: 14px 0 7px; font-size: 11px; font-weight: bold; }
-        .photo-card { width: 33.33%; height: 158px; text-align: center; vertical-align: top; }
-        .photo { max-width: 100%; max-height: 115px; object-fit: contain; }
+        .page-break { page-break-before: always; }
+        .documentation-title { margin: 0 0 10px; text-align: center; font-size: 13px; font-weight: bold; }
+        .photo-card { width: 33.33%; height: 185px; text-align: center; vertical-align: top; }
+        .photo { max-width: 100%; max-height: 130px; object-fit: contain; }
         .caption { margin-top: 4px; font-size: 8px; line-height: 1.35; }
     </style>
 </head>
 <body>
     @php
-        $unitName = strtoupper($batch->sppgUnit?->name ?: 'SPPG');
-        $logs = $batch->temperatureLogs->values();
+        $unitName = strtoupper($anchorBatch->sppgUnit?->name ?: 'SPPG');
         $fillerRows = max(0, 10 - $logs->count());
     @endphp
 
@@ -79,8 +79,8 @@
                     <td class="center">{{ $log->checked_at?->format('d-m-Y') }}</td>
                     <td class="center">{{ $log->checked_at?->format('H:i') }}</td>
                     <td>{{ $log->product_name }}</td>
-                    <td class="center">{{ number_format((float) $log->temperature_celsius, 1, ',', '.') }} °C</td>
-                    <td>{{ $log->measured_name_snapshot ?: $log->measuredBy?->name ?: $batch->petugas_name_snapshot }}</td>
+                    <td class="center">{{ number_format((float) $log->temperature_celsius, 2, ',', '.') }} °C</td>
+                    <td>{{ $log->measured_name_snapshot ?: $log->measuredBy?->name ?: '-' }}</td>
                     <td></td>
                 </tr>
             @endforeach
@@ -91,7 +91,8 @@
     </table>
 
     @if($logs->isNotEmpty())
-        <div class="documentation-title">DOKUMENTASI PEMANTAUAN SUHU</div>
+        <div class="page-break"></div>
+        <h2 class="documentation-title">DOKUMENTASI PEMANTAUAN SUHU</h2>
         <table>
             @foreach($logs->chunk(3) as $photos)
                 <tr>
@@ -111,8 +112,8 @@
                             <div class="caption">
                                 <strong>{{ $log->product_name }}</strong><br>
                                 {{ $log->checked_at?->format('d-m-Y H:i') }} ·
-                                {{ number_format((float) $log->temperature_celsius, 1, ',', '.') }} °C ·
-                                {{ $log->measured_name_snapshot ?: $log->measuredBy?->name ?: $batch->petugas_name_snapshot }}
+                                {{ number_format((float) $log->temperature_celsius, 2, ',', '.') }} °C ·
+                                {{ $log->measured_name_snapshot ?: $log->measuredBy?->name ?: '-' }}
                             </div>
                         </td>
                     @endforeach

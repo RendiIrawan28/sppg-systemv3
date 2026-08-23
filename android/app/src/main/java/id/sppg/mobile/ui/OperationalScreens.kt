@@ -1061,6 +1061,9 @@ private fun OperationalDetailContent(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("EKSPOR LAPORAN", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    if (module == "pengolahan") {
+                        Text("Monitoring Produksi Harian", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
                             onClick = { onOpenDocument(null) }, enabled = !isSaving,
@@ -1080,7 +1083,7 @@ private fun OperationalDetailContent(
                         }
                     }
                     if (module == "pengolahan") {
-                        Text("Pemantauan suhu", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        Text("Pemantauan Suhu Pengolahan & Penyajian Harian", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedButton(
                                 onClick = { onOpenDocument("temperature") }, enabled = !isSaving,

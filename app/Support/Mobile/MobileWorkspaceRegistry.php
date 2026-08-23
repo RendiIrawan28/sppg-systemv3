@@ -139,15 +139,20 @@ class MobileWorkspaceRegistry
                     ...((array) ($definition['with'] ?? [])),
                     'preparationOutputWithdrawals.output',
                 ]));
-                $definition['relations']['documentations']['fields'] = collect($definition['relations']['documentations']['fields'])
-                    ->map(function (array $field): array {
-                        if ($field['name'] === 'output_unit') {
-                            $field['type'] = 'select';
-                            $field['options'] = 'processing_output_units';
-                        }
-
-                        return $field;
-                    })->all();
+                $definition['relations']['temperatureLogs'] = $this->relation('Pemantauan Suhu Pangan Matang', [
+                    [...$this->field('checked_at', 'Waktu pengukuran', 'datetime'), 'editable' => false],
+                    [...$this->field('product_name', 'Nama produk', 'text'), 'editable' => false],
+                    $this->field('temperature_celsius', 'Suhu produk °C', 'number', true),
+                    $this->field('photo_path', 'Foto pengukuran suhu', 'file', true),
+                    $this->field('notes', 'Catatan', 'textarea'),
+                ]);
+                $definition['relations']['documentations'] = $this->relation('Dokumentasi Monitoring Produksi', [
+                    $this->field('output_quantity', 'Jumlah hasil akhir', 'number', true),
+                    $this->field('output_unit', 'Satuan hasil', 'select', true, 'processing_output_units'),
+                    $this->field('photo_path', 'Foto monitoring produksi', 'file', true),
+                    [...$this->field('captured_at', 'Waktu dokumentasi', 'datetime'), 'editable' => false],
+                    [...$this->field('caption', 'Produk', 'text'), 'editable' => false],
+                ]);
             }
 
             if ($slug === 'pemorsian') {

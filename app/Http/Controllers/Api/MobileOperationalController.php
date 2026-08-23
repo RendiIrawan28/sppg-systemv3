@@ -1092,7 +1092,7 @@ class MobileOperationalController extends Controller
         $relationObject = $parent->{$relation}();
         $item = DB::transaction(function () use ($request, $module, $relation, $parent, $relationObject, $relationDefinition): Model {
             $values = $this->validatedRelationValues($request, $relationDefinition, null);
-            $values = $this->applyRelationDefaults($module, $relation, $values, $request);
+            $values = $this->applyRelationDefaults($module, $relation, $values, $request, $parent);
             $item = $relationObject instanceof HasOne
                 ? $relationObject->updateOrCreate([], $values)
                 : $relationObject->create($values);
@@ -1199,7 +1199,7 @@ class MobileOperationalController extends Controller
 
         DB::transaction(function () use ($request, $module, $relation, $parent, $relationDefinition, $child): void {
             $values = $this->validatedRelationValues($request, $relationDefinition, $child);
-            $child->fill($this->applyRelationDefaults($module, $relation, $values, $request));
+            $child->fill($this->applyRelationDefaults($module, $relation, $values, $request, $parent, $child));
             $child->save();
             $this->storeRelationFiles($request, $module, $relation, $child, $relationDefinition);
             $this->recalculateParent($parent);
@@ -2745,9 +2745,17 @@ class MobileOperationalController extends Controller
             'pengolahan' => match ($relation) {
                 'materialUsages' => $parent instanceof ProcessingBatch && $parent->isOperationalInputEditable() ? ['create', 'update', 'delete'] : [],
                 'preparationOutputWithdrawals' => ['action'],
-                'temperatureLogs', 'documentations' => $parent instanceof ProcessingBatch
+                'temperatureLogs' => $parent instanceof ProcessingBatch
                     && $parent->isOperationalInputEditable()
                         ? ['create', 'update', 'delete'] : [],
+                'documentations' => $parent instanceof ProcessingBatch
+                    && $parent->isOperationalInputEditable()
+                        ? ($parent->documentations()
+                            ->where('documentation_type', 'finished_output')
+                            ->exists()
+                                ? ['update']
+                                : ['create', 'update'])
+                        : [],
                 'returns' => $parent instanceof ProcessingBatch
                     && $parent->isOperationalInputEditable()
                         ? ['create'] : [],
@@ -2953,6 +2961,8 @@ class MobileOperationalController extends Controller
         string $relation,
         array $values,
         Request $request,
+        ?Model $parent = null,
+        ?Model $item = null,
     ): array {
         $defaults = match ([$module, $relation]) {
             ['pengolahan', 'materialUsages'] => [
@@ -2963,11 +2973,20 @@ class MobileOperationalController extends Controller
             ],
             ['pengolahan', 'temperatureLogs'] => [
                 'checkpoint' => 'final',
+                'checked_at' => $item?->getAttribute('checked_at') ?? $values['checked_at'] ?? now(),
+                'product_name' => $parent instanceof ProcessingBatch
+                    ? ($parent->product_name ?: $parent->menu_name_snapshot)
+                    : ($item?->getAttribute('product_name') ?? $values['product_name'] ?? 'Pangan matang'),
                 'measured_by' => $request->user()->getKey(),
                 'measured_name_snapshot' => $request->user()->name,
             ],
             ['pengolahan', 'documentations'] => [
                 'documentation_type' => 'finished_output',
+                'caption' => $parent instanceof ProcessingBatch
+                    ? ($parent->product_name ?: $parent->menu_name_snapshot)
+                    : ($item?->getAttribute('caption') ?? $values['caption'] ?? 'Hasil produksi'),
+                'captured_at' => $item?->getAttribute('captured_at') ?? $values['captured_at'] ?? now(),
+                'sort_order' => 1,
                 'created_by' => $request->user()->getKey(),
             ],
             ['persiapan', 'resultDocumentation'] => [
@@ -3209,6 +3228,16 @@ class MobileOperationalController extends Controller
                     && $model->getAttribute('source_type') !== 'manual') {
                     $item['can_update'] = false;
                     $item['can_delete'] = false;
+                }
+                if ($module === 'pengolahan' && $key === 'documentations') {
+                    $primaryDocumentationId = $parent->documentations
+                        ->where('documentation_type', 'finished_output')
+                        ->sortBy('sort_order')
+                        ->first()?->getKey();
+                    if ((int) $model->getKey() !== (int) $primaryDocumentationId) {
+                        $item['can_update'] = false;
+                        $item['can_delete'] = false;
+                    }
                 }
                 $item['actions'] = $this->relationActions(
                     $request,

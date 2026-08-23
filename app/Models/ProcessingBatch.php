@@ -200,29 +200,21 @@ class ProcessingBatch extends Model
 
     public function recalculateTotals(): void
     {
-        $outputs = $this->documentations()
+        // Alur V3 yang disederhanakan memakai satu hasil akhir utama per batch.
+        // Data dokumentasi lama yang lebih dari satu tetap dipertahankan sebagai histori,
+        // tetapi tidak lagi dijumlahkan agar hasil aktual batch tidak menjadi ganda.
+        $output = $this->documentations()
             ->where('documentation_type', 'finished_output')
             ->whereNotNull('output_quantity')
-            ->get(['output_quantity', 'output_unit']);
-
-        if ($outputs->isEmpty()) {
-            $this->forceFill([
-                'actual_output_quantity' => 0,
-                'actual_output_unit' => null,
-            ])->saveQuietly();
-
-            return;
-        }
-
-        $units = $outputs->pluck('output_unit')
-            ->filter(fn ($unit): bool => filled($unit))
-            ->map(fn ($unit): string => trim((string) $unit))
-            ->unique()
-            ->values();
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->first(['output_quantity', 'output_unit']);
 
         $this->forceFill([
-            'actual_output_quantity' => $outputs->sum(fn ($output): float => (float) $output->output_quantity),
-            'actual_output_unit' => $units->count() === 1 ? $units->first() : 'campuran',
+            'actual_output_quantity' => $output ? (float) $output->output_quantity : 0,
+            'actual_output_unit' => $output && filled($output->output_unit)
+                ? trim((string) $output->output_unit)
+                : null,
         ])->saveQuietly();
     }
 

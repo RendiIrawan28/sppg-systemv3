@@ -352,20 +352,14 @@ class ProcessingWorkflow
 
     private function hasActualMaterialInput(ProcessingBatch $batch): bool
     {
-        $hasMaterialUsage = $batch->materialUsages->contains(
-            fn ($usage): bool => filled($usage->material_name)
+        // Bahan dari Gudang/Persiapan tetap menjadi sumber integrasi dan audit.
+        // Namun Monitoring Produksi mewajibkan petugas mencatat bahan baku aktual
+        // secara manual agar sesuai dengan alur kerja lapangan.
+        return $batch->materialUsages->contains(
+            fn ($usage): bool => $usage->source_type === 'manual'
+                && filled($usage->material_name)
                 && (float) $usage->quantity > 0
                 && filled($usage->unit_name),
-        );
-        if ($hasMaterialUsage) {
-            return true;
-        }
-
-        return $batch->preparationOutputWithdrawals->contains(
-            fn ($withdrawal): bool => in_array($withdrawal->status, [
-                PreparationOutputWithdrawal::WAITING,
-                PreparationOutputWithdrawal::VERIFIED,
-            ], true) && (float) ($withdrawal->verified_quantity ?: $withdrawal->requested_quantity) > 0,
         );
     }
 
