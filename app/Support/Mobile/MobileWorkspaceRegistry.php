@@ -1298,10 +1298,15 @@ class MobileWorkspaceRegistry
                 $this->field('notes', 'Catatan'),
             ],
             'relations' => [
-                'items' => $this->relation('Tujuan yang diambil', [
-                    $this->field('collected_quantity', 'Jumlah diambil', 'number'),
-                    $this->field('status', 'Status'),
+                'items' => $this->relation('Rincian tujuan yang diambil', [
+                    $this->field('destination_name', 'Sekolah/Posyandu'),
+                    $this->field('delivery_date', 'Tanggal pengantaran', 'date'),
+                    $this->field('target_containers', 'Target ompreng', 'number'),
+                    $this->field('collected_quantity', 'Diambil pada pencatatan ini', 'number'),
+                    $this->field('remaining_after_collection', 'Sisa setelah pengambilan', 'number'),
                     $this->field('collected_at', 'Waktu diambil', 'datetime'),
+                    $this->field('collector_name', 'Petugas pengambil'),
+                    $this->field('status', 'Status'),
                     $this->field('photo_path', 'Dokumentasi', 'file'),
                     $this->field('notes', 'Catatan'),
                 ]),

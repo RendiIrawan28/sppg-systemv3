@@ -12,7 +12,7 @@ fun String.asBuildConfigString(): String =
     "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val debugApiBaseUrl = providers.gradleProperty("SPPG_DEBUG_API_BASE_URL")
-    .orElse("http://192.168.1.34:8000/api/mobile/")
+    .orElse("http://192.168.1.17:8000/api/mobile/")
     .get()
 val releaseApiBaseUrl = providers.gradleProperty("SPPG_RELEASE_API_BASE_URL")
     .orElse("https://localhost/api/mobile/")

@@ -6,6 +6,7 @@ use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\ContainerCollectionRun;
 use App\Models\ContainerCollectionTask;
 use App\Services\ContainerCollectionWorkflow;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -23,6 +24,8 @@ class Index extends Component
     public array $partialQuantities = [];
     public array $partialNotes = [];
     public array $collectionPhotos = [];
+
+    public ?int $selectedRunId = null;
 
     public function mount(): void
     {
@@ -98,10 +101,27 @@ class Index extends Component
         session()->flash('v3.status', 'Ompreng sudah kembali ke SPPG dan sesi Pencucian dibuat.');
     }
 
+    public function showRunDetail(int $runId): void
+    {
+        abort_unless($this->allowed('distribution.view'), 403);
+
+        $run = $this->visibleRunQuery()
+            ->whereKey($runId)
+            ->firstOrFail();
+
+        $this->selectedRunId = (int) $run->getKey();
+    }
+
+    public function closeRunDetail(): void
+    {
+        $this->selectedRunId = null;
+    }
+
     public function render()
     {
         $unit = $this->currentUnit();
         $actor = auth()->user();
+
         $activeRun = ContainerCollectionRun::query()
             ->with(['items.task'])
             ->where('sppg_unit_id', $unit->getKey())
@@ -119,19 +139,34 @@ class Index extends Component
             ->orderBy('available_at')
             ->get();
 
-        $recentRuns = ContainerCollectionRun::query()
+        $recentRuns = $this->visibleRunQuery()
             ->withCount('items')
-            ->where('sppg_unit_id', $unit->getKey())
-            ->when(! $actor->can('distribution.approve'), fn ($query) => $query->where('driver_id', $actor->getKey()))
             ->latest('id')
             ->limit(15)
             ->get();
+
+        $selectedRun = null;
+        if ($this->selectedRunId) {
+            $selectedRun = $this->visibleRunQuery()
+                ->with([
+                    'items.task.items',
+                    'items.collector',
+                    'washingSession',
+                ])
+                ->whereKey($this->selectedRunId)
+                ->first();
+
+            if (! $selectedRun) {
+                $this->selectedRunId = null;
+            }
+        }
 
         return view('livewire.v3.container-collections.index', [
             ...$this->shellData($unit),
             'activeRun' => $activeRun,
             'tasks' => $tasks,
             'recentRuns' => $recentRuns,
+            'selectedRun' => $selectedRun,
             'canOperate' => $this->allowed('distribution.update'),
         ])->layout('layouts.v3', ['title' => 'Pengambilan Ompreng']);
     }
@@ -151,6 +186,18 @@ class Index extends Component
         return ContainerCollectionTask::query()
             ->where('sppg_unit_id', $this->currentUnit()->getKey())
             ->findOrFail($id);
+    }
+
+    private function visibleRunQuery(): Builder
+    {
+        $query = ContainerCollectionRun::query()
+            ->where('sppg_unit_id', $this->currentUnit()->getKey());
+
+        if (! auth()->user()->can('distribution.approve')) {
+            $query->where('driver_id', auth()->id());
+        }
+
+        return $query;
     }
 
     private function storePhoto(int $taskId): ?string
