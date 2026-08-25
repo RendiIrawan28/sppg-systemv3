@@ -1,5 +1,15 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Pengambilan Ompreng" eyebrow="Kegiatan siang hari">
-    <div class="mx-auto max-w-[1450px] space-y-5 text-slate-900 dark:text-slate-100">
+    <div
+        x-data="{
+            photoModalOpen: false,
+            photoModalUrl: '',
+            photoModalTitle: ''
+        }"
+        x-on:keydown.escape.window="photoModalOpen = false"
+        class="mx-auto max-w-[1450px] space-y-5 text-slate-900 dark:text-slate-100"
+    >
+        <style>[x-cloak] { display: none !important; }</style>
+
         <x-v3.flash-alert />
 
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
@@ -367,12 +377,28 @@
                                         </td>
                                         <td class="py-3 pr-4">
                                             @if($photoUrl)
-                                                <a href="{{ $photoUrl }}"
-                                                   target="_blank"
-                                                   rel="noopener noreferrer"
-                                                   class="font-bold text-sky-600 hover:underline dark:text-sky-300">
+                                                <button
+                                                    type="button"
+                                                    data-photo-url="{{ $photoUrl }}"
+                                                    data-photo-title="{{ ($task?->destination_name ?: 'Dokumentasi Pengambilan Ompreng').' · '.($item->collected_at?->format('d/m/Y H:i') ?: '-') }}"
+                                                    x-on:click="
+                                                        photoModalUrl = $event.currentTarget.dataset.photoUrl;
+                                                        photoModalTitle = $event.currentTarget.dataset.photoTitle;
+                                                        photoModalOpen = true;
+                                                    "
+                                                    class="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-bold text-sky-700 transition hover:bg-sky-100 dark:border-sky-400/30 dark:bg-sky-500/10 dark:text-sky-300 dark:hover:bg-sky-500/20"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                                         viewBox="0 0 24 24"
+                                                         fill="none"
+                                                         stroke="currentColor"
+                                                         stroke-width="1.8"
+                                                         class="h-4 w-4">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12s3.5-6 9.75-6 9.75 6 9.75 6-3.5 6-9.75 6S2.25 12 2.25 12Z" />
+                                                        <circle cx="12" cy="12" r="2.75" />
+                                                    </svg>
                                                     Lihat foto
-                                                </a>
+                                                </button>
                                             @else
                                                 <span class="text-slate-400">—</span>
                                             @endif
@@ -403,5 +429,83 @@
                 @endif
             </section>
         @endif
+
+        {{-- ============================================================
+            MODAL FOTO PENGAMBILAN OMPRENG
+        ============================================================ --}}
+        <div
+            x-cloak
+            x-show="photoModalOpen"
+            x-transition.opacity
+            class="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6"
+            role="dialog"
+            aria-modal="true"
+            x-bind:aria-hidden="(! photoModalOpen).toString()"
+        >
+            <div
+                class="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
+                x-on:click="photoModalOpen = false"
+            ></div>
+
+            <div
+                x-show="photoModalOpen"
+                x-transition:enter="transition ease-out duration-200"
+                x-transition:enter-start="opacity-0 scale-95"
+                x-transition:enter-end="opacity-100 scale-100"
+                x-transition:leave="transition ease-in duration-150"
+                x-transition:leave-start="opacity-100 scale-100"
+                x-transition:leave-end="opacity-0 scale-95"
+                class="relative z-10 flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900"
+                x-on:click.stop
+            >
+                <div class="flex items-center justify-between gap-4 border-b border-slate-200 px-4 py-3 sm:px-5 dark:border-slate-700">
+                    <div class="min-w-0">
+                        <p class="text-[10px] font-bold uppercase tracking-[.14em] text-sky-600 dark:text-sky-300">
+                            Dokumentasi Pengambilan Ompreng
+                        </p>
+                        <h3
+                            class="mt-1 truncate text-sm font-bold text-slate-900 sm:text-base dark:text-slate-100"
+                            x-text="photoModalTitle || 'Foto pengambilan ompreng'"
+                        ></h3>
+                    </div>
+
+                    <button
+                        type="button"
+                        x-on:click="photoModalOpen = false"
+                        class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+                        aria-label="Tutup foto"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                             viewBox="0 0 24 24"
+                             fill="none"
+                             stroke="currentColor"
+                             stroke-width="2"
+                             class="h-5 w-5">
+                            <path stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-slate-100 p-3 sm:p-5 dark:bg-slate-950">
+                    <template x-if="photoModalUrl">
+                        <img
+                            x-bind:src="photoModalUrl"
+                            x-bind:alt="photoModalTitle || 'Dokumentasi Pengambilan Ompreng'"
+                            class="max-h-[72vh] max-w-full rounded-xl object-contain shadow-sm"
+                        >
+                    </template>
+                </div>
+
+                <div class="flex justify-end border-t border-slate-200 px-4 py-3 sm:px-5 dark:border-slate-700">
+                    <button
+                        type="button"
+                        x-on:click="photoModalOpen = false"
+                        class="h-10 rounded-xl bg-slate-900 px-5 text-xs font-bold text-white transition hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+                    >
+                        Tutup
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </x-v3.shell>
