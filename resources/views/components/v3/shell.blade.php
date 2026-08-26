@@ -9,10 +9,10 @@
 @php($activeNavigationKey = data_get(collect($navigation)->first(fn (array $group): bool => $group['active'] && ! $group['standalone']), 'key'))
 
 <div
-    x-data="{ sidebarOpen: false, profileOpen: false, documentationUrl: null, documentationTitle: '', openModule: @js($activeNavigationKey) }"
+    x-data="{ sidebarOpen: false, profileOpen: false, documentationUrl: null, documentationTitle: '', documentationLoading: false, documentationError: false, openModule: @js($activeNavigationKey) }"
     x-init="if (!openModule) { openModule = localStorage.getItem('v3-sidebar-module') || null }"
-    x-on:open-documentation.window="documentationUrl = $event.detail.url; documentationTitle = $event.detail.title || 'Dokumentasi'"
-    x-on:keydown.escape.window="documentationUrl = null"
+    x-on:open-documentation.window="documentationLoading = true; documentationError = false; documentationUrl = $event.detail.url; documentationTitle = $event.detail.title || 'Dokumentasi'"
+    x-on:keydown.escape.window="documentationUrl = null; documentationLoading = false; documentationError = false"
     class="min-h-screen"
 >
     <div
@@ -172,17 +172,35 @@
         aria-modal="true"
         aria-label="Pratinjau dokumentasi"
     >
-        <button type="button" x-on:click="documentationUrl = null" class="absolute inset-0 cursor-default" aria-label="Tutup modal"></button>
+        <button type="button" x-on:click="documentationUrl = null; documentationLoading = false; documentationError = false" class="absolute inset-0 cursor-default" aria-label="Tutup modal"></button>
         <div x-show="documentationUrl" x-transition.scale class="relative z-10 flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
                 <div>
                     <p class="text-sm font-bold text-slate-900">Dokumentasi</p>
                     <p class="mt-0.5 text-xs text-slate-500" x-text="documentationTitle"></p>
                 </div>
-                <button type="button" x-on:click="documentationUrl = null" class="grid size-9 place-items-center rounded-xl bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200" aria-label="Tutup">×</button>
+                <button type="button" x-on:click="documentationUrl = null; documentationLoading = false; documentationError = false" class="grid size-9 place-items-center rounded-xl bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200" aria-label="Tutup">×</button>
             </div>
-            <div class="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-slate-100 p-4">
-                <img x-bind:src="documentationUrl" x-bind:alt="`Dokumentasi ${documentationTitle}`" class="max-h-[76vh] max-w-full rounded-xl object-contain shadow-sm">
+            <div class="relative flex min-h-[240px] flex-1 items-center justify-center overflow-auto bg-slate-100 p-4">
+                <div x-show="documentationLoading && ! documentationError" class="absolute inset-0 grid place-items-center">
+                    <div class="flex flex-col items-center gap-3 text-sm font-semibold text-slate-600">
+                        <span class="size-9 animate-spin rounded-full border-4 border-slate-300 border-t-sky-600"></span>
+                        Memuat dokumentasi…
+                    </div>
+                </div>
+                <div x-show="documentationError" class="max-w-sm rounded-2xl bg-white p-6 text-center shadow-sm">
+                    <p class="font-bold text-slate-900">Foto tidak dapat ditampilkan</p>
+                    <p class="mt-1 text-xs text-slate-500">Pastikan file masih tersedia dan koneksi perangkat stabil.</p>
+                </div>
+                <img
+                    x-show="! documentationError"
+                    x-bind:src="documentationUrl"
+                    x-bind:alt="`Dokumentasi ${documentationTitle}`"
+                    x-on:load="documentationLoading = false"
+                    x-on:error="documentationLoading = false; documentationError = true"
+                    class="max-h-[76vh] max-w-full rounded-xl object-contain shadow-sm"
+                    x-bind:class="documentationLoading ? 'invisible' : 'visible'"
+                >
             </div>
         </div>
     </div>

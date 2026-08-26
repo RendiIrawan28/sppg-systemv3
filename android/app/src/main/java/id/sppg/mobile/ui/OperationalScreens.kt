@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Assignment
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Person
@@ -69,7 +68,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -2321,7 +2319,6 @@ private fun OperationalSectionCard(
 
 @Composable
 private fun OperationalFieldRow(field: OperationalField) {
-    val uriHandler = LocalUriHandler.current
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(
             field.label,
@@ -2331,23 +2328,12 @@ private fun OperationalFieldRow(field: OperationalField) {
         )
         Spacer(Modifier.width(16.dp))
         if (!field.fileUrl.isNullOrBlank()) {
-            if (isImageUrl(field.fileUrl)) {
-                InAppImageButton(
-                    url = field.fileUrl,
-                    title = field.label,
-                    label = "Lihat foto",
-                    modifier = Modifier.weight(1f),
-                )
-            } else {
-                TextButton(
-                    onClick = { uriHandler.openUri(resolveAppMediaUrl(field.fileUrl)) },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Buka dokumen", fontWeight = FontWeight.SemiBold)
-                }
-            }
+            InAppImageButton(
+                url = field.fileUrl,
+                title = field.label,
+                label = "Lihat foto",
+                modifier = Modifier.weight(1f),
+            )
         } else {
             Text(
                 field.value,
