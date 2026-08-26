@@ -4,6 +4,7 @@ namespace App\Livewire\V3\Field\Plans;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\FieldDistributionPlan;
+use App\Services\ActiveFieldPlanRouteService;
 use App\Services\FieldDistributionPlanWorkflow;
 use App\Services\FieldPlanActualConfirmationService;
 use DomainException;
@@ -29,6 +30,8 @@ class Form extends Component
     public string $workflowNotes = '';
 
     public ?string $actionMessage = null;
+
+    public bool $routeRevisionMode = false;
 
     /** @var array<int, array<string, mixed>> */
     public array $destinations = [];
@@ -101,6 +104,51 @@ class Form extends Component
         });
     }
 
+    public function openRouteRevision(): void
+    {
+        $plan = $this->plan();
+        abort_unless($this->allowed('field_planning.update') && $plan->canReviseActiveRoutes(), 403);
+        $this->fillFromPlan($plan->refresh());
+        $this->routeRevisionMode = true;
+        $this->resetErrorBag();
+    }
+
+    public function cancelRouteRevision(): void
+    {
+        $this->fillFromPlan($this->plan()->refresh());
+        $this->routeRevisionMode = false;
+        $this->resetErrorBag();
+    }
+
+    public function saveRouteRevision(): void
+    {
+        $this->runAction(function (): string {
+            abort_unless($this->routeRevisionMode, 403);
+            $data = $this->validate([
+                'destinations' => ['required', 'array'],
+                'destinations.*.route_name' => ['nullable', 'string', 'max:255'],
+                'destinations.*.sequence_order' => ['required', 'integer', 'min:1'],
+            ]);
+
+            $plan = app(ActiveFieldPlanRouteService::class)->update(
+                $this->plan(),
+                auth()->user(),
+                collect($data['destinations'])->map(
+                    fn (array $row, int|string $id): array => [
+                        'id' => (int) $id,
+                        'route_name' => $row['route_name'] ?? null,
+                        'sequence_order' => $row['sequence_order'] ?? 1,
+                    ],
+                )->values()->all(),
+            );
+
+            $this->fillFromPlan($plan);
+            $this->routeRevisionMode = false;
+
+            return 'Rute aktif berhasil disesuaikan dan pekerjaan Distribusi telah diperbarui.';
+        });
+    }
+
     public function delete(): void
     {
         abort_unless($this->allowed('field_planning.delete'), 403);
@@ -121,6 +169,10 @@ class Form extends Component
             'editable' => ! $plan || $plan->isEditable(),
             'canUpdate' => $this->allowed('field_planning.update'),
             'canSubmit' => $this->allowed('field_planning.submit'),
+            'canReviseRoutes' => $plan
+                && $this->allowed('field_planning.update')
+                && $plan->canReviseActiveRoutes(),
+            'isActivated' => $plan?->status === \App\Enums\FieldDistributionPlanStatus::Activated,
         ])->layout('layouts.v3', ['title' => $plan ? 'Rincian Rencana Lapangan' : 'Tambah Rencana Lapangan']);
     }
 

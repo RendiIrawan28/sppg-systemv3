@@ -57,6 +57,13 @@ interface MobileApi {
         @Body request: UpdateFieldPlanRequest,
     ): Response<FieldPlanResponse>
 
+    @PUT("field-plans/{id}/routes")
+    suspend fun reviseFieldPlanRoutes(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: Long,
+        @Body request: ReviseFieldPlanRoutesRequest,
+    ): Response<FieldPlanResponse>
+
     @DELETE("field-plans/{id}")
     suspend fun deleteFieldPlan(
         @Header("Authorization") authorization: String,
@@ -365,6 +372,7 @@ data class FieldPlan(
     @SerializedName("general_notes") val generalNotes: String?,
     @SerializedName("is_editable") val isEditable: Boolean,
     @SerializedName("can_update") val canUpdate: Boolean,
+    @SerializedName("can_revise_routes") val canReviseRoutes: Boolean = false,
     @SerializedName("can_delete") val canDelete: Boolean = false,
     @SerializedName("can_refresh") val canRefresh: Boolean = false,
     @SerializedName("can_activate") val canActivate: Boolean,
@@ -423,6 +431,16 @@ data class UpdateFieldPlanDestinationRequest(
     @SerializedName("change_reason") val changeReason: String?,
     @SerializedName("no_service_reason") val noServiceReason: String?,
     @SerializedName("recipient_groups") val recipientGroups: List<UpdateRecipientGroupRequest>,
+)
+
+data class ReviseFieldPlanRoutesRequest(
+    val destinations: List<ReviseFieldPlanRouteRequest>,
+)
+
+data class ReviseFieldPlanRouteRequest(
+    val id: Long,
+    @SerializedName("route_name") val routeName: String?,
+    @SerializedName("sequence_order") val sequenceOrder: Int,
 )
 
 data class UpdateRecipientGroupRequest(

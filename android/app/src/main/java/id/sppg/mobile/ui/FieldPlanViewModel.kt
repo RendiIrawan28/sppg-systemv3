@@ -7,6 +7,8 @@ import id.sppg.mobile.data.FieldPlanRepository
 import id.sppg.mobile.data.remote.FieldPlan
 import id.sppg.mobile.data.remote.FieldPlanOption
 import id.sppg.mobile.data.remote.ReadinessResponse
+import id.sppg.mobile.data.remote.ReviseFieldPlanRouteRequest
+import id.sppg.mobile.data.remote.ReviseFieldPlanRoutesRequest
 import id.sppg.mobile.data.remote.UpdateFieldPlanRequest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -147,16 +149,36 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
     }
 
     fun updatePlan(request: UpdateFieldPlanRequest) {
-        val id = _uiState.value.selectedPlan?.id ?: return
+        val selectedPlan = _uiState.value.selectedPlan ?: return
+        val id = selectedPlan.id
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null, readiness = null) }
-            repository.updatePlan(id, request)
+            val result = if (selectedPlan.canReviseRoutes && !selectedPlan.canUpdate) {
+                repository.reviseRoutes(
+                    id,
+                    ReviseFieldPlanRoutesRequest(
+                        destinations = request.destinations.map { destination ->
+                            ReviseFieldPlanRouteRequest(
+                                id = destination.id,
+                                routeName = destination.routeName,
+                                sequenceOrder = destination.sequenceOrder,
+                            )
+                        },
+                    ),
+                )
+            } else {
+                repository.updatePlan(id, request)
+            }
+            result
                 .onSuccess { plan ->
                     _uiState.update {
                         it.copy(
                             selectedPlan = plan,
                             plans = replacePlan(it.plans, plan),
-                            successMessage = "Konfirmasi rencana berhasil disimpan.",
+                            successMessage = if (selectedPlan.canReviseRoutes && !selectedPlan.canUpdate)
+                                "Rute aktif berhasil diperbarui."
+                            else
+                                "Konfirmasi rencana berhasil disimpan.",
                         )
                     }
                 }

@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\MobileFieldPlanResource;
 use App\Models\FieldDistributionPlan;
 use App\Services\FieldDistributionPlanWorkflow;
+use App\Services\ActiveFieldPlanRouteService;
 use App\Services\FieldPlanActualConfirmationService;
 use App\Services\MobileFieldPlanCreationService;
 use App\Services\MobileFieldPlanUpdateService;
@@ -137,6 +138,25 @@ class FieldPlanController extends Controller
 
         return new MobileFieldPlanResource(
             $updateService->update($plan, $request->user(), $data),
+        );
+    }
+
+    public function reviseRoutes(
+        Request $request,
+        FieldDistributionPlan $plan,
+        ActiveFieldPlanRouteService $routeService,
+    ): MobileFieldPlanResource {
+        Gate::authorize('reviseRoutes', $plan);
+
+        $data = $request->validate([
+            'destinations' => ['required', 'array', 'min:1'],
+            'destinations.*.id' => ['required', 'integer', 'distinct'],
+            'destinations.*.route_name' => ['nullable', 'string', 'max:255'],
+            'destinations.*.sequence_order' => ['required', 'integer', 'min:1'],
+        ]);
+
+        return new MobileFieldPlanResource(
+            $routeService->update($plan, $request->user(), $data['destinations']),
         );
     }
 

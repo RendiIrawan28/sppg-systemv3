@@ -8,6 +8,7 @@ import id.sppg.mobile.data.remote.FieldPlanOption
 import id.sppg.mobile.data.remote.CreateFieldPlanRequest
 import id.sppg.mobile.data.remote.MobileApi
 import id.sppg.mobile.data.remote.ReadinessResponse
+import id.sppg.mobile.data.remote.ReviseFieldPlanRoutesRequest
 import id.sppg.mobile.data.remote.SessionExpiredException
 import id.sppg.mobile.data.remote.UpdateFieldPlanRequest
 import id.sppg.mobile.data.remote.safeApiCall
@@ -76,6 +77,12 @@ class FieldPlanRepository(
         val response = api.updateFieldPlan(authorization(), id, request)
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
         response.body()?.data ?: throw IOException("Rincian rencana tidak tersedia.")
+    }
+
+    suspend fun reviseRoutes(id: Long, request: ReviseFieldPlanRoutesRequest): Result<FieldPlan> = safeApiCall(errorHandler) {
+        val response = api.reviseFieldPlanRoutes(authorization(), id, request)
+        if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
+        response.body()?.data ?: throw IOException("Rute aktif gagal diperbarui.")
     }
 
     suspend fun refreshBeneficiaries(id: Long): Result<FieldPlan> = safeApiCall(errorHandler) {

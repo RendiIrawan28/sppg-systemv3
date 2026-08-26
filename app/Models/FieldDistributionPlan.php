@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\FieldDistributionPlanStatus;
+use App\Enums\DistributionRunState;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -208,6 +209,18 @@ class FieldDistributionPlan extends Model
     public function canBeDeleted(): bool
     {
         return $this->status === FieldDistributionPlanStatus::Draft;
+    }
+
+    public function canReviseActiveRoutes(): bool
+    {
+        if ($this->status !== FieldDistributionPlanStatus::Activated
+            || ! $this->distributionRuns()->exists()) {
+            return false;
+        }
+
+        return ! $this->distributionRuns()
+            ->where('state', '!=', DistributionRunState::Planned->value)
+            ->exists();
     }
 
     public function recalculateTotals(): void

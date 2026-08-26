@@ -36,6 +36,7 @@ class MobileFieldPlanResource extends JsonResource
             'general_notes' => $this->general_notes,
             'is_editable' => $this->isEditable(),
             'can_update' => $request->user()?->can('update', $this->resource) ?? false,
+            'can_revise_routes' => $request->user()?->can('reviseRoutes', $this->resource) ?? false,
             'can_delete' => $request->user()?->can('delete', $this->resource) ?? false,
             'can_refresh' => $request->user()?->can('update', $this->resource) ?? false,
             'can_activate' => $this->isEditable()

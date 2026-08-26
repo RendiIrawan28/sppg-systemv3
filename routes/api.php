@@ -41,7 +41,8 @@ Route::prefix('mobile')->group(function (): void {
         Route::get('/field-plans/options', [FieldPlanController::class, 'options']);
         Route::post('/field-plans', [FieldPlanController::class, 'store']);
         Route::get('/field-plans/{plan}', [FieldPlanController::class, 'show']);
-        Route::put('/field-plans/{plan}', [FieldPlanController::class, 'update']);
+          Route::put('/field-plans/{plan}', [FieldPlanController::class, 'update']);
+          Route::put('/field-plans/{plan}/routes', [FieldPlanController::class, 'reviseRoutes']);
         Route::delete('/field-plans/{plan}', [FieldPlanController::class, 'destroy']);
         Route::post('/field-plans/{plan}/refresh-beneficiaries', [FieldPlanController::class, 'refreshBeneficiaries']);
         Route::get('/field-plans/{plan}/readiness', [FieldPlanController::class, 'readiness']);

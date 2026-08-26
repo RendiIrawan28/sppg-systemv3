@@ -371,7 +371,7 @@ private fun FieldPlanDetailContent(
             title = { Text("Aktifkan rencana?") },
             text = {
                 Column {
-                    Text("Aktivasi akan menyiapkan rute Distribusi. Pengolahan dan Pemorsian tetap dimulai manual oleh divisi masing-masing. Data rencana tidak dapat diubah lagi.")
+                    Text("Aktivasi akan menyiapkan rute Distribusi. Pengolahan dan Pemorsian tetap dimulai manual oleh divisi masing-masing. Nama dan urutan rute masih dapat disesuaikan sebelum dipilih driver.")
                     Spacer(Modifier.height(14.dp))
                     OutlinedTextField(
                         value = activationNotes,
@@ -471,7 +471,7 @@ private fun FieldPlanDetailContent(
                 }
             }
         }
-        if (plan.canUpdate || plan.canActivate) {
+        if (plan.canUpdate || plan.canReviseRoutes || plan.canActivate) {
             item {
                 SectionCard("Tindakan rencana") {
                     if (plan.canUpdate) {
@@ -480,6 +480,14 @@ private fun FieldPlanDetailContent(
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.isSubmitting,
                         ) { Text("Ubah konfirmasi tujuan") }
+                        Spacer(Modifier.height(10.dp))
+                    }
+                    if (plan.canReviseRoutes && !plan.canUpdate) {
+                        OutlinedButton(
+                            onClick = onEdit,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !state.isSubmitting,
+                        ) { Text("Sesuaikan rute aktif") }
                         Spacer(Modifier.height(10.dp))
                     }
                     if (plan.canRefresh) {
@@ -701,7 +709,7 @@ fun FieldPlanEditScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Konfirmasi Tujuan", fontWeight = FontWeight.Bold) },
+                title = { Text(if (state.selectedPlan?.canReviseRoutes == true && state.selectedPlan?.canUpdate == false) "Sesuaikan Rute" else "Konfirmasi Tujuan", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack, enabled = !state.isSubmitting) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Kembali")
@@ -737,6 +745,7 @@ private fun FieldPlanEditForm(
     serverError: String?,
     onSave: (UpdateFieldPlanRequest) -> Unit,
 ) {
+    val routeOnly = plan.canReviseRoutes && !plan.canUpdate
     var generalNotes by remember(plan.id) { mutableStateOf(plan.generalNotes.orEmpty()) }
     var destinations by remember(plan.id) {
         mutableStateOf(
@@ -791,6 +800,20 @@ private fun FieldPlanEditForm(
             Spacer(Modifier.height(4.dp))
             Text(formatDate(plan.distributionDate), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        if (routeOnly) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    shape = RoundedCornerShape(15.dp),
+                ) {
+                    Text(
+                        "Rencana sudah aktif. Hanya nama rute dan urutan tujuan yang dapat diubah; data penerima dan jumlah porsi tetap terkunci.",
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
         if (serverError != null || localError != null) {
             item {
                 FeedbackCard(
@@ -800,7 +823,7 @@ private fun FieldPlanEditForm(
                 )
             }
         }
-        item {
+        if (!routeOnly) item {
             OutlinedTextField(
                 value = generalNotes,
                 onValueChange = { generalNotes = it },
@@ -816,6 +839,7 @@ private fun FieldPlanEditForm(
                 destination = destination,
                 routeOptions = routeOptions,
                 enabled = !isSubmitting,
+                routeOnly = routeOnly,
                 onDestinationChange = { updated ->
                     destinations = destinations.toMutableList().also { it[destinationIndex] = updated }
                     localError = null
@@ -825,16 +849,32 @@ private fun FieldPlanEditForm(
         item {
             Button(
                 onClick = {
+                    val servedDestinations = destinations.filter { destination ->
+                        destination.groups.sumOf { it.confirmed.toIntOrNull() ?: 0 } > 0
+                    }
+                    val missingRoute = servedDestinations.firstOrNull { it.routeName.isBlank() }
+                    if (missingRoute != null) {
+                        localError = "Rute untuk ${missingRoute.name} wajib dipilih."
+                        return@Button
+                    }
+                    val duplicateOrder = servedDestinations
+                        .groupBy { it.routeName.trim() to it.sequenceOrder }
+                        .entries
+                        .firstOrNull { it.value.size > 1 }
+                    if (duplicateOrder != null) {
+                        localError = "Urutan ${duplicateOrder.key.second} pada ${duplicateOrder.key.first} digunakan lebih dari satu tujuan."
+                        return@Button
+                    }
                     val requestDestinations = destinations.map { destination ->
                         val groups = destination.groups.map { group ->
                             val confirmed = group.confirmed.toIntOrNull()
-                            if (confirmed == null || confirmed < 0) {
+                            if (!routeOnly && (confirmed == null || confirmed < 0)) {
                                 localError = "Jumlah aktual pada ${group.name} harus berupa angka nol atau lebih."
                                 return@Button
                             }
                             UpdateRecipientGroupRequest(
                                 id = group.id,
-                                confirmedBeneficiaries = confirmed,
+                                confirmedBeneficiaries = confirmed ?: 0,
                                 menuAudience = group.menuAudience,
                                 portionSize = group.portionSize,
                                 notes = group.notes.trim().ifBlank { null },
@@ -843,7 +883,7 @@ private fun FieldPlanEditForm(
                         val changed = destination.groups.any {
                             it.confirmed.toIntOrNull() != it.registered
                         }
-                        if (changed && destination.changeReason.isBlank()) {
+                        if (!routeOnly && changed && destination.changeReason.isBlank()) {
                             localError = "${destination.name}: alasan perubahan jumlah penerima wajib diisi."
                             return@Button
                         }
@@ -878,7 +918,7 @@ private fun FieldPlanEditForm(
                         color = MaterialTheme.colorScheme.onPrimary,
                     )
                 } else {
-                    Text("Simpan konfirmasi", fontWeight = FontWeight.SemiBold)
+                    Text(if (routeOnly) "Simpan penyesuaian rute" else "Simpan konfirmasi", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -891,12 +931,15 @@ private fun DestinationEditCard(
     destination: DestinationEditState,
     routeOptions: List<String>,
     enabled: Boolean,
+    routeOnly: Boolean,
     onDestinationChange: (DestinationEditState) -> Unit,
 ) {
     var routeExpanded by remember(destination.id) { mutableStateOf(false) }
     val hasChangedCount = destination.groups.any {
         it.confirmed.toIntOrNull() != it.registered
     }
+    val isServed = destination.groups.sumOf { it.confirmed.toIntOrNull() ?: 0 } > 0
+    val routeFieldsEnabled = enabled && (!routeOnly || isServed)
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
@@ -911,7 +954,7 @@ private fun DestinationEditCard(
             Spacer(Modifier.height(14.dp))
             ExposedDropdownMenuBox(
                 expanded = routeExpanded,
-                onExpandedChange = { if (enabled) routeExpanded = !routeExpanded },
+                onExpandedChange = { if (routeFieldsEnabled) routeExpanded = !routeExpanded },
             ) {
                 OutlinedTextField(
                     value = destination.routeName,
@@ -923,7 +966,7 @@ private fun DestinationEditCard(
                     placeholder = { Text("Pilih rute") },
                     readOnly = true,
                     singleLine = true,
-                    enabled = enabled,
+                    enabled = routeFieldsEnabled,
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(routeExpanded) },
                 )
                 ExposedDropdownMenu(
@@ -942,6 +985,28 @@ private fun DestinationEditCard(
                 }
             }
             Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = destination.sequenceOrder.toString(),
+                onValueChange = { value ->
+                    value.filter(Char::isDigit).toIntOrNull()?.let { sequence ->
+                        onDestinationChange(destination.copy(sequenceOrder = maxOf(1, sequence)))
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Urutan tujuan dalam rute") },
+                singleLine = true,
+                enabled = routeFieldsEnabled,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
+            if (routeOnly) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    if (isServed) "${destination.groups.sumOf { it.confirmed.toIntOrNull() ?: 0 }} porsi · data penerima tetap terkunci" else "Tujuan tidak dilayani · rute tidak diperlukan",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            if (!routeOnly) {
             Spacer(Modifier.height(16.dp))
             Text("Kelompok penerima", fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(10.dp))
@@ -1030,6 +1095,7 @@ private fun DestinationEditCard(
                 minLines = 2,
                 enabled = enabled,
             )
+            }
         }
     }
 }

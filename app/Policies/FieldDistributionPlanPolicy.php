@@ -31,6 +31,13 @@ class FieldDistributionPlanPolicy
             && $plan->isEditable();
     }
 
+    public function reviseRoutes(User $user, FieldDistributionPlan $plan): bool
+    {
+        return $user->can('field_planning.update')
+            && app(SystemUnit::class)->owns($plan)
+            && $plan->canReviseActiveRoutes();
+    }
+
     public function delete(User $user, FieldDistributionPlan $plan): bool
     {
         return $user->can('field_planning.delete')
