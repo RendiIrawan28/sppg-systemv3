@@ -850,6 +850,11 @@ private fun OperationalDetailContent(
     val washingFinalActions = capabilities?.actions.orEmpty().filterNot {
         it.key in setOf("receive", "waste_none", "waste_present", "start")
     }
+    val hasWashingWaste = module == "pencucian" && record.sections.orEmpty()
+        .firstOrNull { it.key == "wasteRecords" }
+        ?.items
+        .orEmpty()
+        .isNotEmpty()
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -1059,8 +1064,14 @@ private fun OperationalDetailContent(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("EKSPOR LAPORAN", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                    if (module == "pengolahan") {
-                        Text("Monitoring Produksi Harian", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    val primaryDocumentLabel = when (module) {
+                        "persiapan" -> "Berita Acara Perhitungan Persiapan"
+                        "pengolahan" -> "Monitoring Produksi Harian"
+                        "pencucian" -> "Laporan Harian Pencucian"
+                        else -> null
+                    }
+                    if (primaryDocumentLabel != null) {
+                        Text(primaryDocumentLabel, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
@@ -1093,6 +1104,35 @@ private fun OperationalDetailContent(
                             }
                             Button(
                                 onClick = { onShareDocument("temperature") }, enabled = !isSaving,
+                                modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                            ) {
+                                Icon(Icons.Outlined.Share, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Bagikan", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    if (module == "persiapan" || hasWashingWaste) {
+                        Text(
+                            if (module == "persiapan") {
+                                "Berita Acara Limbah Persiapan"
+                            } else {
+                                "Berita Acara Limbah Pencucian"
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = { onOpenDocument("waste") }, enabled = !isSaving,
+                                modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                            ) {
+                                Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Buka PDF", fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = { onShareDocument("waste") }, enabled = !isSaving,
                                 modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
                             ) {
                                 Icon(Icons.Outlined.Share, contentDescription = null)
