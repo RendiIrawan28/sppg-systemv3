@@ -474,6 +474,12 @@ private fun AuthenticatedContent(
                     )
                 }
             },
+            onOpenCleaningWaste = {
+                screen = AppScreen.OperationalRecords(
+                    "ba-limbah-kebersihan",
+                    "Berita Acara Limbah Kebersihan",
+                )
+            },
             onRelationCreate = { section ->
                 operationalViewModel.prepareRelationCreate(section.key)
                 screen = AppScreen.OperationalRelationEdit(

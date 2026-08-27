@@ -68,9 +68,23 @@ class MobileOperationalRecordTransformer
      */
     public function detail(string $slug, array $definition, Model $record, int $unitId): array
     {
+        $fields = collect($this->fields($record, $definition['fields'] ?? [], $unitId));
+        if ($slug === 'kebersihan' && $record->getAttribute('waste_presence') === 'yes') {
+            $report = $record->relationLoaded('wasteHandoverReport')
+                ? $record->getRelation('wasteHandoverReport')
+                : $record->wasteHandoverReport()->first();
+            $fields->push([
+                'key' => 'waste_handover_readiness',
+                'label' => 'Berita acara limbah',
+                'value' => $report?->isOperationallyUsable() ? 'Siap' : ($report ? 'Belum diajukan' : 'Belum dibuat'),
+                'type' => 'text',
+                'file_url' => null,
+            ]);
+        }
+
         return [
             ...$this->summary($slug, $definition, $record),
-            'fields' => $this->fields($record, $definition['fields'] ?? [], $unitId),
+            'fields' => $fields->values()->all(),
             'sections' => collect($definition['relations'] ?? [])->map(function (array $relation, string $name) use ($record, $unitId): array {
                 $value = $record->getRelation($name);
                 $items = $value instanceof Collection || $value instanceof EloquentCollection
@@ -152,6 +166,15 @@ class MobileOperationalRecordTransformer
 
     private function title(string $slug, Model $record): string
     {
+        if ($slug === 'kebersihan' && method_exists($record, 'cleaningArea')) {
+            $area = $record->relationLoaded('cleaningArea')
+                ? $record->getRelation('cleaningArea')
+                : $record->cleaningArea()->first();
+            if (filled($area?->name)) {
+                return (string) $area->name;
+            }
+        }
+
         if (in_array($slug, ['gudang-stok', 'gudang-stok-non-pangan'], true)) {
             $stockItem = $slug === 'gudang-stok-non-pangan'
                 ? ($record->relationLoaded('nonFoodItem') ? $record->getRelation('nonFoodItem') : $record->nonFoodItem()->first())
@@ -180,7 +203,7 @@ class MobileOperationalRecordTransformer
             'pemorsian' => ['menu_name_snapshot'],
             'distribusi' => ['route_name', 'menu_name_snapshot'],
             'pencucian' => ['route_name', 'menu_name_snapshot'],
-            'kebersihan' => ['before_condition'],
+            'kebersihan' => [],
             default => [],
         };
 
@@ -219,7 +242,12 @@ class MobileOperationalRecordTransformer
                 $record->getAttribute('menu_name_snapshot'),
                 filled($record->getAttribute('petugas_name_snapshot')) ? 'Petugas '.$record->getAttribute('petugas_name_snapshot') : null,
             ])->filter()->implode(' · ') ?: null,
-            'kebersihan' => filled($record->getAttribute('shift')) ? 'Shift '.Str::title((string) $record->getAttribute('shift')) : null,
+            'kebersihan' => collect([
+                optional($record->relationLoaded('cleaningArea')
+                    ? $record->getRelation('cleaningArea')
+                    : $record->cleaningArea()->first())->location,
+                filled($record->getAttribute('shift')) ? 'Shift '.$this->displayValue($record->getAttribute('shift')) : null,
+            ])->filter()->implode(' · ') ?: null,
             default => null,
         };
     }
@@ -237,6 +265,19 @@ class MobileOperationalRecordTransformer
 
     private function metrics(string $slug, Model $record): array
     {
+        if ($slug === 'kebersihan') {
+            $items = $record->relationLoaded('checklistItems')
+                ? $record->getRelation('checklistItems')
+                : $record->checklistItems()->get();
+            $checked = $items->whereIn('result', ['pass', 'fail'])->count();
+
+            return [
+                ['label' => 'Progres', 'value' => ((int) $record->completion_percentage).'%'],
+                ['label' => 'Checklist', 'value' => $checked.'/'.$items->count()],
+                ['label' => 'Temuan', 'value' => (string) ($record->getAttribute('findings_count') ?? 0)],
+            ];
+        }
+
         $fields = match ($slug) {
             'gudang', 'gudang-non-pangan' => [['items_count', 'Barang']],
             'gudang-stok-awal', 'gudang-stok-awal-non-pangan' => [['items_count', 'Barang']],

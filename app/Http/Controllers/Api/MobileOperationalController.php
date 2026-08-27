@@ -1578,6 +1578,7 @@ class MobileOperationalController extends Controller
     ): array {
         return collect($definition['fields'] ?? [])
             ->reject(fn (array $field): bool => ($field['detail_only'] ?? false) && ! $item->exists)
+            ->reject(fn (array $field): bool => (bool) ($field['form_hidden'] ?? false))
             ->map(function (array $field) use ($item, $registry, $unitId, $relationMode): array {
                 $name = $field['name'];
                 $editable = ($field['editable'] ?? true)
@@ -2796,8 +2797,13 @@ class MobileOperationalController extends Controller
                 default => [],
             },
             'kebersihan' => match ($relation) {
-                'checklistItems' => ['update'],
-                'chemicalUsages', 'documentations', 'findings' => ['create', 'update', 'delete'],
+                'checklistItems' => in_array($this->scalarValue($parent?->getAttribute('state')), ['in_progress', 'ready'], true)
+                    ? ['update'] : [],
+                'chemicalUsages', 'documentations', 'findings' => in_array(
+                    $this->scalarValue($parent?->getAttribute('state')),
+                    ['in_progress', 'ready'],
+                    true,
+                ) ? ['create', 'update', 'delete'] : [],
                 default => [],
             },
             'keamanan' => $relation === 'reports'

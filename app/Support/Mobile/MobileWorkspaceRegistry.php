@@ -285,6 +285,77 @@ class MobileWorkspaceRegistry
                 ]));
             }
 
+            if ($slug === 'kebersihan') {
+                // Mobile menampilkan alur Kebersihan sebagai checklist kerja, bukan
+                // formulir master generik. Hanya data operasional yang memang perlu
+                // dilihat atau diisi petugas yang dikirim ke aplikasi.
+                $definition['fields'] = collect($definition['fields'])
+                    ->filter(fn (array $field): bool => in_array($field['name'], [
+                        'scheduled_date', 'shift', 'before_condition', 'after_condition',
+                        'waste_presence', 'notes',
+                    ], true))
+                    ->map(function (array $field): array {
+                        if (in_array($field['name'], ['scheduled_date', 'shift'], true)) {
+                            $field['editable'] = false;
+                            $field['form_hidden'] = true;
+                        }
+
+                        return $field;
+                    })->values()->all();
+                $definition['fields'][] = [
+                    ...$this->field('petugas_name_snapshot', 'Petugas'),
+                    'editable' => false,
+                    'form_hidden' => true,
+                ];
+                $definition['fields'][] = [
+                    ...$this->field('started_at', 'Waktu mulai', 'datetime'),
+                    'editable' => false,
+                    'form_hidden' => true,
+                ];
+                $definition['fields'][] = [
+                    ...$this->field('completed_at', 'Waktu selesai', 'datetime'),
+                    'editable' => false,
+                    'form_hidden' => true,
+                ];
+
+                $definition['relations']['checklistItems']['fields'] = collect(
+                    $definition['relations']['checklistItems']['fields'],
+                )->filter(fn (array $field): bool => in_array($field['name'], [
+                    'category', 'item_name', 'is_mandatory', 'result', 'notes',
+                ], true))->map(function (array $field): array {
+                    if (in_array($field['name'], ['category', 'item_name', 'is_mandatory'], true)) {
+                        $field['editable'] = false;
+                        $field['form_hidden'] = true;
+                    }
+
+                    return $field;
+                })->values()->all();
+
+                $definition['relations']['chemicalUsages']['fields'] = collect(
+                    $definition['relations']['chemicalUsages']['fields'],
+                )->filter(fn (array $field): bool => in_array($field['name'], [
+                    'chemical_name', 'quantity', 'unit', 'purpose',
+                ], true))->values()->all();
+
+                $definition['relations']['documentations']['fields'] = collect(
+                    $definition['relations']['documentations']['fields'],
+                )->filter(fn (array $field): bool => in_array($field['name'], [
+                    'phase', 'photo_path', 'caption',
+                ], true))->values()->all();
+
+                $definition['relations']['findings']['fields'] = collect(
+                    $definition['relations']['findings']['fields'],
+                )->filter(fn (array $field): bool => in_array($field['name'], [
+                    'category', 'severity', 'description', 'corrective_action',
+                    'photo_path', 'notes',
+                ], true))->values()->all();
+
+                $definition['with'] = array_values(array_unique([
+                    ...((array) ($definition['with'] ?? [])),
+                    'cleaningArea', 'checklistItems', 'wasteHandoverReport',
+                ]));
+            }
+
             $definitions[$slug] = $definition;
         }
 

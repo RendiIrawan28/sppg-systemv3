@@ -49,6 +49,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -332,7 +333,10 @@ private fun OperationalRecordCard(module: String, record: OperationalRecord, onC
                 Spacer(Modifier.height(6.dp))
                 OperationalInfoLine(Icons.Outlined.Person, record.assignee)
             }
-            if (record.metrics.isNotEmpty()) {
+            if (module == "kebersihan") {
+                Spacer(Modifier.height(14.dp))
+                CleaningListProgress(record)
+            } else if (record.metrics.isNotEmpty()) {
                 Spacer(Modifier.height(14.dp))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     record.metrics.take(2).forEach { metric ->
@@ -403,6 +407,7 @@ fun OperationalRecordDetailScreen(
     onAction: (String, String?, Map<String, String?>, Map<String, String>) -> Unit,
     onOpenDocument: (String?) -> Unit,
     onShareDocument: (String?) -> Unit,
+    onOpenCleaningWaste: () -> Unit,
     onRelationCreate: (OperationalSection) -> Unit,
     onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
@@ -643,6 +648,7 @@ fun OperationalRecordDetailScreen(
                 },
                 onOpenDocument = onOpenDocument,
                 onShareDocument = onShareDocument,
+                onOpenCleaningWaste = onOpenCleaningWaste,
                 onRelationCreate = onRelationCreate,
                 onRelationEdit = onRelationEdit,
                 onRelationDelete = { section, item -> relationToDelete = section to item },
@@ -827,6 +833,7 @@ private fun OperationalDetailContent(
     onAction: (OperationalAction) -> Unit,
     onOpenDocument: (String?) -> Unit,
     onShareDocument: (String?) -> Unit,
+    onOpenCleaningWaste: () -> Unit,
     onRelationCreate: (OperationalSection) -> Unit,
     onRelationEdit: (OperationalSection, OperationalSectionItem) -> Unit,
     onRelationDelete: (OperationalSection, OperationalSectionItem) -> Unit,
@@ -855,6 +862,13 @@ private fun OperationalDetailContent(
         ?.items
         .orEmpty()
         .isNotEmpty()
+    val cleaningReadinessState = if (module == "kebersihan") cleaningReadiness(record) else null
+    val cleaningStartActions = if (module == "kebersihan") {
+        remainingActions.filter { it.key == "start" }
+    } else emptyList()
+    val cleaningCompleteActions = if (module == "kebersihan") {
+        remainingActions.filter { it.key != "start" }
+    } else emptyList()
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -907,14 +921,30 @@ private fun OperationalDetailContent(
         if (module == "pencucian") {
             item { WashingProgressCard(record) }
         }
+        if (module == "kebersihan") {
+            item { CleaningOverviewCard(record, cleaningReadinessState ?: cleaningReadiness(record)) }
+        }
         if (!record.fields.isNullOrEmpty()) {
             if (module == "pemorsian") {
                 item { PortioningProgressCard(record.fields) }
             }
             item {
                 OperationalFieldCard(
-                    if (module == "distribusi") "Informasi rute" else "Informasi pekerjaan",
+                    when (module) {
+                        "distribusi" -> "Informasi rute"
+                        "kebersihan" -> "Ringkasan pekerjaan"
+                        else -> "Informasi pekerjaan"
+                    },
                     record.fields,
+                )
+            }
+        }
+        if (module == "kebersihan") {
+            item {
+                CleaningWasteCard(
+                    record = record,
+                    onEdit = onEdit,
+                    onOpenWasteReport = onOpenCleaningWaste,
                 )
             }
         }
@@ -1017,7 +1047,20 @@ private fun OperationalDetailContent(
                 )
             }
         }
-        val sections = record.sections.orEmpty()
+        if (cleaningStartActions.isNotEmpty()) {
+            item {
+                CleaningNextStepCard(
+                    actions = cleaningStartActions,
+                    readiness = cleaningReadinessState,
+                    isSaving = isSaving,
+                    onAction = onAction,
+                )
+            }
+        }
+        val sections = if (module == "kebersihan") {
+            val order = listOf("checklistItems", "documentations", "chemicalUsages", "findings")
+            record.sections.orEmpty().sortedBy { order.indexOf(it.key).let { index -> if (index < 0) Int.MAX_VALUE else index } }
+        } else record.sections.orEmpty()
         if (sections.isEmpty()) {
             item {
                 Text(
@@ -1027,13 +1070,22 @@ private fun OperationalDetailContent(
             }
         } else {
             items(sections, key = { it.key }) { section ->
-                OperationalSectionCard(
-                    section = section,
-                    onCreate = { onRelationCreate(section) },
-                    onEdit = { onRelationEdit(section, it) },
-                    onDelete = { onRelationDelete(section, it) },
-                    onAction = { item, action -> onRelationAction(section, item, action) },
-                )
+                if (module == "kebersihan" && section.key == "checklistItems") {
+                    CleaningChecklistSectionCard(
+                        section = section,
+                        onEdit = { onRelationEdit(section, it) },
+                    )
+                } else {
+                    OperationalSectionCard(
+                        section = section,
+                        subtitle = if (module == "kebersihan") cleaningSectionHint(section.key) else null,
+                        emptyMessage = if (module == "kebersihan") cleaningSectionEmptyMessage(section.key) else "Belum ada data.",
+                        onCreate = { onRelationCreate(section) },
+                        onEdit = { onRelationEdit(section, it) },
+                        onDelete = { onRelationDelete(section, it) },
+                        onAction = { item, action -> onRelationAction(section, item, action) },
+                    )
+                }
             }
         }
         if (module == "pencucian" && washingFinalActions.isNotEmpty()) {
@@ -1045,7 +1097,17 @@ private fun OperationalDetailContent(
                 )
             }
         }
-        if (remainingActions.isNotEmpty() && module != "distribusi" && module != "pencucian") {
+        if (cleaningCompleteActions.isNotEmpty()) {
+            item {
+                CleaningNextStepCard(
+                    actions = cleaningCompleteActions,
+                    readiness = cleaningReadinessState,
+                    isSaving = isSaving,
+                    onAction = onAction,
+                )
+            }
+        }
+        if (remainingActions.isNotEmpty() && module != "distribusi" && module != "pencucian" && module != "kebersihan") {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("LANGKAH BERIKUTNYA", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
@@ -1144,7 +1206,7 @@ private fun OperationalDetailContent(
                 }
             }
         }
-        if (capabilities?.canUpdate == true || capabilities?.canDelete == true) {
+        if (module != "kebersihan" && (capabilities?.canUpdate == true || capabilities?.canDelete == true)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (capabilities.canUpdate) {
@@ -2242,6 +2304,355 @@ private fun PortioningProgressItem(
     }
 }
 
+private data class CleaningReadiness(
+    val checkedItems: Int,
+    val totalItems: Int,
+    val checklistReady: Boolean,
+    val evaluationsReady: Boolean,
+    val resultPhotoReady: Boolean,
+    val wasteDecisionReady: Boolean,
+    val wasteReportReady: Boolean,
+    val criticalFindingsReady: Boolean,
+) {
+    val isReady: Boolean
+        get() = checklistReady && evaluationsReady && resultPhotoReady &&
+            wasteDecisionReady && wasteReportReady && criticalFindingsReady
+}
+
+private fun cleaningReadiness(record: OperationalRecord): CleaningReadiness {
+    fun OperationalSectionItem.field(key: String): OperationalField? = fields.firstOrNull { it.key == key }
+    fun String.isYes(): Boolean = equals("Ya", ignoreCase = true) || equals("true", ignoreCase = true)
+
+    val checklistItems = record.sections.orEmpty().firstOrNull { it.key == "checklistItems" }?.items.orEmpty()
+    val mandatoryItems = checklistItems.filter { it.field("is_mandatory")?.value.orEmpty().isYes() }
+        .ifEmpty { checklistItems }
+    val checkedItems = mandatoryItems.count {
+        val result = it.field("result")?.value.orEmpty()
+        result.equals("Terpenuhi", ignoreCase = true) || result.equals("Tidak terpenuhi", ignoreCase = true)
+    }
+    val failedWithoutEvaluation = mandatoryItems.any {
+        it.field("result")?.value.orEmpty().equals("Tidak terpenuhi", ignoreCase = true) &&
+            it.field("notes")?.value.isNullOrBlank()
+    }
+    val resultPhotoReady = record.sections.orEmpty()
+        .firstOrNull { it.key == "documentations" }
+        ?.items.orEmpty()
+        .any { documentation ->
+            documentation.field("phase")?.value.orEmpty().contains("hasil", ignoreCase = true) &&
+                documentation.field("photo_path")?.fileUrl.isNullOrBlank().not()
+        }
+    val wasteDecision = record.fields.orEmpty().firstOrNull { it.key == "waste_presence" }?.value.orEmpty()
+    val hasWaste = wasteDecision.contains("ada limbah", ignoreCase = true) &&
+        !wasteDecision.contains("tidak", ignoreCase = true)
+    val wasteDecisionReady = wasteDecision.contains("limbah", ignoreCase = true)
+    val wasteReportReady = !hasWaste || record.fields.orEmpty()
+        .firstOrNull { it.key == "waste_handover_readiness" }
+        ?.value.orEmpty().equals("Siap", ignoreCase = true)
+    val criticalFindingsReady = record.sections.orEmpty()
+        .firstOrNull { it.key == "findings" }
+        ?.items.orEmpty()
+        .none { finding ->
+            finding.field("severity")?.value.orEmpty().equals("Kritis", ignoreCase = true) &&
+                finding.field("corrective_action")?.value.isNullOrBlank()
+        }
+
+    return CleaningReadiness(
+        checkedItems = checkedItems,
+        totalItems = mandatoryItems.size,
+        checklistReady = mandatoryItems.isNotEmpty() && checkedItems == mandatoryItems.size,
+        evaluationsReady = !failedWithoutEvaluation,
+        resultPhotoReady = resultPhotoReady,
+        wasteDecisionReady = wasteDecisionReady,
+        wasteReportReady = wasteReportReady,
+        criticalFindingsReady = criticalFindingsReady,
+    )
+}
+
+@Composable
+private fun CleaningListProgress(record: OperationalRecord) {
+    val progressText = record.metrics.firstOrNull { it.label == "Progres" }?.value ?: "0%"
+    val progress = progressText.removeSuffix("%").toFloatOrNull()?.div(100f)?.coerceIn(0f, 1f) ?: 0f
+    val checklist = record.metrics.firstOrNull { it.label == "Checklist" }?.value ?: "0/0"
+    val findings = record.metrics.firstOrNull { it.label == "Temuan" }?.value ?: "0"
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Progres checklist", style = MaterialTheme.typography.labelMedium)
+            Text(progressText, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        }
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth().height(7.dp),
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("$checklist diperiksa", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("$findings temuan", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun CleaningOverviewCard(record: OperationalRecord, readiness: CleaningReadiness) {
+    val progress = if (readiness.totalItems > 0) {
+        readiness.checkedItems.toFloat() / readiness.totalItems.toFloat()
+    } else 0f
+    val state = record.state.orEmpty()
+    val guidance = when (state) {
+        "planned" -> "Mulai pekerjaan agar checklist dan dokumentasi dapat diisi."
+        "in_progress" -> if (readiness.isReady) {
+            "Seluruh persyaratan sudah lengkap. Pekerjaan dapat diselesaikan."
+        } else {
+            "Lengkapi checklist, foto hasil, keputusan limbah, dan temuan sebelum selesai."
+        }
+        else -> "Pekerjaan sudah selesai. Data ditampilkan sebagai riwayat."
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("PROGRES PEKERJAAN", fontWeight = FontWeight.Bold)
+                Text(
+                    "${readiness.checkedItems}/${readiness.totalItems}",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(8.dp),
+            )
+            Text(guidance, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+    }
+}
+
+@Composable
+private fun CleaningChecklistSectionCard(
+    section: OperationalSection,
+    onEdit: (OperationalSectionItem) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("CHECKLIST AREA", fontWeight = FontWeight.Bold)
+            Text(
+                "Pilih Terpenuhi atau Tidak terpenuhi. Evaluasi wajib diisi jika hasil tidak terpenuhi.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (section.items.isEmpty()) {
+                Text("Checklist area belum tersedia.", color = MaterialTheme.colorScheme.error)
+            }
+            section.items.forEachIndexed { index, item ->
+                val name = item.fields.firstOrNull { it.key == "item_name" }?.value ?: item.title
+                val category = item.fields.firstOrNull { it.key == "category" }?.value
+                val result = item.fields.firstOrNull { it.key == "result" }?.value ?: "Belum diperiksa"
+                val notes = item.fields.firstOrNull { it.key == "notes" }?.value
+                val completed = result.equals("Terpenuhi", ignoreCase = true)
+                val failed = result.equals("Tidak terpenuhi", ignoreCase = true)
+
+                if (index > 0) HorizontalDivider()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(
+                        if (completed) "✓" else if (failed) "!" else "○",
+                        color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        if (!category.isNullOrBlank()) {
+                            Text(category.uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text(name, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            result,
+                            color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        if (!notes.isNullOrBlank()) {
+                            Text("Evaluasi: $notes", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    if (item.canUpdate) {
+                        TextButton(onClick = { onEdit(item) }) { Text("Periksa") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CleaningWasteCard(
+    record: OperationalRecord,
+    onEdit: () -> Unit,
+    onOpenWasteReport: () -> Unit,
+) {
+    val decision = record.fields.orEmpty().firstOrNull { it.key == "waste_presence" }?.value.orEmpty()
+    val hasWaste = decision.contains("ada limbah", ignoreCase = true) && !decision.contains("tidak", ignoreCase = true)
+    val reportStatus = record.fields.orEmpty().firstOrNull { it.key == "waste_handover_readiness" }?.value
+    val canEdit = record.capabilities?.canUpdate == true && record.state in setOf("in_progress", "ready")
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("LIMBAH", fontWeight = FontWeight.Bold)
+            Text(
+                when {
+                    decision.isBlank() -> "Pilih apakah terdapat limbah pada pekerjaan ini."
+                    hasWaste -> "Terdapat limbah. Lengkapi berita acara sebelum pekerjaan diselesaikan."
+                    else -> "Tercatat tidak ada limbah pada pekerjaan ini."
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (hasWaste) {
+                Text(
+                    "Berita acara: ${reportStatus ?: "Belum dibuat"}",
+                    color = if (reportStatus.equals("Siap", ignoreCase = true)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Button(
+                    onClick = onOpenWasteReport,
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(15.dp),
+                ) { Text("Buat / Buka Berita Acara Limbah", fontWeight = FontWeight.Bold) }
+                if (canEdit) {
+                    TextButton(onClick = onEdit, modifier = Modifier.fillMaxWidth()) { Text("Ubah kondisi limbah") }
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onEdit,
+                    enabled = canEdit,
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(15.dp),
+                ) {
+                    Text(
+                        if (!canEdit) "Mulai pekerjaan untuk mengisi limbah"
+                        else if (decision.isBlank()) "Pilih kondisi limbah"
+                        else "Ubah kondisi limbah",
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun cleaningSectionHint(key: String): String? = when (key) {
+    "documentations" -> "Foto sebelum bersifat opsional. Minimal satu foto hasil kebersihan wajib tersedia."
+    "chemicalUsages" -> "Opsional. Isi hanya jika bahan pembersih perlu dicatat."
+    "findings" -> "Opsional. Temuan kritis wajib disertai tindakan sementara."
+    else -> null
+}
+
+private fun cleaningSectionEmptyMessage(key: String): String = when (key) {
+    "documentations" -> "Belum ada foto. Tambahkan minimal satu foto hasil kebersihan."
+    "chemicalUsages" -> "Tidak ada bahan pembersih yang dicatat."
+    "findings" -> "Tidak ada temuan pada area ini."
+    else -> "Belum ada data."
+}
+
+@Composable
+private fun CleaningNextStepCard(
+    actions: List<OperationalAction>,
+    readiness: CleaningReadiness?,
+    isSaving: Boolean,
+    onAction: (OperationalAction) -> Unit,
+) {
+    val primaryAction = actions.firstOrNull() ?: return
+    val completing = actions.any { it.key == "complete" }
+    val ready = !completing || readiness?.isReady == true
+    val title = when (primaryAction.key) {
+        "start" -> "LANGKAH PERTAMA"
+        "complete" -> "KESIAPAN PENYELESAIAN"
+        "submit" -> "PENGAJUAN LAPORAN"
+        "verify", "revision" -> "PEMERIKSAAN LAPORAN"
+        else -> "LANGKAH BERIKUTNYA"
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (ready) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, fontWeight = FontWeight.Bold)
+            if (completing && readiness != null) {
+                CleaningRequirementRow("Checklist wajib selesai", readiness.checklistReady)
+                CleaningRequirementRow("Evaluasi item tidak terpenuhi lengkap", readiness.evaluationsReady)
+                CleaningRequirementRow("Foto hasil kebersihan tersedia", readiness.resultPhotoReady)
+                CleaningRequirementRow("Kondisi limbah sudah dipilih", readiness.wasteDecisionReady)
+                CleaningRequirementRow("Berita acara limbah siap jika diperlukan", readiness.wasteReportReady)
+                CleaningRequirementRow("Temuan kritis memiliki tindakan", readiness.criticalFindingsReady)
+            } else {
+                Text(
+                    when (primaryAction.key) {
+                        "start" -> "Petugas otomatis menggunakan akun yang memulai pekerjaan."
+                        "submit" -> "Ajukan laporan setelah seluruh area Kebersihan pada tanggal ini selesai."
+                        "verify", "revision" -> "Periksa hasil pekerjaan dan dokumentasi sebelum memberikan keputusan."
+                        else -> "Periksa seluruh data sebelum melanjutkan."
+                    },
+                )
+            }
+            actions.forEachIndexed { index, action ->
+                if (index == 0) {
+                    Button(
+                        onClick = { onAction(action) },
+                        enabled = !isSaving && ready,
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) { Text(action.label, fontWeight = FontWeight.Bold) }
+                } else {
+                    OutlinedButton(
+                        onClick = { onAction(action) },
+                        enabled = !isSaving,
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape = RoundedCornerShape(16.dp),
+                    ) { Text(action.label, fontWeight = FontWeight.SemiBold) }
+                }
+            }
+            if (completing && !ready) {
+                Text(
+                    "Lengkapi bagian yang masih bertanda belum sebelum menyelesaikan pekerjaan.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CleaningRequirementRow(label: String, ready: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            if (ready) "✓" else "○",
+            color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(label, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            if (ready) "Siap" else "Belum",
+            color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
 @Composable
 private fun OperationalFieldCard(title: String, fields: List<OperationalField>) {
     Card(
@@ -2267,6 +2678,8 @@ private fun OperationalFieldCard(title: String, fields: List<OperationalField>) 
 @Composable
 private fun OperationalSectionCard(
     section: OperationalSection,
+    subtitle: String? = null,
+    emptyMessage: String = "Belum ada data.",
     onCreate: () -> Unit,
     onEdit: (OperationalSectionItem) -> Unit,
     onDelete: (OperationalSectionItem) -> Unit,
@@ -2297,9 +2710,13 @@ private fun OperationalSectionCard(
                     }
                 }
             }
+            if (!subtitle.isNullOrBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Spacer(Modifier.height(10.dp))
             if (section.items.isEmpty()) {
-                Text("Belum ada data.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(emptyMessage, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 section.items.forEachIndexed { itemIndex, item ->
                     Text(item.title, fontWeight = FontWeight.SemiBold)
