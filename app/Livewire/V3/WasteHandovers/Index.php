@@ -4,6 +4,7 @@ namespace App\Livewire\V3\WasteHandovers;
 
 use App\Enums\WasteDivision;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\WasteHandoverReport;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -12,6 +13,7 @@ use Livewire\WithPagination;
 class Index extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithPagination;
 
     #[Url(as: 'q')]
@@ -36,6 +38,7 @@ class Index extends Component
             ->with(['items', 'petugas'])
             ->where('sppg_unit_id', $unit->getKey())
             ->whereIn('division_type', array_keys($allowed))
+            ->whereDate('report_date', $this->selectedWorkDate())
             ->when($this->division !== '', fn ($query) => $query->where('division_type', $this->division))
             ->when($this->search !== '', function ($query): void {
                 $query->where(function ($query): void {

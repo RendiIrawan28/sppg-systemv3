@@ -4,6 +4,7 @@ namespace App\Livewire\V3\Operations;
 
 use App\Enums\DistributionRunState;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\CleaningArea;
 use App\Models\DistributionRun;
 use App\Services\CleaningScheduleService;
@@ -15,6 +16,7 @@ use Livewire\WithPagination;
 class Index extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithPagination;
 
     public string $module;
@@ -74,7 +76,27 @@ class Index extends Component
             });
         }
 
-        $records = $query
+        $terminalStates = match ($this->module) {
+            'distribusi' => ['returned', 'cancelled'],
+            'pencucian', 'kebersihan' => ['completed'],
+            default => ['completed', 'cancelled'],
+        };
+        $attentionRecords = (clone $query)
+            ->whereDate($definition['date'], '!=', $this->selectedWorkDate())
+            ->whereNotIn('state', $terminalStates)
+            ->latest($definition['date'])
+            ->limit(10)
+            ->get();
+
+        $selectedDateQuery = (clone $query)
+            ->whereDate($definition['date'], $this->selectedWorkDate());
+        $washingSummary = $this->module === 'pencucian' ? [
+            'waiting' => (clone $selectedDateQuery)->where('state', 'planned')->count(),
+            'washing' => (clone $selectedDateQuery)->whereIn('state', ['received', 'washing'])->count(),
+            'ready' => (clone $selectedDateQuery)->whereIn('state', ['completed', 'ready'])->count(),
+        ] : [];
+
+        $records = $selectedDateQuery
             ->when($this->search !== '', function ($query) use ($definition): void {
                 $query->where(function ($query) use ($definition): void {
                     $query->where($definition['number'], 'like', '%'.$this->search.'%');
@@ -129,6 +151,7 @@ class Index extends Component
 
             $availableCount = DistributionRun::query()
                 ->where('sppg_unit_id', $unit->getKey())
+                ->whereDate('distribution_date', $this->selectedWorkDate())
                 ->where('state', DistributionRunState::Planned->value)
                 ->count();
         }
@@ -144,6 +167,8 @@ class Index extends Component
             'canCreate' => $this->allowed($definition['permission'].'.create'),
             'activeRoute' => $activeRoute,
             'availableCount' => $availableCount,
+            'attentionRecords' => $attentionRecords,
+            'washingSummary' => $washingSummary,
             'periodStart' => $this->periodStart,
             'periodEnd' => $this->periodEnd,
             'cleaningAreas' => $cleaningAreas,

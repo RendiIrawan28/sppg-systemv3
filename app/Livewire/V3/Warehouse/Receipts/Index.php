@@ -3,6 +3,7 @@
 namespace App\Livewire\V3\Warehouse\Receipts;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\ProcurementRequest;
 use App\Models\StockReceipt;
 use App\Models\Warehouse;
@@ -16,6 +17,7 @@ use Livewire\WithPagination;
 class Index extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithPagination;
 
     #[Url(as: 'q', history: true)]
@@ -85,7 +87,10 @@ class Index extends Component
         abort_unless($this->allowed('stock.view'), 403);
         abort_unless(in_array($this->warehouseType, [Warehouse::TYPE_FOOD, Warehouse::TYPE_NON_FOOD], true), 404);
         $warehouse = Warehouse::forUnit($unit->getKey(), $this->warehouseType);
-        $base = StockReceipt::query()->where('sppg_unit_id', $unit->getKey())->where('warehouse_id', $warehouse->getKey());
+        $base = StockReceipt::query()
+            ->where('sppg_unit_id', $unit->getKey())
+            ->where('warehouse_id', $warehouse->getKey())
+            ->whereDate('receipt_date', $this->selectedWorkDate());
         $query = (clone $base)->with(['procurementRequest', 'supplier', 'items'])
             ->when(trim($this->search) !== '', function ($query): void {
                 $search = trim($this->search);

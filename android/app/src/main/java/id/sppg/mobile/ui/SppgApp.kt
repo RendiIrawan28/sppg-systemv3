@@ -52,6 +52,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -115,6 +116,29 @@ private sealed interface AppScreen {
         val sectionTitle: String,
         val itemId: Long?,
     ) : AppScreen
+}
+
+private fun notificationTarget(
+    targetScreen: String?,
+    payload: Map<String, String>?,
+): AppScreen = when (targetScreen) {
+    "security" -> AppScreen.Security
+    "field-plans" -> payload?.get("field_plan_id")?.toLongOrNull()
+        ?.let { AppScreen.FieldPlanDetail(it) } ?: AppScreen.FieldPlans
+    "operational" -> {
+        val slug = payload?.get("module_slug")?.takeIf { it.isNotBlank() }
+        val label = payload?.get("module_label")?.takeIf { it.isNotBlank() } ?: slug
+        val recordId = payload?.get("record_id")?.toLongOrNull()
+        if (slug != null && label != null && recordId != null) {
+            AppScreen.OperationalDetail(slug, label, recordId)
+        } else if (slug != null && label != null) {
+            AppScreen.OperationalRecords(slug, label)
+        } else {
+            AppScreen.Tasks
+        }
+    }
+    "tasks", "notifications" -> AppScreen.Tasks
+    else -> AppScreen.Dashboard
 }
 
 @Composable
@@ -195,11 +219,15 @@ private fun AuthenticatedContent(
     val notificationNavigation by NotificationNavigationStore.event.collectAsStateWithLifecycle()
     LaunchedEffect(notificationNavigation, session.token) {
         notificationNavigation?.let { event ->
-            screen = when (event.screen) {
-                "security" -> AppScreen.Security
-                "tasks", "notifications" -> AppScreen.Tasks
-                else -> AppScreen.Dashboard
-            }
+            screen = notificationTarget(
+                event.screen,
+                mapOf(
+                    "module_slug" to event.moduleSlug.orEmpty(),
+                    "module_label" to event.moduleLabel.orEmpty(),
+                    "record_id" to (event.recordId?.toString() ?: ""),
+                    "field_plan_id" to (event.fieldPlanId?.toString() ?: ""),
+                ),
+            )
             notificationViewModel.load(force = true)
             NotificationNavigationStore.consume()
         }
@@ -262,8 +290,8 @@ private fun AuthenticatedContent(
                 screen = if (task.screen == "security") AppScreen.Security else AppScreen.Tasks
             },
             onNotificationClick = { notification ->
-                notificationViewModel.markRead(notification) { target ->
-                    screen = if (target == "security") AppScreen.Security else AppScreen.Tasks
+                notificationViewModel.markRead(notification) { selected ->
+                    screen = notificationTarget(selected.screen, selected.payload)
                 }
             },
             onMarkAllRead = notificationViewModel::markAllRead,
@@ -390,11 +418,12 @@ private fun AuthenticatedContent(
                 operationalViewModel.loadRecords(
                     it,
                     force = true,
-                    date = if (it == "gudang-stok" || it == "pengolahan") null else LocalDate.now().toString(),
+                    date = if (it.startsWith("gudang-stok") || it == "pengolahan") null else LocalDate.now().toString(),
                 )
             },
             onRefresh = operationalViewModel::refreshRecords,
             onFilterChange = operationalViewModel::filterRecords,
+            onSearchChange = operationalViewModel::searchRecords,
             onLoadMore = operationalViewModel::loadMoreRecords,
             onRecordClick = {
                 screen = AppScreen.OperationalDetail(current.slug, current.label, it)
@@ -579,13 +608,35 @@ private fun AuthenticatedContent(
 
 @Composable
 private fun LoadingScreen() {
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator()
+        Box(
+            modifier = Modifier.size(92.dp).background(Color.White, RoundedCornerShape(24.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.logo_bgn),
+                contentDescription = "Logo Badan Gizi Nasional",
+                modifier = Modifier.fillMaxSize().padding(6.dp),
+                contentScale = ContentScale.Fit,
+            )
+        }
+        Spacer(Modifier.height(18.dp))
+        Text("SPPG", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+        Text("System V3", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(26.dp))
+        CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+        Spacer(Modifier.height(18.dp))
+        Text(
+            "Bersama mewujudkan pangan bergizi untuk bangsa",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -606,7 +657,7 @@ private fun LoginScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing),
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 28.dp),
+        contentPadding = PaddingValues(horizontal = SppgPagePadding, vertical = 24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         item {
@@ -628,7 +679,8 @@ private fun LoginScreen(
                             )
                         }
                         Spacer(Modifier.height(22.dp))
-                        Text("SPPG Mobile", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                        Text("SPPG", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                        Text("System V3", color = Color.White, style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(6.dp))
                         Text(
                             "Sistem operasional terpadu Program Makan Bergizi Gratis.",
@@ -688,26 +740,18 @@ private fun LoginScreen(
                         )
                         if (errorMessage != null) {
                             Spacer(Modifier.height(12.dp))
-                            Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                            Text(userFriendlyUiMessage(errorMessage), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                         }
                         Spacer(Modifier.height(20.dp))
-                        Button(
+                        SppgPrimaryButton(
+                            label = if (isSubmitting) "Memproses…" else "Masuk",
                             onClick = {
                                 focusManager.clearFocus()
                                 onLogin(login, password)
                             },
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             enabled = !isSubmitting,
-                            shape = RoundedCornerShape(14.dp),
-                        ) {
-                            if (isSubmitting) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(22.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    strokeWidth = 2.dp,
-                                )
-                            } else Text("Masuk", fontWeight = FontWeight.SemiBold)
-                        }
+                        )
                     }
                 }
             }
@@ -853,9 +897,9 @@ private fun DashboardScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                start = 20.dp,
+                start = SppgPagePadding,
                 top = innerPadding.calculateTopPadding() + 16.dp,
-                end = 20.dp,
+                end = SppgPagePadding,
                 // The bottom navigation is part of the Scaffold. Include its
                 // padding so the final module remains reachable and visible.
                 bottom = innerPadding.calculateBottomPadding() + 24.dp,
@@ -877,25 +921,9 @@ private fun DashboardScreen(
             }
 
             if (operationalState.isLoading && operationalState.modules.isEmpty()) {
-                item {
-                    Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
+                item { SppgLoadingState("Menyiapkan ruang kerja…") }
             } else if (operationalState.errorMessage != null && operationalState.modules.isEmpty()) {
-                item {
-                    Card(shape = RoundedCornerShape(18.dp)) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Text("Ruang kerja belum dapat dimuat", fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                operationalState.errorMessage,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            TextButton(onClick = { onLoadOperationalModules(true) }) { Text("Coba lagi") }
-                        }
-                    }
-                }
+                item { SppgErrorState(operationalState.errorMessage, onRetry = { onLoadOperationalModules(true) }) }
             } else if (features.isEmpty() && selectedTab != DashboardTab.Account) {
                 item { UnsupportedRoleCard() }
             } else {
@@ -1206,10 +1234,18 @@ private fun DashboardAccount(session: UserSession, isLoggingOut: Boolean, onLogo
                 AccountRow("Nomor pegawai", session.employeeNumber.ifBlank { "-" })
                 AccountRow("Email", session.email.ifBlank { "-" })
                 Spacer(Modifier.height(18.dp))
-                Button(onClick = onLogout, enabled = !isLoggingOut, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = null)
+                OutlinedButton(
+                    onClick = onLogout,
+                    enabled = !isLoggingOut,
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.Logout,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Text("Keluar dari akun")
+                    Text("Keluar dari akun", color = MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -1229,7 +1265,7 @@ private fun DashboardHero(session: UserSession) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        colors = CardDefaults.cardColors(containerColor = Navy),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
     ) {
         Box(

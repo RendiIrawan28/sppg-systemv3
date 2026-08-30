@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,13 +35,13 @@ fun WorkHistoryTabs(
             selected = !showHistory,
             onClick = { onShowHistoryChange(false) },
             label = { Text(activeLabel) },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
         )
         FilterChip(
             selected = showHistory,
             onClick = { onShowHistoryChange(true) },
             label = { Text("Riwayat") },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
         )
     }
 }
@@ -49,7 +50,7 @@ fun WorkHistoryTabs(
 fun HistoryDateSelector(label: String, onClick: () -> Unit) {
     OutlinedButton(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         shape = RoundedCornerShape(15.dp),
     ) {
         Icon(Icons.Outlined.CalendarMonth, contentDescription = null)
@@ -59,18 +60,5 @@ fun HistoryDateSelector(label: String, onClick: () -> Unit) {
 
 @Composable
 fun HistoryEmptyState() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(Modifier.padding(22.dp)) {
-            Text("Belum ada riwayat", fontWeight = FontWeight.Bold)
-            Text(
-                "Tidak ada pekerjaan selesai pada tanggal ini",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-    }
+    SppgEmptyState("Belum ada riwayat", "Tidak ada pekerjaan selesai pada tanggal ini.")
 }

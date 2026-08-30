@@ -69,8 +69,11 @@
             <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                     <h3 class="font-bold text-slate-900">Riwayat shift</h3>
-                    <div class="grid gap-2 sm:grid-cols-2">
+                    <div class="flex flex-wrap gap-2">
+                        <button wire:click="previousHistoryDate" type="button" class="grid size-10 place-items-center rounded-xl border border-slate-200 bg-white font-bold text-slate-600">‹</button>
                         <input wire:model.live="historyDate" type="date" aria-label="Filter tanggal shift" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs text-slate-700">
+                        <button wire:click="nextHistoryDate" type="button" class="grid size-10 place-items-center rounded-xl border border-slate-200 bg-white font-bold text-slate-600">›</button>
+                        <button wire:click="useTodayHistoryDate" type="button" class="h-10 rounded-xl bg-[#081d3a] px-3 text-xs font-bold text-white">Hari ini</button>
                         <select wire:model.live="historyOfficer" aria-label="Filter petugas keamanan" class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs text-slate-700">
                             <option value="">Semua petugas</option>
                             @foreach($officerOptions as $officer)

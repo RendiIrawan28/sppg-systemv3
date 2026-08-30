@@ -3,6 +3,7 @@
 namespace App\Livewire\V3\Procurement;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\ProcurementRequest;
 use App\Support\V3\OperationsPresentation;
 use Livewire\Attributes\Url;
@@ -12,6 +13,7 @@ use Livewire\WithPagination;
 class Index extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithPagination;
 
     #[Url(as: 'q', history: true)]
@@ -41,7 +43,9 @@ class Index extends Component
         $unit = $this->currentUnit();
         abort_unless($this->allowed('procurement.view'), 403);
 
-        $base = ProcurementRequest::query()->where('sppg_unit_id', $unit->getKey());
+        $base = ProcurementRequest::query()
+            ->where('sppg_unit_id', $unit->getKey())
+            ->whereDate('needed_date', $this->selectedWorkDate());
         $query = (clone $base)->with(['nutritionRequirementPlan', 'items.supplier'])
             ->when(trim($this->search) !== '', function ($query): void {
                 $search = trim($this->search);

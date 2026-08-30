@@ -9,6 +9,7 @@ use App\Models\ProcessingMaterialUsage;
 use App\Models\ProcessingReturn;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Mobile\OperationalNotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -72,6 +73,7 @@ class ProcessingReturnService
             ]);
 
             $this->history($batch, $actor, 'return_submitted', $return);
+            $this->notifyWarehouse($return);
 
             return $return;
         });
@@ -136,6 +138,7 @@ class ProcessingReturnService
                 'verified_at' => now(),
             ]);
             $this->history($return->batch, $actor, 'return_verified', $return);
+            $this->notifyRequester($return, true);
 
             return $return->refresh();
         });
@@ -159,6 +162,7 @@ class ProcessingReturnService
                 'rejected_at' => now(),
             ]);
             $this->history($return->batch, $actor, 'return_rejected', $return);
+            $this->notifyRequester($return, false);
 
             return $return->refresh();
         });
@@ -228,5 +232,46 @@ class ProcessingReturnService
             'notes' => $return->return_number,
             'snapshot' => $return->fresh()->toArray(),
         ]);
+    }
+
+    private function notifyWarehouse(ProcessingReturn $return): void
+    {
+        app(OperationalNotificationService::class)->notifyPermissionAfterCommit(
+            unitId: (int) $return->sppg_unit_id,
+            permission: 'stock.approve',
+            type: 'processing_return_submitted',
+            title: 'Retur Menunggu Verifikasi',
+            message: "Pengolahan mengajukan retur {$return->ingredient_name_snapshot} {$return->requested_quantity} {$return->unit_snapshot}.",
+            priority: 'important',
+            module: 'warehouse',
+            referenceType: 'processing_return',
+            referenceId: $return->getKey(),
+            moduleSlug: 'gudang-retur-pengolahan',
+            moduleLabel: 'Retur Pengolahan',
+            eventVersion: ProcessingReturn::WAITING,
+        );
+    }
+
+    private function notifyRequester(ProcessingReturn $return, bool $verified): void
+    {
+        if (! $return->returned_by) return;
+
+        app(OperationalNotificationService::class)->notifyUsersAfterCommit(
+            unitId: (int) $return->sppg_unit_id,
+            userIds: [(int) $return->returned_by],
+            type: $verified ? 'processing_return_verified' : 'processing_return_rejected',
+            title: $verified ? 'Retur Bahan Diverifikasi' : 'Retur Bahan Ditolak',
+            message: $verified
+                ? "Retur {$return->ingredient_name_snapshot} telah diterima Gudang."
+                : "Retur {$return->ingredient_name_snapshot} ditolak Gudang.",
+            priority: $verified ? 'info' : 'important',
+            module: 'processing',
+            referenceType: 'processing_return',
+            referenceId: $return->getKey(),
+            moduleSlug: 'pengolahan',
+            moduleLabel: 'Pengolahan',
+            eventVersion: $verified ? ProcessingReturn::VERIFIED : ProcessingReturn::REJECTED,
+            payload: ['record_id' => (string) $return->processing_batch_id],
+        );
     }
 }

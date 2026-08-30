@@ -31,6 +31,8 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Share
@@ -80,13 +82,14 @@ import id.sppg.mobile.data.remote.OperationalRelationAction
 import id.sppg.mobile.data.remote.OperationalRecord
 import id.sppg.mobile.data.remote.OperationalSection
 import id.sppg.mobile.data.remote.OperationalSectionItem
+import id.sppg.mobile.ui.theme.Navy
 import com.google.gson.Gson
 import java.io.File
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-import java.util.Locale
+import kotlinx.coroutines.delay
 
 private val activeAcrossDatesModules = setOf(
     "persiapan",
@@ -107,6 +110,7 @@ fun OperationalRecordListScreen(
     onLoad: (String) -> Unit,
     onRefresh: () -> Unit,
     onFilterChange: (String?, String?) -> Unit,
+    onSearchChange: (String?) -> Unit,
     onLoadMore: () -> Unit,
     onRecordClick: (Long) -> Unit,
     onCreate: () -> Unit,
@@ -115,11 +119,20 @@ fun OperationalRecordListScreen(
     val context = LocalContext.current
     var showHistory by remember(module) { mutableStateOf(false) }
     var historyDate by remember(module) { mutableStateOf(LocalDate.now()) }
+    var stockSearch by remember(module) { mutableStateOf("") }
+    val isStockCard = module in setOf("gudang-stok", "gudang-stok-non-pangan")
     val displayedRecords = state.records.filter { it.isHistory == showHistory }
     val selectedDateLabel = operationalDateDisplay(
         (state.dateFilter ?: LocalDate.now().format(apiDateFormatter)),
         "date",
     )
+
+    LaunchedEffect(module, stockSearch) {
+        if (!isStockCard) return@LaunchedEffect
+        delay(350)
+        val normalized = stockSearch.trim().takeIf { it.isNotEmpty() }
+        if (normalized != state.searchFilter) onSearchChange(normalized)
+    }
 
     fun selectHistoryDate() {
         val currentDate = historyDate
@@ -177,9 +190,9 @@ fun OperationalRecordListScreen(
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
-                    start = 20.dp,
+                    start = SppgPagePadding,
                     top = innerPadding.calculateTopPadding() + 12.dp,
-                    end = 20.dp,
+                    end = SppgPagePadding,
                     bottom = 32.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -197,6 +210,29 @@ fun OperationalRecordListScreen(
                         onFilterChange(null, if (module in activeAcrossDatesModules && !history) null else {
                             (if (history) historyDate else LocalDate.now()).format(apiDateFormatter)
                         })
+                    }
+                }
+                if (isStockCard) {
+                    item {
+                        OutlinedTextField(
+                            value = stockSearch,
+                            onValueChange = { stockSearch = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Cari bahan atau barang") },
+                            placeholder = { Text("Ketik nama, kode, kategori, lokasi, atau lot") },
+                            singleLine = true,
+                            leadingIcon = {
+                                Icon(Icons.Outlined.Search, contentDescription = null)
+                            },
+                            trailingIcon = {
+                                if (stockSearch.isNotEmpty()) {
+                                    IconButton(onClick = { stockSearch = "" }) {
+                                        Icon(Icons.Outlined.Close, contentDescription = "Hapus pencarian")
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                        )
                     }
                 }
                 if (showHistory) {
@@ -218,7 +254,9 @@ fun OperationalRecordListScreen(
                 }
                 if (displayedRecords.isEmpty()) {
                     item {
-                        if (showHistory) HistoryEmptyState()
+                        if (isStockCard && stockSearch.isNotBlank()) {
+                            OperationalEmptyCard("Bahan atau barang yang dicari tidak ditemukan")
+                        } else if (showHistory) HistoryEmptyState()
                         else OperationalEmptyCard("Belum ada pekerjaan untuk hari ini")
                     }
                 } else {
@@ -257,17 +295,7 @@ fun OperationalRecordListScreen(
 
 @Composable
 private fun OperationalEmptyCard(message: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Text(
-            message,
-            modifier = Modifier.padding(22.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    SppgEmptyState("Belum ada data", message)
 }
 
 @Composable
@@ -872,16 +900,16 @@ private fun OperationalDetailContent(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 20.dp,
+            start = SppgPagePadding,
             top = padding.calculateTopPadding() + 12.dp,
-            end = 20.dp,
+            end = SppgPagePadding,
             bottom = 32.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+                colors = CardDefaults.cardColors(containerColor = Navy),
                 shape = RoundedCornerShape(24.dp),
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
@@ -969,7 +997,7 @@ private fun OperationalDetailContent(
             item {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                     Text(
-                        errorMessage,
+                        userFriendlyUiMessage(errorMessage),
                         modifier = Modifier.padding(16.dp),
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
@@ -1316,9 +1344,9 @@ fun OperationalRecordEditScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                start = 20.dp,
+                start = SppgPagePadding,
                 top = padding.calculateTopPadding() + 12.dp,
-                end = 20.dp,
+                end = SppgPagePadding,
                 bottom = 32.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1367,7 +1395,7 @@ fun OperationalRecordEditScreen(
             if (state.errorMessage != null) {
                 item {
                     Text(
-                        state.errorMessage,
+                        userFriendlyUiMessage(state.errorMessage),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -2821,62 +2849,46 @@ internal fun isTechnicalRecordNumber(value: String): Boolean =
 
 @Composable
 private fun OperationalLoading(padding: PaddingValues) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(padding),
-        contentAlignment = Alignment.Center,
-    ) { CircularProgressIndicator() }
-}
-
-@Composable
-private fun OperationalError(message: String, padding: PaddingValues, onRetry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
-            .padding(24.dp),
+            .padding(SppgPagePadding),
         verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+    ) { SppgLoadingState("Memuat data operasional…") }
+}
+
+@Composable
+private fun OperationalError(message: String, padding: PaddingValues, onRetry: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .padding(SppgPagePadding),
+        contentAlignment = Alignment.Center,
     ) {
-        Text("Data belum dapat dimuat", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(12.dp))
-        TextButton(onClick = onRetry) { Text("Coba lagi") }
+        SppgErrorState(message, onRetry)
     }
 }
 
 @Composable
 private fun OperationalEmpty(label: String, padding: PaddingValues) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(SppgPagePadding),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            Icons.AutoMirrored.Outlined.Assignment,
-            contentDescription = null,
-            modifier = Modifier.size(48.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text("Belum ada pekerjaan $label", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(6.dp))
-        Text(
+        SppgEmptyState(
+            "Belum ada pekerjaan $label",
             "Pekerjaan yang dibuat pada sistem SPPG V3 akan tampil di sini.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
 private fun formatOperationalDate(value: String): String = runCatching {
-    LocalDate.parse(value).format(
-        DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.forLanguageTag("id-ID")),
-    )
+    LocalDate.parse(value).format(displayDateFormatter)
 }.getOrDefault(value)
 
 private data class OperationalCameraCaptureTarget(

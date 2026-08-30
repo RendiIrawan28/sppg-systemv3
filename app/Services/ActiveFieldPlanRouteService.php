@@ -95,6 +95,40 @@ class ActiveFieldPlanRouteService
                 ],
             ]);
 
+            app(Mobile\OperationalNotificationService::class)->notifyPermissionAfterCommit(
+                unitId: (int) $plan->sppg_unit_id,
+                permission: 'distribution.update',
+                type: 'distribution_routes_updated',
+                title: 'Rute Distribusi Diperbarui',
+                message: "Susunan rute {$plan->plan_number} telah disesuaikan.",
+                priority: 'important',
+                module: 'distribution',
+                referenceType: 'field_distribution_plan',
+                referenceId: $plan->getKey(),
+                moduleSlug: 'distribusi',
+                moduleLabel: 'Distribusi',
+                eventVersion: 'routes-updated-'.$plan->updated_at?->timestamp,
+                divisionCode: 'distribusi',
+                payload: ['record_id' => ''],
+            );
+
+            app(Mobile\OperationalNotificationService::class)->notifyPermissionAfterCommit(
+                unitId: (int) $plan->sppg_unit_id,
+                permission: 'field_planning.update',
+                type: 'field_plan_routes_updated',
+                title: 'Rute Aktif Diperbarui',
+                message: "Susunan rute {$plan->plan_number} telah disesuaikan.",
+                priority: 'info',
+                module: 'field_planning',
+                referenceType: 'field_distribution_plan',
+                referenceId: $plan->getKey(),
+                moduleSlug: 'field-plans',
+                moduleLabel: 'Rencana Distribusi',
+                eventVersion: 'routes-updated-'.$plan->updated_at?->timestamp,
+                payload: ['field_plan_id' => (string) $plan->getKey()],
+                screen: 'field-plans',
+            );
+
             return $plan->refresh()->load('destinations.recipientGroups');
         });
     }

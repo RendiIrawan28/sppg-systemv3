@@ -10,6 +10,7 @@ use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
 use App\Models\ProcessingBatch;
 use App\Models\User;
+use App\Services\Mobile\OperationalNotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -38,7 +39,7 @@ class PreparationOutputService
                     continue;
                 }
                 $available = max(0, $quantity - $reserved);
-                PreparationOutput::updateOrCreate(
+                $savedOutput = PreparationOutput::updateOrCreate(
                     ['preparation_session_item_id' => $item->getKey()],
                     [
                         'sppg_unit_id' => $session->sppg_unit_id,
@@ -58,6 +59,9 @@ class PreparationOutputService
                         'updated_by' => $actor->getKey(),
                     ],
                 );
+                if ($savedOutput->wasRecentlyCreated) {
+                    $this->notifyOutputReady($savedOutput);
+                }
             }
         });
     }
@@ -98,7 +102,7 @@ class PreparationOutputService
                 ]);
             }
 
-            return PreparationOutput::create([
+            $output = PreparationOutput::create([
                 'sppg_unit_id' => $session->sppg_unit_id,
                 'preparation_session_id' => $session->getKey(),
                 'preparation_session_item_id' => $item->getKey(),
@@ -118,6 +122,10 @@ class PreparationOutputService
                 'created_by' => $actor->getKey(),
                 'updated_by' => $actor->getKey(),
             ]);
+
+            $this->notifyOutputReady($output);
+
+            return $output;
         });
     }
 
@@ -346,7 +354,15 @@ class PreparationOutputService
                 'review_notes' => filled($notes) ? trim($notes) : null,
             ]);
 
-            return $withdrawal->refresh();
+            $withdrawal = $withdrawal->refresh();
+            if ($withdrawal->destination_division === 'processing') {
+                app(ProcessingMaterialStockService::class)
+                    ->receivePreparationWithdrawal($withdrawal, $actor);
+            }
+
+            $this->notifyOutputReceived($withdrawal->refresh()->load('output'));
+
+            return $withdrawal;
         });
     }
 
@@ -414,5 +430,53 @@ class PreparationOutputService
                 : PreparationOutput::PARTIALLY_TAKEN,
             'updated_by' => $actor->getKey(),
         ]);
+    }
+
+    private function notifyOutputReady(PreparationOutput $output): void
+    {
+        $targets = $output->target_division === 'both'
+            ? ['processing', 'portioning']
+            : [$output->target_division];
+
+        foreach ($targets as $target) {
+            app(OperationalNotificationService::class)->notifyPermissionAfterCommit(
+                unitId: (int) $output->sppg_unit_id,
+                permission: $target.'.update',
+                type: 'preparation_output_ready',
+                title: 'Hasil Persiapan Siap',
+                message: "{$output->output_name} {$output->quantity} {$output->unit_snapshot} siap digunakan ".($target === 'processing' ? 'Pengolahan.' : 'Pemorsian.'),
+                priority: 'important',
+                module: 'preparation',
+                referenceType: 'preparation_output',
+                referenceId: $output->getKey(),
+                moduleSlug: $target === 'processing' ? 'pengolahan' : 'pemorsian',
+                moduleLabel: $target === 'processing' ? 'Pengolahan' : 'Pemorsian',
+                eventVersion: 'ready-'.$target,
+                divisionCode: $target === 'processing' ? 'pengolahan' : 'pemorsian',
+                payload: ['record_id' => ''],
+            );
+        }
+    }
+
+    private function notifyOutputReceived(PreparationOutputWithdrawal $withdrawal): void
+    {
+        $output = $withdrawal->output;
+        if (! $output?->created_by) return;
+
+        app(OperationalNotificationService::class)->notifyUsersAfterCommit(
+            unitId: (int) $output->sppg_unit_id,
+            userIds: [(int) $output->created_by],
+            type: 'preparation_output_received',
+            title: 'Hasil Persiapan Diterima',
+            message: "{$output->output_name} {$withdrawal->verified_quantity} {$withdrawal->unit_snapshot} telah diterima ".($withdrawal->destination_division === 'processing' ? 'Pengolahan.' : 'Pemorsian.'),
+            priority: 'info',
+            module: 'preparation',
+            referenceType: 'preparation_output_withdrawal',
+            referenceId: $withdrawal->getKey(),
+            moduleSlug: 'persiapan',
+            moduleLabel: 'Persiapan',
+            eventVersion: PreparationOutputWithdrawal::VERIFIED,
+            payload: ['record_id' => (string) $output->preparation_session_id],
+        );
     }
 }

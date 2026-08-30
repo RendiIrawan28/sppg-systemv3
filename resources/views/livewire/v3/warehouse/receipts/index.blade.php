@@ -1,6 +1,7 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Penerimaan Bahan" eyebrow="Pemeriksaan kuantitas dan mutu">
     <div class="mx-auto max-w-[1450px] space-y-5">
         <x-v3.flash-alert />
+        <x-v3.date-filter label="Tanggal penerimaan" />
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
                 <button wire:click="$set('warehouseType', 'food')" class="rounded-xl px-4 py-2 text-xs font-bold {{ $warehouseType === 'food' ? 'bg-[#081d3a] text-white' : 'text-slate-500' }}">Pangan</button>

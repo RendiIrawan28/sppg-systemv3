@@ -8,6 +8,10 @@ data class NotificationNavigation(
     val screen: String,
     val taskId: Long? = null,
     val shiftId: Long? = null,
+    val moduleSlug: String? = null,
+    val moduleLabel: String? = null,
+    val recordId: Long? = null,
+    val fieldPlanId: Long? = null,
 )
 
 /**
@@ -25,6 +29,10 @@ object NotificationNavigationStore {
             screen = screen,
             taskId = intent.getStringExtra("task_id")?.toLongOrNull(),
             shiftId = intent.getStringExtra("shift_id")?.toLongOrNull(),
+            moduleSlug = intent.getStringExtra("module_slug")?.takeIf { it.isNotBlank() },
+            moduleLabel = intent.getStringExtra("module_label")?.takeIf { it.isNotBlank() },
+            recordId = intent.getStringExtra("record_id")?.toLongOrNull(),
+            fieldPlanId = intent.getStringExtra("field_plan_id")?.toLongOrNull(),
         )
     }
 
@@ -34,6 +42,10 @@ object NotificationNavigationStore {
             screen = screen,
             taskId = data["task_id"]?.toLongOrNull(),
             shiftId = data["shift_id"]?.toLongOrNull(),
+            moduleSlug = data["module_slug"]?.takeIf { it.isNotBlank() },
+            moduleLabel = data["module_label"]?.takeIf { it.isNotBlank() },
+            recordId = data["record_id"]?.toLongOrNull(),
+            fieldPlanId = data["field_plan_id"]?.toLongOrNull(),
         )
     }
 

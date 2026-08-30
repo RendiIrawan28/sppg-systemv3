@@ -3,6 +3,7 @@
 namespace App\Livewire\V3\Warehouse\Withdrawals;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\FieldDistributionPlan;
 use App\Models\InventoryLot;
 use App\Models\PortioningSession;
@@ -22,7 +23,7 @@ use Throwable;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell, WithFileUploads, WithPagination;
+    use InteractsWithV3Shell, FiltersByWorkDate, WithFileUploads, WithPagination;
 
     #[Url(as: 'gudang', history: true)]
     public string $warehouseType = Warehouse::TYPE_FOOD;
@@ -118,7 +119,7 @@ class Index extends Component
         $this->reset('referenceId', 'purposeReference', 'notes');
         $this->rows = [];
         $this->addRow();
-        session()->flash('v3.status', 'Pengambilan tercatat dan bahan langsung tersedia di halaman divisi. Gudang tetap perlu memverifikasi stok.');
+        session()->flash('v3.status', 'Pengambilan tercatat dan menunggu verifikasi Gudang. Untuk Pengolahan, bahan baru masuk stok setelah verifikasi.');
     }
 
     public function verify(int $id, WarehouseWithdrawalService $service): void
@@ -181,6 +182,7 @@ class Index extends Component
                 }
             })
             ->when(! $this->allowed('stock.view'), fn ($q) => $q->where('taken_by', auth()->id()))
+            ->whereDate('withdrawal_date', $this->selectedWorkDate())
             ->latest('id')->paginate(15);
         foreach ($records as $record) {
             if ($record->status !== WarehouseWithdrawal::WAITING) {
@@ -195,14 +197,24 @@ class Index extends Component
             ...$this->shellData($unit), 'lots' => $lots, 'records' => $records, 'canTake' => $this->canTake(),
             'references' => $this->references(),
             'canVerify' => $this->canVerify(),
+            'pendingOtherDates' => WarehouseWithdrawal::query()
+                ->where('sppg_unit_id', $unit->id)
+                ->where(fn ($query) => $query->where('warehouse_id', $warehouse->id)
+                    ->when(! $isNonFood, fn ($query) => $query->orWhereNull('warehouse_id')))
+                ->where('status', WarehouseWithdrawal::WAITING)
+                ->whereDate('withdrawal_date', '!=', $this->selectedWorkDate())
+                ->latest('withdrawal_date')
+                ->limit(20)
+                ->get(),
             'pendingToday' => WarehouseWithdrawal::query()->where('sppg_unit_id', $unit->id)
                 ->where(fn ($query) => $query->where('warehouse_id', $warehouse->id)
                     ->when(! $isNonFood, fn ($query) => $query->orWhereNull('warehouse_id')))
+                ->whereDate('withdrawal_date', $this->selectedWorkDate())
                 ->where('status', WarehouseWithdrawal::WAITING)->count(),
             'pendingOverdue' => WarehouseWithdrawal::query()->where('sppg_unit_id', $unit->id)
                 ->where(fn ($query) => $query->where('warehouse_id', $warehouse->id)
                     ->when(! $isNonFood, fn ($query) => $query->orWhereNull('warehouse_id')))
-                ->whereDate('withdrawal_date', '<', today())->where('status', WarehouseWithdrawal::WAITING)->count(),
+                ->whereDate('withdrawal_date', '<', $this->selectedWorkDate())->where('status', WarehouseWithdrawal::WAITING)->count(),
         ])->layout('layouts.v3', ['title' => 'Pengambilan Gudang']);
     }
 
@@ -253,6 +265,7 @@ class Index extends Component
             'persiapan' => FieldDistributionPlan::query()
                 ->where('sppg_unit_id', $unitId)
                 ->where('status', 'activated')
+                ->whereDate('production_date', $this->selectedWorkDate())
                 ->orderByDesc('production_date')
                 ->orderByDesc('id')
                 ->get()
@@ -272,6 +285,7 @@ class Index extends Component
         $batches = ProcessingBatch::query()
             ->where('sppg_unit_id', $unitId)
             ->where('state', 'in_progress')
+            ->whereDate('production_date', $this->selectedWorkDate())
             ->orderByDesc('production_date')
             ->orderByDesc('id')
             ->get();
@@ -289,6 +303,7 @@ class Index extends Component
         $sessions = PortioningSession::query()
             ->where('sppg_unit_id', $unitId)
             ->where('state', 'in_progress')
+            ->whereDate('portioning_date', $this->selectedWorkDate())
             ->orderByDesc('portioning_date')
             ->orderByDesc('id')
             ->get();

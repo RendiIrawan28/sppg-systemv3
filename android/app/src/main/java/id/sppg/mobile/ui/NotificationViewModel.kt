@@ -68,13 +68,13 @@ class NotificationViewModel(
         }
     }
 
-    fun markRead(notification: MobileNotificationItem, onNavigate: (String?) -> Unit) {
+    fun markRead(notification: MobileNotificationItem, onNavigate: (MobileNotificationItem) -> Unit) {
         viewModelScope.launch {
             if (notification.readAt == null) {
                 repository.markRead(notification.id)
             }
             load(force = true)
-            onNavigate(notification.screen)
+            onNavigate(notification)
         }
     }
 

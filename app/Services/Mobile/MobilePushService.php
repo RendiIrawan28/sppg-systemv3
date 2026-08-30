@@ -62,6 +62,31 @@ class MobilePushService
         );
     }
 
+    public function deliverStoredNotification(MobileNotification $notification): MobileNotification
+    {
+        $tokens = MobileDeviceToken::query()
+            ->where('user_id', $notification->user_id)
+            ->active()
+            ->get();
+
+        return $this->deliver(
+            notification: $notification,
+            tokens: $tokens,
+            title: $notification->title,
+            body: $notification->body,
+            data: [
+                'notification_id' => (string) $notification->getKey(),
+                'type' => $notification->notification_type,
+                'title' => $notification->title,
+                'body' => $notification->body,
+                'channel' => $notification->channel,
+                'screen' => (string) $notification->screen,
+                ...$this->normalizeData($notification->payload ?? []),
+            ],
+            channel: $notification->channel,
+        );
+    }
+
     public function sendTestNotification(
         User $user,
         ?int $unitId,

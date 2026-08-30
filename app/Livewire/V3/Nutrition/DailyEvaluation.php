@@ -3,6 +3,7 @@
 namespace App\Livewire\V3\Nutrition;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\MenuAcceptanceEvaluation;
 use App\Models\NutritionDailyReport;
 use Livewire\Attributes\Url;
@@ -12,6 +13,7 @@ use Livewire\WithPagination;
 class DailyEvaluation extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithPagination;
 
     #[Url(as: 'q', history: true)]
@@ -30,6 +32,7 @@ class DailyEvaluation extends Component
         $reports = NutritionDailyReport::query()
             ->with('menu')
             ->where('sppg_unit_id', $unit->getKey())
+            ->whereDate('report_date', $this->selectedWorkDate())
             ->when($this->search !== '', function ($query): void {
                 $search = trim($this->search);
                 $query->where(function ($query) use ($search): void {
@@ -51,8 +54,8 @@ class DailyEvaluation extends Component
             ...$this->shellData($unit),
             'reports' => $reports,
             'evaluations' => $evaluations,
-            'evaluationCount' => MenuAcceptanceEvaluation::query()->where('sppg_unit_id', $unit->getKey())->count(),
-            'reportCount' => NutritionDailyReport::query()->where('sppg_unit_id', $unit->getKey())->count(),
+            'evaluationCount' => MenuAcceptanceEvaluation::query()->where('sppg_unit_id', $unit->getKey())->whereDate('evaluation_date', $this->selectedWorkDate())->count(),
+            'reportCount' => NutritionDailyReport::query()->where('sppg_unit_id', $unit->getKey())->whereDate('report_date', $this->selectedWorkDate())->count(),
         ])->layout('layouts.v3', ['title' => 'Evaluasi Gizi Harian']);
     }
 }

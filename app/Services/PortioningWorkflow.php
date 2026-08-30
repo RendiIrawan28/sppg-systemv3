@@ -9,6 +9,8 @@ use App\Models\DistributionRun;
 use App\Models\PortioningSession;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
+use App\Services\Mobile\OperationalNotificationService;
+use App\Services\Mobile\OperationalApprovalNotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -74,6 +76,7 @@ class PortioningWorkflow
 
             $this->writeHistory($session, $actor, 'completed', $previousState, $session->state->value);
             $this->syncDistributionRun($session, $actor);
+            $this->notifyDistribution($session);
 
             return $session->refresh();
         });
@@ -196,6 +199,9 @@ class PortioningWorkflow
                 $previousStatus,
                 $session->status->value,
             );
+            app(OperationalApprovalNotificationService::class)->submitted(
+                $session->refresh(), 'portioning', 'Pemorsian', 'pemorsian', $session->session_number,
+            );
 
             return $session->refresh();
         });
@@ -245,6 +251,9 @@ class PortioningWorkflow
                 $previousStatus,
                 $nextStatus->value,
             );
+            app(OperationalApprovalNotificationService::class)->reviewed(
+                $session->refresh(), $nextStatus, 'portioning', 'Pemorsian', $session->session_number,
+            );
 
             return $session->refresh();
         });
@@ -280,6 +289,9 @@ class PortioningWorkflow
                 $notes,
                 $previousStatus,
                 $session->status->value,
+            );
+            app(OperationalApprovalNotificationService::class)->revisionRequired(
+                $session->refresh(), 'portioning', 'Pemorsian', $session->session_number,
             );
 
             return $session->refresh();
@@ -430,6 +442,29 @@ class PortioningWorkflow
     {
         return filled($session->notes)
             && ! str_starts_with((string) $session->notes, 'Dibuat dari rencana distribusi ');
+    }
+
+    private function notifyDistribution(PortioningSession $session): void
+    {
+        $total = (int) $session->actual_small_portions + (int) $session->actual_large_portions;
+        $date = $session->portioning_date?->format('d-m-Y') ?? '-';
+
+        app(OperationalNotificationService::class)->notifyPermissionAfterCommit(
+            unitId: (int) $session->sppg_unit_id,
+            permission: 'distribution.update',
+            type: 'portioning_completed',
+            title: 'Pemorsian Selesai',
+            message: "{$total} porsi untuk layanan {$date} siap didistribusikan.",
+            priority: 'important',
+            module: 'portioning',
+            referenceType: 'portioning_session',
+            referenceId: $session->getKey(),
+            moduleSlug: 'distribusi',
+            moduleLabel: 'Distribusi',
+            eventVersion: PortioningSessionState::Completed->value,
+            divisionCode: 'distribusi',
+            payload: ['record_id' => ''],
+        );
     }
 
     private function writeHistory(

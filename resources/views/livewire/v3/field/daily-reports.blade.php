@@ -1,5 +1,6 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Laporan Harian Lapangan" eyebrow="Rekap setelah pengiriman dan pengambilan ompreng selesai">
     <div class="mx-auto max-w-[1500px] space-y-5">
+        <x-v3.date-filter label="Tanggal laporan lapangan" />
         <div>
             <p class="text-xs font-bold uppercase tracking-[.18em] text-sky-700">Lapangan</p>
             <h2 class="mt-2 text-2xl font-bold text-slate-950 dark:text-white">Laporan harian Asisten Lapangan</h2>

@@ -7,6 +7,7 @@ use App\Models\PreparationReturn;
 use App\Models\PreparationSession;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
+use App\Services\Mobile\OperationalApprovalNotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -111,6 +112,9 @@ class PreparationSessionService
                 'review_notes' => null,
             ]);
             $this->history($session, $actor, 'submitted', null, null, $fromStatus, OperationalReportStatus::Submitted->value);
+            app(OperationalApprovalNotificationService::class)->submitted(
+                $session->refresh(), 'preparation', 'Persiapan', 'persiapan', $session->session_number,
+            );
         });
     }
 
@@ -129,6 +133,9 @@ class PreparationSessionService
             }
             $session->update($updates);
             $this->history($session, $actor, app(OperationalReportApprovalService::class)->reviewActionName($nextStatus), null, null, $fromStatus, $nextStatus->value, $notes);
+            app(OperationalApprovalNotificationService::class)->reviewed(
+                $session->refresh(), $nextStatus, 'preparation', 'Persiapan', $session->session_number,
+            );
         });
     }
 
@@ -144,6 +151,9 @@ class PreparationSessionService
             $fromStatus = $session->status->value;
             $session->update(['status' => OperationalReportStatus::RevisionRequired, 'review_notes' => trim($notes)]);
             $this->history($session, $actor, 'revision_requested', null, null, $fromStatus, OperationalReportStatus::RevisionRequired->value, $notes);
+            app(OperationalApprovalNotificationService::class)->revisionRequired(
+                $session->refresh(), 'preparation', 'Persiapan', $session->session_number,
+            );
         });
     }
 

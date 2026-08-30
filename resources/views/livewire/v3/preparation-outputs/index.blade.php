@@ -1,6 +1,7 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Penyimpanan Hasil Persiapan" eyebrow="Bahan siap pakai">
     <div class="mx-auto max-w-[1500px] space-y-5 text-slate-900 dark:text-slate-100">
         <x-v3.flash-alert />
+        <x-v3.date-filter label="Tanggal hasil Persiapan" description="Hasil yang masih tersedia tetap ditampilkan walaupun dibuat pada tanggal sebelumnya." />
 
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
             <p class="text-xs font-bold uppercase tracking-[.18em] text-cyan-200">Penyimpanan sementara</p>

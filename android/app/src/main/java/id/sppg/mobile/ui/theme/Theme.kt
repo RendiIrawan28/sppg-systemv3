@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
 
-val Navy = Color(0xFF071D3A)
+val Navy = Color(0xFF081D3A)
 val NavyMedium = Color(0xFF0B376B)
 val NavySoft = Color(0xFFEAF1FA)
 val BlueAction = Color(0xFF0B5FA5)
@@ -40,6 +40,9 @@ private val LightColors = lightColorScheme(
     secondaryContainer = AmberSoft,
     onSecondaryContainer = Color(0xFF4C2B00),
     tertiary = BlueAction,
+    onTertiary = Color.White,
+    tertiaryContainer = NavySoft,
+    onTertiaryContainer = Navy,
     background = Canvas,
     onBackground = Ink,
     surface = Color.White,
@@ -53,7 +56,7 @@ private val LightColors = lightColorScheme(
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF91C4FF),
+    primary = Color(0xFF8BC3FF),
     onPrimary = Color(0xFF002F5F),
     primaryContainer = Color(0xFF123B68),
     onPrimaryContainer = Color(0xFFD4E6FF),
@@ -62,14 +65,17 @@ private val DarkColors = darkColorScheme(
     secondaryContainer = Color(0xFF624000),
     onSecondaryContainer = Color(0xFFFFDDB0),
     tertiary = Color(0xFF8FCBFF),
-    background = Night,
+    onTertiary = Color(0xFF003452),
+    tertiaryContainer = Color(0xFF153E62),
+    onTertiaryContainer = Color(0xFFD4EAFF),
+    background = Color(0xFF07182B),
     onBackground = Color(0xFFE2EAF5),
-    surface = Color(0xFF0D2038),
+    surface = Color(0xFF10243D),
     onSurface = Color(0xFFE2EAF5),
-    surfaceVariant = Color(0xFF172D48),
-    onSurfaceVariant = Color(0xFFB8C7DA),
-    outline = Color(0xFF8394AA),
-    outlineVariant = Color(0xFF31465F),
+    surfaceVariant = Color(0xFF1A324F),
+    onSurfaceVariant = Color(0xFFC0CDDD),
+    outline = Color(0xFF8C9DB2),
+    outlineVariant = Color(0xFF3B526C),
     error = Color(0xFFFFB4AB),
     errorContainer = Color(0xFF93000A),
 )
@@ -104,7 +110,10 @@ private val SppgTypography = Typography(
     titleMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 22.sp),
     bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
     bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 21.sp),
+    bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 19.sp),
     labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp),
+    labelMedium = TextStyle(fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 18.sp),
+    labelSmall = TextStyle(fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 18.sp),
 )
 
 private val SppgShapes = Shapes(

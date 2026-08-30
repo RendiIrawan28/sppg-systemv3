@@ -16,6 +16,9 @@
             </div>
         </div>
 
+        <x-v3.date-filter label="Tanggal distribusi" />
+        <x-v3.pending-work :records="$attentionRecords" module="distribusi" :definition="$definition" />
+
         @if ($activeRoute)
             <section class="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm dark:border-amber-400/30 dark:bg-amber-500/10 dark:shadow-none">
                 <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">

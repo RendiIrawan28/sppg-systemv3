@@ -4,6 +4,7 @@ namespace App\Livewire\V3\Preparation;
 
 use App\Enums\OperationalReportStatus;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\PreparationSession;
 use App\Models\ProcessingBatch;
 use App\Models\PortioningSession;
@@ -19,7 +20,7 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell, WithFileUploads;
+    use InteractsWithV3Shell, FiltersByWorkDate, WithFileUploads;
 
     public ?int $selectedId = null;
 
@@ -198,21 +199,39 @@ class Index extends Component
     {
         $unit = $this->currentUnit();
         $records = PreparationSession::with(['items.returns', 'items.resultDocumentation', 'items.outputs', 'withdrawal.taker', 'wasteHandoverReport'])
-            ->where('sppg_unit_id', $unit->id)->latest()->get();
-        $selected = $this->selectedId ? $records->firstWhere('id', $this->selectedId) : null;
+            ->where('sppg_unit_id', $unit->id)
+            ->whereDate('preparation_date', $this->selectedWorkDate())
+            ->latest()
+            ->get();
+        $attentionRecords = PreparationSession::query()
+            ->where('sppg_unit_id', $unit->id)
+            ->whereDate('preparation_date', '!=', $this->selectedWorkDate())
+            ->where('state', '!=', 'completed')
+            ->latest('preparation_date')
+            ->limit(10)
+            ->get();
+        $selected = $this->selectedId
+            ? $this->record($this->selectedId)->load(['items.returns', 'items.resultDocumentation', 'items.outputs', 'withdrawal.taker', 'wasteHandoverReport'])
+            : null;
 
         return view('livewire.v3.preparation.index', [
             ...$this->shellData($unit),
             'records' => $records,
+            'attentionRecords' => $attentionRecords,
             'selected' => $selected,
             'canEdit' => $this->allowed('preparation.update'),
             'canSubmit' => $this->allowed('preparation.submit'),
             'canApprove' => $this->allowed('preparation.approve'),
             'canExport' => $this->allowed('preparation.export'),
             'statusLabels' => OperationalReportStatus::options(),
-            'processingTargets' => ProcessingBatch::query()->where('sppg_unit_id', $unit->id)->where('state', 'in_progress')->pluck('batch_number', 'id'),
-            'portioningTargets' => PortioningSession::query()->where('sppg_unit_id', $unit->id)->where('state', 'in_progress')->pluck('session_number', 'id'),
+            'processingTargets' => ProcessingBatch::query()->where('sppg_unit_id', $unit->id)->where('state', 'in_progress')->whereDate('production_date', $this->selectedWorkDate())->pluck('batch_number', 'id'),
+            'portioningTargets' => PortioningSession::query()->where('sppg_unit_id', $unit->id)->where('state', 'in_progress')->whereDate('portioning_date', $this->selectedWorkDate())->pluck('session_number', 'id'),
         ])->layout('layouts.v3', ['title' => 'Persiapan']);
+    }
+
+    protected function afterWorkDateChanged(): void
+    {
+        $this->selectedId = null;
     }
 
     private function record(?int $id): PreparationSession

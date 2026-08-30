@@ -3,6 +3,7 @@
 namespace App\Livewire\V3\Nutrition\Requirements;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\MenuCycleDay;
 use App\Models\NutritionRequirementPlan;
 use App\Services\NutritionRequirementFromBeneficiaryPeriodService;
@@ -13,6 +14,7 @@ use Livewire\WithPagination;
 class Index extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithPagination;
 
     #[Url(as: 'q', history: true)]
@@ -53,7 +55,8 @@ class Index extends Component
         $this->authorizeView();
 
         $base = NutritionRequirementPlan::query()
-            ->where('sppg_unit_id', $unit->getKey());
+            ->where('sppg_unit_id', $unit->getKey())
+            ->whereDate('requirement_date', $this->selectedWorkDate());
 
         $plans = (clone $base)
             ->with(['menu', 'fieldDistributionPlan', 'beneficiaryPeriod', 'menuCycleDay.cycle', 'procurementRequest'])
@@ -78,7 +81,7 @@ class Index extends Component
                 ->whereHas('cycle', fn ($query) => $query
                     ->where('sppg_unit_id', $unit->getKey())
                     ->whereIn('status', ['approved', 'active']))
-                ->whereDate('service_date', '>=', today()->subDays(7))
+                ->whereDate('service_date', $this->selectedWorkDate())
                 ->orderBy('service_date')
                 ->limit(30)
                 ->get(),

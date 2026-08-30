@@ -1,6 +1,7 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Kontrol Stok" eyebrow="Lot, karantina, pengembalian, dan stock opname">
 <div class="mx-auto max-w-[1450px] space-y-5">
 <x-v3.flash-alert />
+<x-v3.date-filter label="Tanggal riwayat kontrol stok" description="Retur yang masih menunggu tetap ditampilkan dari tanggal mana pun." />
 <section class="rounded-[28px] bg-[#081d3a] p-6 text-white"><h2 class="text-2xl font-bold">Satu halaman untuk kontrol stok.</h2><p class="mt-2 text-sm text-slate-300">Lot karantina tidak dapat diambil divisi. Stock opname dan pengembalian selalu membentuk mutasi yang dapat diaudit.</p></section>
 <section class="space-y-3">
     <div><h3 class="font-bold">Retur dari Divisi</h3><p class="text-xs text-slate-500">Saldo dan kartu stok belum berubah sampai retur diverifikasi Gudang.</p></div>

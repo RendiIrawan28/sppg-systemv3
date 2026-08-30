@@ -28,6 +28,7 @@ data class OperationalUiState(
     val lastPage: Int = 1,
     val statusFilter: String? = null,
     val dateFilter: String? = null,
+    val searchFilter: String? = null,
     val isLoadingMore: Boolean = false,
     val selectedRecord: OperationalRecord? = null,
     val editValues: Map<String, String?> = emptyMap(),
@@ -64,10 +65,12 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         force: Boolean = false,
         status: String? = null,
         date: String? = null,
+        search: String? = null,
     ) {
         val current = _uiState.value
         if (!force && current.activeModule == module && current.records.isNotEmpty()
-            && current.statusFilter == status && current.dateFilter == date) return
+            && current.statusFilter == status && current.dateFilter == date
+            && current.searchFilter == search) return
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -78,12 +81,13 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                     lastPage = 1,
                     statusFilter = status,
                     dateFilter = date,
+                    searchFilter = search,
                     isLoadingMore = false,
                     selectedRecord = null,
                     errorMessage = null,
                 )
             }
-            repository.getRecords(module, page = 1, status = status, date = date)
+            repository.getRecords(module, page = 1, status = status, date = date, search = search)
                 .onSuccess { page ->
                     _uiState.update {
                         it.copy(
@@ -111,6 +115,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                 page = nextPage,
                 status = current.statusFilter,
                 date = current.dateFilter,
+                search = current.searchFilter,
             )
                 .onSuccess { page ->
                     _uiState.update { state ->
@@ -134,12 +139,33 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
             force = true,
             status = current.statusFilter,
             date = current.dateFilter,
+            search = current.searchFilter,
         )
     }
 
     fun filterRecords(status: String?, date: String?) {
         val module = _uiState.value.activeModule ?: return
-        loadRecords(module = module, force = true, status = status, date = date)
+        loadRecords(
+            module = module,
+            force = true,
+            status = status,
+            date = date,
+            search = _uiState.value.searchFilter,
+        )
+    }
+
+    fun searchRecords(search: String?) {
+        val current = _uiState.value
+        val module = current.activeModule ?: return
+        val normalized = search?.trim()?.takeIf { it.isNotEmpty() }
+        if (current.searchFilter == normalized) return
+        loadRecords(
+            module = module,
+            force = true,
+            status = current.statusFilter,
+            date = current.dateFilter,
+            search = normalized,
+        )
     }
 
     fun loadRecord(module: String, id: Long) {

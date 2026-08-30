@@ -3,6 +3,7 @@
 namespace App\Livewire\V3\Field\Plans;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\FieldDistributionPlan;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -11,6 +12,7 @@ use Livewire\WithPagination;
 class Index extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithPagination;
 
     #[Url(as: 'q')]
@@ -28,6 +30,7 @@ class Index extends Component
         $plans = FieldDistributionPlan::query()
             ->with(['menu', 'beneficiaryPeriod'])
             ->where('sppg_unit_id', $unit->getKey())
+            ->whereDate('distribution_date', $this->selectedWorkDate())
             ->when($this->search !== '', fn ($query) => $query->where('plan_number', 'like', '%'.$this->search.'%'))
             ->latest('distribution_date')->latest('id')->paginate(15);
 

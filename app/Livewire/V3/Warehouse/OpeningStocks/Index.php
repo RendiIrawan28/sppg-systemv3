@@ -3,6 +3,7 @@
 namespace App\Livewire\V3\Warehouse\OpeningStocks;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\Ingredient;
 use App\Models\MeasurementUnit;
 use App\Models\NonFoodItem;
@@ -21,6 +22,7 @@ use Throwable;
 class Index extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithFileUploads;
 
     #[Url(as: 'gudang', history: true)]
@@ -174,6 +176,7 @@ class Index extends Component
                 ->with(['items', 'creator'])
                 ->where('sppg_unit_id', $unit->getKey())
                 ->where('warehouse_id', $warehouse->getKey())
+                ->whereDate('opening_date', $this->selectedWorkDate())
                 ->latest('opening_date')
                 ->latest('id')
                 ->limit(20)

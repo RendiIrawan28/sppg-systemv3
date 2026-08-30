@@ -106,6 +106,7 @@ interface MobileApi {
     suspend fun operationalRecords(
         @Header("Authorization") authorization: String,
         @Path("module") module: String,
+        @Query("search") search: String? = null,
         @Query("status") status: String? = null,
         @Query("date_from") dateFrom: String? = null,
         @Query("date_to") dateTo: String? = null,

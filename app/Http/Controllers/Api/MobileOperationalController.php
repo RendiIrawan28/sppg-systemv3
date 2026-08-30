@@ -40,6 +40,7 @@ use App\Services\PreparationOutputService;
 use App\Services\PreparationReturnService;
 use App\Services\PreparationSessionService;
 use App\Services\PreparationWasteReportSyncService;
+use App\Services\ProcessingMaterialStockService;
 use App\Services\ProcessingPortioningHandoverService;
 use App\Services\ProcessingReturnService;
 use App\Services\ProcessingWorkflow;
@@ -173,6 +174,22 @@ class MobileOperationalController extends Controller
                         $query->orWhere('route_name', 'like', "%{$search}%")
                             ->orWhere('menu_name_snapshot', 'like', "%{$search}%")
                             ->orWhere('driver_name', 'like', "%{$search}%");
+                    }
+                    if ($module === 'gudang-stok') {
+                        $query->orWhere('location_name', 'like', "%{$search}%")
+                            ->orWhere('unit_snapshot', 'like', "%{$search}%")
+                            ->orWhereHas('ingredient', fn (Builder $ingredientQuery) => $ingredientQuery
+                                ->where('name', 'like', "%{$search}%")
+                                ->orWhere('code', 'like', "%{$search}%")
+                                ->orWhere('category', 'like', "%{$search}%"));
+                    }
+                    if ($module === 'gudang-stok-non-pangan') {
+                        $query->orWhere('location_name', 'like', "%{$search}%")
+                            ->orWhere('unit_snapshot', 'like', "%{$search}%")
+                            ->orWhereHas('nonFoodItem', fn (Builder $itemQuery) => $itemQuery
+                                ->where('name', 'like', "%{$search}%")
+                                ->orWhere('code', 'like', "%{$search}%")
+                                ->orWhere('category', 'like', "%{$search}%"));
                     }
                 });
             })
@@ -994,6 +1011,41 @@ class MobileOperationalController extends Controller
             ], 201);
         }
 
+        if ($module === 'pengolahan' && $relation === 'materialUsages') {
+            $input = $request->validate([
+                'fields' => ['present', 'array'],
+                'fields.processing_material_stock_id' => ['required', 'integer'],
+                'fields.quantity' => ['required', 'numeric', 'gt:0'],
+            ])['fields'];
+
+            $quantities = $parent->materialUsages()
+                ->whereNotNull('processing_material_stock_id')
+                ->pluck('quantity', 'processing_material_stock_id')
+                ->all();
+            $stockId = (int) $input['processing_material_stock_id'];
+            $quantities[$stockId] = (float) $input['quantity'];
+
+            app(ProcessingMaterialStockService::class)->syncBatchUsages(
+                $parent,
+                $quantities,
+                $request->user(),
+            );
+
+            $item = $parent->materialUsages()
+                ->where('processing_material_stock_id', $stockId)
+                ->firstOrFail();
+
+            return response()->json([
+                'message' => 'Pemakaian bahan dari stok Pengolahan berhasil disimpan.',
+                'data' => $this->relationItemData(
+                    $item,
+                    $relationDefinition,
+                    $registry,
+                    (int) $systemUnit->id(),
+                ),
+            ], 201);
+        }
+
         if ($module === 'keamanan' && $relation === 'reports') {
             return $this->storeSecurityReport(
                 $request,
@@ -1122,7 +1174,40 @@ class MobileOperationalController extends Controller
         );
         $child = $parent->{$relation}()->whereKey($item)->firstOrFail();
         if ($module === 'pengolahan' && $relation === 'materialUsages') {
-            abort_unless($child->source_type === 'manual', 422, 'Bahan yang berasal dari integrasi Gudang tidak dapat diubah dari catatan aktual.');
+            abort_unless($child->processing_material_stock_id !== null, 422, 'Catatan bahan lama tidak dapat diubah dari aplikasi mobile.');
+            $input = $request->validate([
+                'fields' => ['present', 'array'],
+                'fields.processing_material_stock_id' => ['required', 'integer'],
+                'fields.quantity' => ['required', 'numeric', 'gt:0'],
+            ])['fields'];
+
+            $quantities = $parent->materialUsages()
+                ->whereNotNull('processing_material_stock_id')
+                ->where('id', '!=', $child->getKey())
+                ->pluck('quantity', 'processing_material_stock_id')
+                ->all();
+            $stockId = (int) $input['processing_material_stock_id'];
+            $quantities[$stockId] = (float) $input['quantity'];
+
+            app(ProcessingMaterialStockService::class)->syncBatchUsages(
+                $parent,
+                $quantities,
+                $request->user(),
+            );
+
+            $updated = $parent->materialUsages()
+                ->where('processing_material_stock_id', $stockId)
+                ->firstOrFail();
+
+            return response()->json([
+                'message' => 'Pemakaian bahan berhasil diperbarui.',
+                'data' => $this->relationItemData(
+                    $updated,
+                    $relationDefinition,
+                    $registry,
+                    (int) $systemUnit->id(),
+                ),
+            ]);
         }
 
         if (in_array($module, ['gudang', 'gudang-non-pangan'], true) && $relation === 'items') {
@@ -1235,7 +1320,21 @@ class MobileOperationalController extends Controller
         );
         $child = $parent->{$relation}()->whereKey($item)->firstOrFail();
         if ($module === 'pengolahan' && $relation === 'materialUsages') {
-            abort_unless($child->source_type === 'manual', 422, 'Bahan yang berasal dari integrasi Gudang tidak dapat dihapus dari catatan aktual.');
+            abort_unless($child->processing_material_stock_id !== null, 422, 'Catatan bahan lama tidak dapat dihapus dari aplikasi mobile.');
+
+            $quantities = $parent->materialUsages()
+                ->whereNotNull('processing_material_stock_id')
+                ->where('id', '!=', $child->getKey())
+                ->pluck('quantity', 'processing_material_stock_id')
+                ->all();
+
+            app(ProcessingMaterialStockService::class)->syncBatchUsages(
+                $parent,
+                $quantities,
+                $request->user(),
+            );
+
+            return response()->json(['message' => 'Pemakaian bahan dihapus dan stok Pengolahan dikembalikan.']);
         }
         DB::transaction(function () use ($parent, $relationDefinition, $child): void {
             foreach ($relationDefinition['fields'] as $field) {
@@ -2971,12 +3070,6 @@ class MobileOperationalController extends Controller
         ?Model $item = null,
     ): array {
         $defaults = match ([$module, $relation]) {
-            ['pengolahan', 'materialUsages'] => [
-                'source_type' => 'manual',
-                'source_reference' => 'Catatan pemakaian aktual',
-                'received_by' => $request->user()->getKey(),
-                'received_at' => now(),
-            ],
             ['pengolahan', 'temperatureLogs'] => [
                 'checkpoint' => 'final',
                 'checked_at' => $item?->getAttribute('checked_at') ?? $values['checked_at'] ?? now(),
@@ -3231,7 +3324,7 @@ class MobileOperationalController extends Controller
                 $item['can_update'] = $editable && in_array('update', $operations, true);
                 $item['can_delete'] = $editable && in_array('delete', $operations, true);
                 if ($module === 'pengolahan' && $key === 'materialUsages'
-                    && $model->getAttribute('source_type') !== 'manual') {
+                    && $model->getAttribute('processing_material_stock_id') === null) {
                     $item['can_update'] = false;
                     $item['can_delete'] = false;
                 }

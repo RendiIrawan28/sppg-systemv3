@@ -10,6 +10,7 @@ use App\Models\MobileDeviceToken;
 use App\Models\SecurityShift;
 use App\Services\Mobile\FcmHttpV1Client;
 use App\Services\SecurityMonitoringService;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
@@ -48,6 +49,22 @@ class Index extends Component
     public function mount(): void
     {
         abort_unless($this->allowed('security.view'), 403);
+        $this->historyDate = $this->historyDate ?: now()->toDateString();
+    }
+
+    public function previousHistoryDate(): void
+    {
+        $this->historyDate = CarbonImmutable::parse($this->historyDate ?: now())->subDay()->toDateString();
+    }
+
+    public function nextHistoryDate(): void
+    {
+        $this->historyDate = CarbonImmutable::parse($this->historyDate ?: now())->addDay()->toDateString();
+    }
+
+    public function useTodayHistoryDate(): void
+    {
+        $this->historyDate = now()->toDateString();
     }
 
     public function startShift(): void
@@ -142,6 +159,7 @@ class Index extends Component
         $incidents = FieldIncident::query()
             ->where('sppg_unit_id', $unit->getKey())
             ->where('division_code', 'security')
+            ->whereDate('incident_date', $this->historyDate)
             ->latest('occurred_at')
             ->limit(10)
             ->get();

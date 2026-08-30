@@ -6,6 +6,7 @@ use App\Enums\PortioningSessionState;
 use App\Enums\ProcessingBatchState;
 use App\Enums\UserRole;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\PortioningSession;
 use App\Models\PreparationOutput;
 use App\Models\PreparationSession;
@@ -19,6 +20,7 @@ use Livewire\WithFileUploads;
 class Index extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithFileUploads;
 
     public ?int $sessionId = null;
@@ -185,6 +187,7 @@ class Index extends Component
             ->with('items')
             ->where('sppg_unit_id', $unit->getKey())
             ->whereIn('state', ['in_progress', 'completed'])
+            ->whereDate('preparation_date', $this->selectedWorkDate())
             ->latest('preparation_date')
             ->limit(30)
             ->get();
@@ -200,6 +203,10 @@ class Index extends Component
                 'withdrawals.processingBatch', 'withdrawals.portioningSession',
             ])
             ->where('sppg_unit_id', $unit->getKey())
+            ->where(function ($query): void {
+                $query->whereDate('stored_at', $this->selectedWorkDate())
+                    ->orWhereIn('state', [PreparationOutput::AVAILABLE, PreparationOutput::PARTIALLY_TAKEN]);
+            })
             ->latest('stored_at')
             ->latest('id')
             ->get();
@@ -207,12 +214,14 @@ class Index extends Component
         $processingBatches = ProcessingBatch::query()
             ->where('sppg_unit_id', $unit->getKey())
             ->where('state', ProcessingBatchState::InProgress->value)
+            ->whereDate('production_date', $this->selectedWorkDate())
             ->latest('production_date')
             ->limit(50)
             ->get();
         $portioningSessions = PortioningSession::query()
             ->where('sppg_unit_id', $unit->getKey())
             ->where('state', PortioningSessionState::InProgress->value)
+            ->whereDate('portioning_date', $this->selectedWorkDate())
             ->latest('portioning_date')
             ->limit(50)
             ->get();

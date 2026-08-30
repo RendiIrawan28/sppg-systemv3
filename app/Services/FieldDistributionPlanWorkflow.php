@@ -156,6 +156,41 @@ class FieldDistributionPlanWorkflow
                 ? app(FieldOperationalPlanGenerator::class)->generateDistributionRuns($plan, $actor)
                 : collect();
 
+            foreach ($distributionRuns as $run) {
+                app(Mobile\OperationalNotificationService::class)->notifyPermissionAfterCommit(
+                    unitId: (int) $plan->sppg_unit_id,
+                    permission: 'distribution.update',
+                    type: 'distribution_scheduled',
+                    title: 'Pengiriman Dijadwalkan',
+                    message: "Rute {$run->route_name} tersedia untuk tanggal {$plan->distribution_date?->format('d-m-Y')}.",
+                    priority: 'info',
+                    module: 'distribution',
+                    referenceType: 'distribution_run',
+                    referenceId: $run->getKey(),
+                    moduleSlug: 'distribusi',
+                    moduleLabel: 'Distribusi',
+                    eventVersion: 'scheduled',
+                    divisionCode: 'distribusi',
+                );
+            }
+
+            app(Mobile\OperationalNotificationService::class)->notifyPermissionAfterCommit(
+                unitId: (int) $plan->sppg_unit_id,
+                permission: 'field_planning.update',
+                type: 'field_plan_activated',
+                title: 'Rencana Distribusi Aktif',
+                message: "{$plan->plan_number} telah diaktifkan dengan {$distributionRuns->count()} rute.",
+                priority: 'info',
+                module: 'field_planning',
+                referenceType: 'field_distribution_plan',
+                referenceId: $plan->getKey(),
+                moduleSlug: 'field-plans',
+                moduleLabel: 'Rencana Distribusi',
+                eventVersion: FieldDistributionPlanStatus::Activated->value,
+                payload: ['field_plan_id' => (string) $plan->getKey()],
+                screen: 'field-plans',
+            );
+
             $documents = [
                 // Pengolahan baru dibuat ketika divisi mencatat pengambilan bahan.
                 // Pemorsian dibuat secara manual dari rencana aktif pada ruang kerjanya.

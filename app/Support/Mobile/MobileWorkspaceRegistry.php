@@ -23,6 +23,7 @@ use App\Models\PreparationReturn;
 use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
 use App\Models\ProcessingBatch;
+use App\Models\ProcessingMaterialStock;
 use App\Models\ProcessingMaterialUsage;
 use App\Models\ProcessingReturn;
 use App\Models\SecurityShift;
@@ -105,7 +106,7 @@ class MobileWorkspaceRegistry
 
             if ($slug === 'pengolahan') {
                 $definition['allow_create'] = true;
-                $definition['description'] = 'Buat batch produksi manual, catat bahan baku aktual, hasil akhir, suhu, lalu serahkan ke Pemorsian.';
+                $definition['description'] = 'Buat batch produksi, gunakan bahan dari stok Pengolahan, catat hasil akhir dan suhu, lalu serahkan ke Pemorsian.';
                 $definition['fields'] = collect($definition['fields'])
                     ->reject(fn (array $field): bool => in_array($field['name'], ['production_date', 'product_name'], true))
                     ->map(function (array $field): array {
@@ -120,12 +121,13 @@ class MobileWorkspaceRegistry
                     [...$this->field('production_date', 'Tanggal produksi', 'date', true), 'create_only' => true, 'detail_only' => false],
                     [...$this->field('product_name', 'Nama produk/menu', 'text', true), 'create_only' => true, 'detail_only' => false],
                 );
-                $definition['relations']['materialUsages']['fields'] = collect($definition['relations']['materialUsages']['fields'])
-                    ->map(function (array $field): array {
-                        $field['editable'] = ! in_array($field['name'], ['source_reference'], true);
-
-                        return $field;
-                    })->all();
+                $definition['relations']['materialUsages'] = $this->relation('Bahan digunakan dari stok Pengolahan', [
+                    $this->field('processing_material_stock_id', 'Stok bahan Pengolahan', 'select', true, 'processing_material_stocks'),
+                    [...$this->field('material_name', 'Nama bahan'), 'editable' => false],
+                    $this->field('quantity', 'Jumlah digunakan', 'number', true),
+                    [...$this->field('unit_name', 'Satuan'), 'editable' => false],
+                    [...$this->field('source_reference', 'Sumber'), 'editable' => false],
+                ]);
                 $definition['relations']['preparationOutputWithdrawals'] = $this->relation('Hasil Persiapan digunakan', [
                     [...$this->field('output_name', 'Nama hasil Persiapan'), 'editable' => false],
                     [...$this->field('used_quantity', 'Jumlah digunakan', 'number'), 'editable' => false],
@@ -448,6 +450,30 @@ class MobileWorkspaceRegistry
                         $plan->distribution_date?->format('d-m-Y'),
                         $plan->portioningSession?->state?->value === 'in_progress' ? 'sedang diporsikan' : null,
                     ])),
+                ])->all();
+        }
+
+        if ($source === 'processing_material_stocks') {
+            return ProcessingMaterialStock::query()
+                ->where('sppg_unit_id', $unitId)
+                ->where(function ($query): void {
+                    $query->where('available_quantity', '>', 0)
+                        ->orWhereHas('usages.batch', fn ($usageQuery) => $usageQuery->where('state', 'in_progress'));
+                })
+                ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>=', now()))
+                ->orderByRaw('expires_at IS NULL')
+                ->orderBy('expires_at')
+                ->orderBy('received_at')
+                ->limit(300)
+                ->get()
+                ->mapWithKeys(fn (ProcessingMaterialStock $stock): array => [
+                    (string) $stock->getKey() => sprintf(
+                        '%s · %s · tersedia %s %s',
+                        $stock->material_name,
+                        $stock->source_type === 'warehouse' ? 'Gudang' : 'Persiapan',
+                        rtrim(rtrim(number_format((float) $stock->available_quantity, 4, '.', ''), '0'), '.'),
+                        $stock->unit_name,
+                    ),
                 ])->all();
         }
 

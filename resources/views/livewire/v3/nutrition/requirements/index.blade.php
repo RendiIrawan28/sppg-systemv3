@@ -1,6 +1,7 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Kebutuhan & Pengadaan" eyebrow="Sumber: Master Penerima Aktif">
     <div class="mx-auto max-w-[1450px] space-y-5">
         <x-v3.flash-alert />
+        <x-v3.date-filter label="Tanggal kebutuhan bahan" />
 
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white shadow-xl sm:p-7">
             <div class="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">

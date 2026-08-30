@@ -1,6 +1,10 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Divisi Persiapan" eyebrow="Pengambilan Gudang sampai selesai Persiapan">
     <div class="mx-auto max-w-[1500px] space-y-5">
         <x-v3.flash-alert />
+        <x-v3.date-filter label="Tanggal Persiapan" />
+        @if($attentionRecords->isNotEmpty())
+            <section class="rounded-2xl border border-amber-200 bg-amber-50 p-4"><h3 class="font-bold text-amber-900">Pekerjaan tanggal lain yang belum selesai</h3><div class="mt-3 flex flex-wrap gap-2">@foreach($attentionRecords as $record)<button wire:click="select({{ $record->id }})" class="rounded-xl border border-amber-200 bg-white px-3 py-2 text-left text-xs"><b>{{ $record->session_number }}</b><span class="ml-2 text-slate-500">{{ $record->preparation_date?->format('d/m/Y') }}</span></button>@endforeach</div></section>
+        @endif
 
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
             <p class="text-xs font-bold uppercase tracking-widest text-cyan-200">Kontrol Persiapan</p>

@@ -294,7 +294,13 @@ class Index extends Component
             'users' => User::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'employee_number']),
             'devices' => $devices,
             'activeRegistration' => $activeRegistration,
-            'recentTaps' => AttendanceTap::query()->where('sppg_unit_id', $unit->getKey())->with(['user', 'device'])->latest('received_at')->limit(20)->get(),
+            'recentTaps' => AttendanceTap::query()
+                ->where('sppg_unit_id', $unit->getKey())
+                ->whereDate('received_at', $this->filterDate)
+                ->with(['user', 'device'])
+                ->latest('received_at')
+                ->limit(20)
+                ->get(),
             'canCorrect' => $this->allowed('attendance.correct'),
             'canManage' => $this->allowed('attendance.manage'),
             'canDevices' => $this->allowed('attendance.devices'),

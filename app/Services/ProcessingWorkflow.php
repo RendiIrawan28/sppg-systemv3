@@ -9,6 +9,7 @@ use App\Models\ProcessingBatch;
 use App\Models\PreparationOutputWithdrawal;
 use App\Models\User;
 use App\Models\WarehouseWithdrawal;
+use App\Services\Mobile\OperationalApprovalNotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -185,6 +186,9 @@ class ProcessingWorkflow
                 $fromStatus,
                 OperationalReportStatus::Submitted->value,
             );
+            app(OperationalApprovalNotificationService::class)->submitted(
+                $batch->refresh(), 'processing', 'Pengolahan', 'pengolahan', $batch->batch_number,
+            );
 
             return $batch->refresh();
         });
@@ -235,6 +239,9 @@ class ProcessingWorkflow
                 $fromStatus,
                 $nextStatus->value,
             );
+            app(OperationalApprovalNotificationService::class)->reviewed(
+                $batch->refresh(), $nextStatus, 'processing', 'Pengolahan', $batch->batch_number,
+            );
 
             return $batch->refresh();
         });
@@ -274,6 +281,9 @@ class ProcessingWorkflow
                 $fromStatus,
                 OperationalReportStatus::RevisionRequired->value,
             );
+            app(OperationalApprovalNotificationService::class)->revisionRequired(
+                $batch->refresh(), 'processing', 'Pengolahan', $batch->batch_number,
+            );
 
             return $batch->refresh();
         });
@@ -296,6 +306,7 @@ class ProcessingWorkflow
         return ProcessingBatch::query()
             ->with([
                 'materialUsages.returns',
+                'materialUsages.stock',
                 'preparationOutputWithdrawals.output',
                 'temperatureLogs',
                 'documentations',
@@ -308,7 +319,7 @@ class ProcessingWorkflow
     {
         $errors = [];
         if (! $this->hasActualMaterialInput($batch)) {
-            $errors['materialUsages'] = 'Minimal satu bahan baku aktual wajib dicatat sebelum Pengolahan diselesaikan.';
+            $errors['materialUsages'] = 'Minimal satu bahan dari stok Pengolahan wajib digunakan sebelum Pengolahan diselesaikan.';
         }
         $finalTemperatures = $batch->temperatureLogs
             ->where('checkpoint', ProcessingTemperatureCheckpoint::Final);
@@ -352,11 +363,11 @@ class ProcessingWorkflow
 
     private function hasActualMaterialInput(ProcessingBatch $batch): bool
     {
-        // Bahan dari Gudang/Persiapan tetap menjadi sumber integrasi dan audit.
-        // Namun Monitoring Produksi mewajibkan petugas mencatat bahan baku aktual
-        // secara manual agar sesuai dengan alur kerja lapangan.
         return $batch->materialUsages->contains(
-            fn ($usage): bool => $usage->source_type === 'manual'
+            fn ($usage): bool => (
+                $usage->processing_material_stock_id !== null
+                || $usage->source_type === 'manual' // kompatibilitas data lama
+            )
                 && filled($usage->material_name)
                 && (float) $usage->quantity > 0
                 && filled($usage->unit_name),

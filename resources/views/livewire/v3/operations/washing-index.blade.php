@@ -12,6 +12,9 @@
             </div>
         </div>
 
+        <x-v3.date-filter label="Tanggal pencucian" />
+        <x-v3.pending-work :records="$attentionRecords" module="pencucian" :definition="$definition" />
+
         <div class="grid gap-3 sm:grid-cols-3">
             <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:shadow-none">
                 <p class="text-[10px] font-bold uppercase tracking-[.14em] text-slate-500 dark:text-slate-400">Menunggu diterima</p>

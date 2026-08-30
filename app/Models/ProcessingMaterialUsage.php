@@ -13,6 +13,7 @@ class ProcessingMaterialUsage extends Model
 
     protected $fillable = [
         'processing_batch_id',
+        'processing_material_stock_id',
         'source_type',
         'source_id',
         'source_item_id',
@@ -42,6 +43,11 @@ class ProcessingMaterialUsage extends Model
     public function batch(): BelongsTo
     {
         return $this->belongsTo(ProcessingBatch::class, 'processing_batch_id');
+    }
+
+    public function stock(): BelongsTo
+    {
+        return $this->belongsTo(ProcessingMaterialStock::class, 'processing_material_stock_id');
     }
 
     public function ingredient(): BelongsTo

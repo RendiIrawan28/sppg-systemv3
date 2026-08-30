@@ -74,9 +74,9 @@ import id.sppg.mobile.data.remote.FieldPlanDestination
 import id.sppg.mobile.data.remote.UpdateFieldPlanDestinationRequest
 import id.sppg.mobile.data.remote.UpdateFieldPlanRequest
 import id.sppg.mobile.data.remote.UpdateRecipientGroupRequest
+import id.sppg.mobile.ui.theme.Navy
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -146,9 +146,9 @@ fun FieldPlanListScreen(
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
-                    start = 20.dp,
+                    start = SppgPagePadding,
                     top = innerPadding.calculateTopPadding() + 12.dp,
-                    end = 20.dp,
+                    end = SppgPagePadding,
                     bottom = 32.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -160,7 +160,7 @@ fun FieldPlanListScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     ) {
                         Row(
-                            modifier = Modifier.padding(20.dp),
+                            modifier = Modifier.padding(SppgPagePadding),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             ModuleIcon("field-plans", Modifier.size(56.dp))
@@ -416,9 +416,9 @@ private fun FieldPlanDetailContent(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 20.dp,
+            start = SppgPagePadding,
             top = padding.calculateTopPadding() + 12.dp,
-            end = 20.dp,
+            end = SppgPagePadding,
             bottom = 32.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -443,7 +443,7 @@ private fun FieldPlanDetailContent(
         }
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+                colors = CardDefaults.cardColors(containerColor = Navy),
                 shape = RoundedCornerShape(24.dp),
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
@@ -784,9 +784,9 @@ private fun FieldPlanEditForm(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 20.dp,
+            start = SppgPagePadding,
             top = padding.calculateTopPadding() + 12.dp,
-            end = 20.dp,
+            end = SppgPagePadding,
             bottom = 32.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -1137,7 +1137,7 @@ fun FieldPlanCreateScreen(
             val selectedOption = optionsForDate.firstOrNull()
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(20.dp, padding.calculateTopPadding() + 12.dp, 20.dp, 32.dp),
+                contentPadding = PaddingValues(SppgPagePadding, padding.calculateTopPadding() + 12.dp, SppgPagePadding, 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 state.errorMessage?.let { message ->
@@ -1311,7 +1311,11 @@ private fun FeedbackCard(message: String, isError: Boolean, onDismiss: () -> Uni
                 .padding(start = 16.dp, top = 12.dp, end = 8.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(message, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                if (isError) userFriendlyUiMessage(message) else message,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
             TextButton(onClick = onDismiss) { Text("Tutup") }
         }
     }
@@ -1376,60 +1380,46 @@ private fun InfoLine(icon: ImageVector, text: String) {
 
 @Composable
 private fun LoadingContent(padding: PaddingValues) {
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(padding),
-        contentAlignment = Alignment.Center,
+            .padding(padding)
+            .padding(SppgPagePadding),
+        verticalArrangement = Arrangement.Center,
     ) {
-        CircularProgressIndicator()
+        SppgLoadingState("Memuat rencana distribusi…")
     }
 }
 
 @Composable
 private fun ErrorContent(message: String, padding: PaddingValues, onRetry: () -> Unit) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(SppgPagePadding),
+        contentAlignment = Alignment.Center,
     ) {
-        Text("Data belum dapat dimuat", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
-        Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(12.dp))
-        TextButton(onClick = onRetry) { Text("Coba lagi") }
+        SppgErrorState(message, onRetry)
     }
 }
 
 @Composable
 private fun EmptyContent(padding: PaddingValues) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(SppgPagePadding),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            Icons.Outlined.CalendarMonth,
-            contentDescription = null,
-            modifier = Modifier.size(48.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text("Belum ada rencana distribusi", fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "Buat rencana dari menu siklus aktif melalui tombol tambah.",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        SppgEmptyState(
+            "Belum ada rencana distribusi",
+            "Gunakan tombol tambah untuk membuat rencana baru.",
         )
     }
 }
 
 private fun formatDate(value: String): String = runCatching {
-    LocalDate.parse(value).format(DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.forLanguageTag("id-ID")))
+    LocalDate.parse(value).format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))
 }.getOrDefault(value)

@@ -8,6 +8,7 @@ use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\Mobile\OperationalNotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -66,6 +67,7 @@ class PreparationReturnService
                 'submitted_at' => now(),
             ]);
             $this->history($session, $actor, 'return_submitted', $return);
+            $this->notifyWarehouse($return);
 
             return $return;
         });
@@ -126,6 +128,7 @@ class PreparationReturnService
                 'verified_at' => now(),
             ]);
             $this->history($return->session, $actor, 'return_verified', $return);
+            $this->notifyRequester($return, true);
 
             return $return->refresh();
         });
@@ -147,6 +150,7 @@ class PreparationReturnService
                 'rejected_at' => now(),
             ]);
             $this->history($return->session, $actor, 'return_rejected', $return);
+            $this->notifyRequester($return, false);
 
             return $return->refresh();
         });
@@ -201,5 +205,46 @@ class PreparationReturnService
             'notes' => $return->return_number,
             'snapshot' => $return->fresh()->toArray(),
         ]);
+    }
+
+    private function notifyWarehouse(PreparationReturn $return): void
+    {
+        app(OperationalNotificationService::class)->notifyPermissionAfterCommit(
+            unitId: (int) $return->sppg_unit_id,
+            permission: 'stock.approve',
+            type: 'preparation_return_submitted',
+            title: 'Retur Menunggu Verifikasi',
+            message: "Persiapan mengajukan retur {$return->ingredient_name_snapshot} {$return->requested_quantity} {$return->unit_snapshot}.",
+            priority: 'important',
+            module: 'warehouse',
+            referenceType: 'preparation_return',
+            referenceId: $return->getKey(),
+            moduleSlug: 'gudang-retur',
+            moduleLabel: 'Retur Persiapan',
+            eventVersion: PreparationReturn::WAITING,
+        );
+    }
+
+    private function notifyRequester(PreparationReturn $return, bool $verified): void
+    {
+        if (! $return->returned_by) return;
+
+        app(OperationalNotificationService::class)->notifyUsersAfterCommit(
+            unitId: (int) $return->sppg_unit_id,
+            userIds: [(int) $return->returned_by],
+            type: $verified ? 'preparation_return_verified' : 'preparation_return_rejected',
+            title: $verified ? 'Retur Bahan Diverifikasi' : 'Retur Bahan Ditolak',
+            message: $verified
+                ? "Retur {$return->ingredient_name_snapshot} telah diterima Gudang."
+                : "Retur {$return->ingredient_name_snapshot} ditolak Gudang.",
+            priority: $verified ? 'info' : 'important',
+            module: 'preparation',
+            referenceType: 'preparation_return',
+            referenceId: $return->getKey(),
+            moduleSlug: 'persiapan',
+            moduleLabel: 'Persiapan',
+            eventVersion: $verified ? PreparationReturn::VERIFIED : PreparationReturn::REJECTED,
+            payload: ['record_id' => (string) $return->preparation_session_id],
+        );
     }
 }

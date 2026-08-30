@@ -1,5 +1,6 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Evaluasi Gizi Harian" eyebrow="Ahli gizi">
     <div class="mx-auto max-w-[1500px] space-y-5">
+        <x-v3.date-filter label="Tanggal evaluasi gizi" />
         <section class="relative overflow-hidden rounded-[26px] bg-[#081d3a] p-6 text-white shadow-xl shadow-slate-900/10 sm:p-7">
             <div class="absolute -right-16 -top-20 size-64 rounded-full bg-cyan-300/10"></div>
             <div class="relative flex flex-col justify-between gap-6 lg:flex-row lg:items-end">

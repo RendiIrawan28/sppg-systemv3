@@ -3,6 +3,10 @@
         <style>[x-cloak] { display: none !important; }</style>
 
         <x-v3.flash-alert />
+        <x-v3.date-filter label="Tanggal pengambilan ompreng" />
+        @if($overdueTasks->isNotEmpty())
+            <section class="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-400/30 dark:bg-amber-500/10"><h3 class="font-bold text-amber-900 dark:text-amber-100">Pengambilan tanggal sebelumnya yang belum selesai</h3><p class="mt-1 text-xs text-amber-700 dark:text-amber-300">{{ $overdueTasks->count() }} tujuan masih memiliki ompreng yang harus diambil.</p><div class="mt-3 flex flex-wrap gap-2">@foreach($overdueTasks->groupBy(fn($item) => $item->delivery_date?->toDateString()) as $date => $items)<button wire:click="$set('workDate', '{{ $date }}')" type="button" class="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-amber-800">{{ optional($items->first()->delivery_date)->format('d/m/Y') }} · {{ $items->count() }} tujuan</button>@endforeach</div></section>
+        @endif
 
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
             <p class="text-xs font-bold uppercase tracking-[.18em] text-cyan-200">Daftar otomatis dari pengantaran</p>

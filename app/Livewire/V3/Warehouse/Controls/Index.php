@@ -3,6 +3,7 @@
 namespace App\Livewire\V3\Warehouse\Controls;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\InventoryLot;
 use App\Models\PreparationReturn;
 use App\Models\ProcessingReturn;
@@ -14,7 +15,7 @@ use Livewire\Component;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell;
+    use InteractsWithV3Shell, FiltersByWorkDate;
 
     public string $lotId = '';
 
@@ -148,6 +149,8 @@ class Index extends Component
         $returns = PreparationReturn::query()
             ->with(['session', 'returner', 'sourceLot'])
             ->where('sppg_unit_id', $unit->id)
+            ->where(fn ($query) => $query->where('status', PreparationReturn::WAITING)
+                ->orWhereDate('return_date', $this->selectedWorkDate()))
             ->latest()
             ->limit(50)
             ->get();
@@ -158,6 +161,8 @@ class Index extends Component
         $processingReturns = ProcessingReturn::query()
             ->with(['batch', 'returner', 'sourceLot'])
             ->where('sppg_unit_id', $unit->id)
+            ->where(fn ($query) => $query->where('status', ProcessingReturn::WAITING)
+                ->orWhereDate('return_date', $this->selectedWorkDate()))
             ->latest()
             ->limit(50)
             ->get();
@@ -171,7 +176,11 @@ class Index extends Component
         return view('livewire.v3.warehouse.controls.index', [...$this->shellData($unit), 'lots' => $lots,
             'returns' => $returns,
             'processingReturns' => $processingReturns,
-            'adjustments' => StockAdjustment::with(['lot.ingredient', 'creator'])->where('sppg_unit_id', $unit->id)->latest()->limit(50)->get(),
+            'adjustments' => StockAdjustment::with(['lot.ingredient', 'creator'])
+                ->where('sppg_unit_id', $unit->id)
+                ->where(fn ($query) => $query->where('status', StockAdjustment::DRAFT)
+                    ->orWhereDate('adjustment_date', $this->selectedWorkDate()))
+                ->latest()->limit(50)->get(),
             'canEdit' => $this->allowed('stock.update'), 'canApprove' => $this->allowed('stock.approve')])
             ->layout('layouts.v3', ['title' => 'Kontrol Stok']);
     }

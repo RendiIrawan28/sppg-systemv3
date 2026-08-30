@@ -46,10 +46,12 @@ class OperationalRepository(
         page: Int = 1,
         status: String? = null,
         date: String? = null,
+        search: String? = null,
     ): Result<OperationalPage> = safeApiCall(errorHandler) {
         val response = api.operationalRecords(
             authorization(),
             module,
+            search = search,
             status = status,
             dateFrom = date,
             dateTo = date,

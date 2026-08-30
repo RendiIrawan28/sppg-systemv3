@@ -6,6 +6,7 @@ use App\Enums\OperationalReportStatus;
 use App\Enums\PortioningSessionState;
 use App\Enums\UserRole;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\FieldDistributionPlan;
 use App\Models\PortioningRouteRecord;
 use App\Models\PortioningSession;
@@ -25,7 +26,7 @@ use Throwable;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell;
+    use InteractsWithV3Shell, FiltersByWorkDate;
     use WithFileUploads;
 
     public ?int $selectedId = null;
@@ -442,6 +443,7 @@ class Index extends Component
             ->with(['destinations', 'portioningSession'])
             ->where('sppg_unit_id', $unit->id)
             ->where('status', 'activated')
+            ->whereDate('distribution_date', $this->selectedWorkDate())
             ->orderByDesc('production_date')
             ->orderByDesc('distribution_date')
             ->orderByDesc('id')
@@ -468,10 +470,23 @@ class Index extends Component
                 'petugas',
             ])
             ->where('sppg_unit_id', $unit->id)
+            ->whereDate('portioning_date', $this->selectedWorkDate())
             ->latest('portioning_date')
             ->latest('id')
             ->get();
-        $selected = $this->selectedId ? $records->firstWhere('id', $this->selectedId) : null;
+        $attentionRecords = PortioningSession::query()
+            ->where('sppg_unit_id', $unit->id)
+            ->whereDate('portioning_date', '!=', $this->selectedWorkDate())
+            ->whereNotIn('state', ['completed', 'cancelled'])
+            ->latest('portioning_date')
+            ->limit(10)
+            ->get();
+        $selected = $this->selectedId
+            ? $this->record($this->selectedId)->load([
+                'processingBatch', 'preparationOutputWithdrawals.output', 'routeAllocations',
+                'routeRecords', 'leftoverRecords', 'supplies', 'processingBatches', 'petugas',
+            ])
+            : null;
         $readyProcessingBatches = ProcessingBatch::query()
             ->where('sppg_unit_id', $unit->id)
             ->whereNotNull('portioning_handed_over_at')
@@ -488,6 +503,7 @@ class Index extends Component
         return view('livewire.v3.portioning.index', [
             ...$this->shellData($unit),
             'records' => $records,
+            'attentionRecords' => $attentionRecords,
             'selected' => $selected,
             'readyProcessingBatches' => $readyProcessingBatches,
             'productionPlans' => $productionPlans,
@@ -501,6 +517,12 @@ class Index extends Component
             'canApprove' => $this->canReview($selected),
             'canExport' => $this->allowed('portioning.export'),
         ])->layout('layouts.v3', ['title' => 'Pemorsian']);
+    }
+
+    protected function afterWorkDateChanged(): void
+    {
+        $this->selectedId = null;
+        $this->productionPlanId = '';
     }
 
     private function persistFinalData(): PortioningSession

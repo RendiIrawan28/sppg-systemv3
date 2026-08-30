@@ -11,9 +11,10 @@ use App\Models\PreparationSession;
 use App\Models\ProcessingBatch;
 use App\Models\StockMovement;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Models\WarehouseWithdrawal;
 use App\Models\WarehouseWithdrawalItem;
-use App\Models\Warehouse;
+use App\Services\Mobile\OperationalNotificationService;
 use App\Support\DivisionRole;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -255,6 +256,7 @@ class WarehouseWithdrawalService
         }
 
         $warehouse = Warehouse::forUnit($unitId, Warehouse::TYPE_NON_FOOD);
+
         return WarehouseWithdrawal::query()->create([
             'sppg_unit_id' => $unitId,
             'warehouse_id' => $warehouse->getKey(),
@@ -436,9 +438,11 @@ class WarehouseWithdrawalService
         $withdrawal = $withdrawal->refresh()->load('items');
         if (! $isNonFood) {
             app(PreparationSessionService::class)->createFromWithdrawal($withdrawal);
-            app(ProcessingInputService::class)->syncWarehouseWithdrawal($withdrawal, $actor);
+            // Pengolahan baru menerima bahan setelah Gudang memverifikasi.
             app(PortioningInputService::class)->syncWarehouseWithdrawal($withdrawal, $actor);
         }
+
+        $this->notifyWithdrawalSubmitted($withdrawal);
 
         return $withdrawal;
     }
@@ -535,6 +539,8 @@ class WarehouseWithdrawalService
                 app(PortioningInputService::class)->syncWarehouseWithdrawal($withdrawal->refresh()->load('items'), $actor);
             }
 
+            $this->notifyWithdrawalDecision($withdrawal->refresh()->load('items'), 'verified');
+
             return $withdrawal->refresh();
         });
     }
@@ -545,6 +551,7 @@ class WarehouseWithdrawalService
             throw ValidationException::withMessages(['decisionNotes' => 'Alasan koreksi wajib diisi.']);
         }
         $withdrawal->update(['status' => WarehouseWithdrawal::REVISION, 'verified_by' => $actor->id, 'decision_notes' => $reason]);
+        $this->notifyWithdrawalDecision($withdrawal->refresh()->load('items'), 'revision_required');
 
         return $withdrawal->refresh();
     }
@@ -561,9 +568,76 @@ class WarehouseWithdrawalService
                 $this->removeProvisionalDivisionInput($withdrawal);
             }
             $withdrawal->update(['status' => WarehouseWithdrawal::REJECTED, 'verified_by' => $actor->id, 'rejected_at' => now(), 'decision_notes' => $reason]);
+            $this->notifyWithdrawalDecision($withdrawal->refresh()->load('items'), 'rejected');
 
             return $withdrawal->refresh();
         });
+    }
+
+    private function notifyWithdrawalSubmitted(WarehouseWithdrawal $withdrawal): void
+    {
+        $withdrawal->loadMissing('items');
+        $summary = $this->withdrawalItemSummary($withdrawal);
+
+        app(OperationalNotificationService::class)->notifyPermissionAfterCommit(
+            unitId: (int) $withdrawal->sppg_unit_id,
+            permission: $withdrawal->warehouse?->type === Warehouse::TYPE_NON_FOOD ? 'non_food_stock.approve' : 'stock.approve',
+            type: 'warehouse_withdrawal_submitted',
+            title: 'Pengambilan Menunggu Verifikasi',
+            message: ucfirst((string) $withdrawal->division_code)." mengajukan {$summary}.",
+            priority: 'important',
+            module: 'warehouse',
+            referenceType: 'warehouse_withdrawal',
+            referenceId: $withdrawal->getKey(),
+            moduleSlug: $withdrawal->warehouse?->type === Warehouse::TYPE_NON_FOOD ? 'gudang-pengambilan-non-pangan' : 'gudang-pengambilan',
+            moduleLabel: 'Pengambilan Gudang',
+            eventVersion: WarehouseWithdrawal::WAITING,
+        );
+    }
+
+    private function notifyWithdrawalDecision(WarehouseWithdrawal $withdrawal, string $decision): void
+    {
+        if (! $withdrawal->taken_by) {
+            return;
+        }
+
+        [$title, $message, $priority] = match ($decision) {
+            'verified' => ['Pengambilan Bahan Diverifikasi', 'Pengambilan '.$this->withdrawalItemSummary($withdrawal).' telah diverifikasi Gudang.', 'info'],
+            'revision_required' => ['Pengambilan Perlu Diperbaiki', 'Pengambilan dikembalikan Gudang untuk diperbaiki.', 'important'],
+            default => ['Pengambilan Ditolak', 'Pengambilan bahan ditolak Gudang. Buka rincian untuk melihat alasannya.', 'important'],
+        };
+
+        app(OperationalNotificationService::class)->notifyUsersAfterCommit(
+            unitId: (int) $withdrawal->sppg_unit_id,
+            userIds: [(int) $withdrawal->taken_by],
+            type: 'warehouse_withdrawal_'.$decision,
+            title: $title,
+            message: $message,
+            priority: $priority,
+            module: 'warehouse',
+            referenceType: 'warehouse_withdrawal',
+            referenceId: $withdrawal->getKey(),
+            moduleSlug: match ($withdrawal->division_code) {
+                'pengolahan' => 'pengambilan-gudang-pengolahan',
+                'pemorsian' => 'pengambilan-gudang-pemorsian',
+                default => 'pengambilan-gudang-persiapan',
+            },
+            moduleLabel: 'Pengambilan Gudang',
+            eventVersion: $decision,
+        );
+    }
+
+    private function withdrawalItemSummary(WarehouseWithdrawal $withdrawal): string
+    {
+        $items = $withdrawal->items;
+        $first = $items->first();
+        if (! $first) {
+            return 'bahan';
+        }
+
+        $summary = trim((string) $first->ingredient_name_snapshot).' '.rtrim(rtrim(number_format((float) ($first->actual_quantity ?? $first->requested_quantity), 3, ',', '.'), '0'), ',').' '.trim((string) $first->unit_snapshot);
+
+        return $items->count() > 1 ? $summary.' dan '.($items->count() - 1).' item lain' : $summary;
     }
 
     private function removeProvisionalDivisionInput(WarehouseWithdrawal $withdrawal): void

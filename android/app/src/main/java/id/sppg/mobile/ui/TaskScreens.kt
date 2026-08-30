@@ -23,6 +23,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +33,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +58,16 @@ fun TaskListScreen(
     onMarkAllRead: () -> Unit,
 ) {
     LaunchedEffect(Unit) { onLoad() }
+    var notificationFilter by remember { mutableStateOf("all") }
+    val visibleNotifications = state.notifications.filter { notification ->
+        when (notificationFilter) {
+            "unread" -> notification.readAt == null
+            "important" -> notification.payload?.get("priority") in listOf("important", "critical")
+                || listOf("important", "warning", "danger", "emergency", "error")
+                    .any { marker -> notification.type.contains(marker, ignoreCase = true) }
+            else -> true
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -80,25 +95,20 @@ fun TaskListScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                start = 20.dp,
-                end = 20.dp,
+                start = SppgPagePadding,
+                end = SppgPagePadding,
                 top = innerPadding.calculateTopPadding() + 12.dp,
                 bottom = 32.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (state.isLoading && state.tasks.isEmpty()) {
-                item(key = "loading") {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(32.dp),
-                        horizontalArrangement = Arrangement.Center,
-                    ) { CircularProgressIndicator() }
-                }
+                item(key = "loading") { SppgLoadingState("Memuat notifikasi…") }
             }
 
             state.errorMessage?.let { message ->
                 item(key = "error-message") {
-                    FeedbackCard("Proses belum berhasil", message, isError = true)
+                    SppgErrorState(message, onRetry = onRefresh)
                 }
             }
 
@@ -113,7 +123,7 @@ fun TaskListScreen(
 
             if (!state.isLoading && state.tasks.isEmpty()) {
                 item(key = "empty-tasks") {
-                    FeedbackCard("Tidak ada tugas tertunda", "Seluruh pekerjaan yang tercatat sudah selesai.", false)
+                    SppgEmptyState("Tidak ada tugas tertunda", "Seluruh pekerjaan yang tercatat sudah selesai.")
                 }
             } else {
                 items(state.tasks, key = { task -> "task-${task.id}" }) { task ->
@@ -132,12 +142,24 @@ fun TaskListScreen(
                 }
             }
 
-            if (state.notifications.isEmpty()) {
+            item(key = "notification-filter") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("all" to "Semua", "unread" to "Belum dibaca", "important" to "Penting").forEach { option ->
+                        FilterChip(
+                            selected = notificationFilter == option.first,
+                            onClick = { notificationFilter = option.first },
+                            label = { Text(option.second) },
+                        )
+                    }
+                }
+            }
+
+            if (visibleNotifications.isEmpty()) {
                 item(key = "empty-notifications") {
-                    Text("Belum ada riwayat notifikasi.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SppgEmptyState("Belum ada notifikasi", "Tidak ada notifikasi pada filter yang dipilih.")
                 }
             } else {
-                items(state.notifications, key = { notification -> "notification-${notification.id}" }) { notification ->
+                items(visibleNotifications, key = { notification -> "notification-${notification.id}" }) { notification ->
                     NotificationCard(notification, onClick = { onNotificationClick(notification) })
                 }
             }
@@ -189,13 +211,20 @@ private fun NotificationCard(notification: MobileNotificationItem, onClick: () -
         ),
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text(notification.title, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(notification.title, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                when (notification.payload?.get("priority")) {
+                    "critical" -> SppgStatusPill("Kritis", colorOverride = MaterialTheme.colorScheme.error)
+                    "important" -> SppgStatusPill("Penting", colorOverride = MaterialTheme.colorScheme.tertiary)
+                    else -> SppgStatusPill("Info", colorOverride = MaterialTheme.colorScheme.primary)
+                }
+            }
             Spacer(Modifier.height(5.dp))
             Text(notification.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (notification.deliveryStatus != "sent" && !notification.errorMessage.isNullOrBlank()) {
                 Spacer(Modifier.height(7.dp))
                 Text(
-                    notification.errorMessage,
+                    "Notifikasi perangkat belum terkirim.",
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.labelMedium,
                 )

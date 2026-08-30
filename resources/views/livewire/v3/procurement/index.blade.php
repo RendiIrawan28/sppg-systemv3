@@ -1,6 +1,7 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Pengadaan Bahan" eyebrow="Kebutuhan → supplier → harga → pesanan">
     <div class="mx-auto max-w-[1450px] space-y-5">
         <x-v3.flash-alert />
+        <x-v3.date-filter label="Tanggal bahan dibutuhkan" />
 
         <section class="relative overflow-hidden rounded-[28px] bg-[#081d3a] p-6 text-white shadow-xl sm:p-7">
             <div class="absolute -right-24 -top-24 size-80 rounded-full bg-cyan-300/10"></div>

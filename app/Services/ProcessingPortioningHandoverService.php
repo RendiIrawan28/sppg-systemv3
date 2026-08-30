@@ -7,6 +7,7 @@ use App\Enums\ProcessingBatchState;
 use App\Models\PortioningSession;
 use App\Models\ProcessingBatch;
 use App\Models\User;
+use App\Services\Mobile\OperationalNotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -36,6 +37,7 @@ class ProcessingPortioningHandoverService
                 'from_state' => $batch->state->value, 'to_state' => $batch->state->value,
                 'snapshot' => $batch->fresh()->toArray(),
             ]);
+            $this->notifyPortioning($batch);
             return $batch->refresh();
         });
     }
@@ -75,6 +77,7 @@ class ProcessingPortioningHandoverService
                 'from_state' => $batch->state->value, 'to_state' => $batch->state->value,
                 'snapshot' => $batch->fresh()->toArray(),
             ]);
+            $this->notifyProcessingSender($batch);
             return $batch->refresh();
         });
     }
@@ -100,5 +103,45 @@ class ProcessingPortioningHandoverService
             'notes' => 'Hasil aktual batch Pengolahan yang diterima Pemorsian.',
             'sort_order' => $existing?->sort_order ?: $session->supplies()->count() + 1,
         ]);
+    }
+
+    private function notifyPortioning(ProcessingBatch $batch): void
+    {
+        app(OperationalNotificationService::class)->notifyPermissionAfterCommit(
+            unitId: (int) $batch->sppg_unit_id,
+            permission: 'portioning.update',
+            type: 'processing_batch_handed_over',
+            title: 'Batch Siap Diporsikan',
+            message: "{$batch->batch_number} siap diterima dan diporsikan.",
+            priority: 'important',
+            module: 'processing',
+            referenceType: 'processing_batch',
+            referenceId: $batch->getKey(),
+            moduleSlug: 'pemorsian',
+            moduleLabel: 'Pemorsian',
+            eventVersion: 'portioning_handed_over',
+            divisionCode: 'pemorsian',
+            payload: ['record_id' => $batch->portioning_session_id ? (string) $batch->portioning_session_id : ''],
+        );
+    }
+
+    private function notifyProcessingSender(ProcessingBatch $batch): void
+    {
+        if (! $batch->portioning_handed_over_by) return;
+
+        app(OperationalNotificationService::class)->notifyUsersAfterCommit(
+            unitId: (int) $batch->sppg_unit_id,
+            userIds: [(int) $batch->portioning_handed_over_by],
+            type: 'processing_batch_received_by_portioning',
+            title: 'Batch Diterima Pemorsian',
+            message: "{$batch->batch_number} telah diterima Pemorsian.",
+            priority: 'info',
+            module: 'processing',
+            referenceType: 'processing_batch',
+            referenceId: $batch->getKey(),
+            moduleSlug: 'pengolahan',
+            moduleLabel: 'Pengolahan',
+            eventVersion: 'portioning_received',
+        );
     }
 }

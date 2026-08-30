@@ -4,6 +4,7 @@ namespace App\Livewire\V3\Field;
 
 use App\Enums\FieldDailyReportStatus;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\FieldDailyReport;
 use App\Services\FieldDailyReportGenerator;
 use App\Services\FieldDailyReportWorkflow;
@@ -14,6 +15,7 @@ use Livewire\WithPagination;
 class DailyReports extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithPagination;
 
     public ?int $selectedId = null;
@@ -103,7 +105,9 @@ class DailyReports extends Component
         $unit = $this->currentUnit();
         abort_unless($this->allowed('field_daily_reports.view'), 403);
         $reports = FieldDailyReport::query()->with(['plan', 'divisions', 'incidents'])
-            ->where('sppg_unit_id', $unit->getKey())->latest('report_date')->paginate(15);
+            ->where('sppg_unit_id', $unit->getKey())
+            ->whereDate('report_date', $this->selectedWorkDate())
+            ->latest('report_date')->paginate(15);
         $selected = $this->selectedId
             ? FieldDailyReport::query()->with(['plan', 'divisions', 'incidents'])->where('sppg_unit_id', $unit->getKey())->find($this->selectedId)
             : null;
@@ -117,6 +121,11 @@ class DailyReports extends Component
             'canApprove' => $this->allowed('field_daily_reports.approve'),
             'statusOptions' => FieldDailyReportStatus::options(),
         ])->layout('layouts.v3', ['title' => 'Laporan Harian Lapangan']);
+    }
+
+    protected function afterWorkDateChanged(): void
+    {
+        $this->selectedId = null;
     }
 
     private function record(?int $id): FieldDailyReport

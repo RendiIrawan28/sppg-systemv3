@@ -341,6 +341,10 @@ class DistributionWorkflow
             app(ContainerCollectionWorkflow::class)->syncTaskFromStop($stop->refresh());
             $this->markDestinationsCompletedIfReady($run, $actor);
 
+            if ($isPartial) {
+                $this->notifyDistributionProblem($run, $stop, $failureReason, 'partial');
+            }
+
             return $stop->refresh();
         });
     }
@@ -395,6 +399,7 @@ class DistributionWorkflow
             );
             app(ContainerCollectionWorkflow::class)->syncTaskFromStop($stop->refresh());
             $this->markDestinationsCompletedIfReady($run, $actor);
+            $this->notifyDistributionProblem($run, $stop, $failureReason, 'failed');
 
             return $stop->refresh();
         });
@@ -565,6 +570,23 @@ class DistributionWorkflow
         });
 
         $this->completeFieldPlanIfReady($returnedRun, $actor);
+
+        app(Mobile\OperationalNotificationService::class)->notifyPermissionAfterCommit(
+            unitId: (int) $returnedRun->sppg_unit_id,
+            permission: 'field_planning.update',
+            type: 'distribution_completed',
+            title: 'Pengiriman Selesai',
+            message: "Rute {$returnedRun->route_name} telah kembali ke SPPG.",
+            priority: 'info',
+            module: 'distribution',
+            referenceType: 'distribution_run',
+            referenceId: $returnedRun->getKey(),
+            moduleSlug: 'field-plans',
+            moduleLabel: 'Rencana Distribusi',
+            eventVersion: DistributionRunState::Returned->value,
+            payload: ['field_plan_id' => (string) $returnedRun->field_distribution_plan_id],
+            screen: 'field-plans',
+        );
 
         return $returnedRun->refresh();
     }
@@ -922,6 +944,30 @@ class DistributionWorkflow
             ->orderBy('id')
             ->lockForUpdate()
             ->get();
+    }
+
+    private function notifyDistributionProblem(
+        DistributionRun $run,
+        DistributionStop $stop,
+        string $reason,
+        string $state,
+    ): void {
+        app(Mobile\OperationalNotificationService::class)->notifyPermissionAfterCommit(
+            unitId: (int) $run->sppg_unit_id,
+            permission: 'field_planning.update',
+            type: 'distribution_problem',
+            title: 'Pengiriman Bermasalah',
+            message: "Pengiriman ke {$stop->destination_name} membutuhkan tindak lanjut: {$reason}",
+            priority: 'critical',
+            module: 'distribution',
+            referenceType: 'distribution_run',
+            referenceId: $run->getKey(),
+            moduleSlug: 'field-plans',
+            moduleLabel: 'Rencana Distribusi',
+            eventVersion: $state.'-stop-'.$stop->getKey(),
+            payload: ['field_plan_id' => (string) $run->field_distribution_plan_id],
+            screen: 'field-plans',
+        );
     }
 
     private function completeFieldPlanIfReady(DistributionRun $run, User $actor): void

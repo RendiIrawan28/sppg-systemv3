@@ -207,19 +207,15 @@ fun SecurityScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
-                start = 20.dp,
-                end = 20.dp,
+                start = SppgPagePadding,
+                end = SppgPagePadding,
                 top = innerPadding.calculateTopPadding() + 12.dp,
                 bottom = 36.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (state.isLoading && overview == null) {
-                item {
-                    Row(Modifier.fillMaxWidth().padding(30.dp), horizontalArrangement = Arrangement.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
+                item { SppgLoadingState("Memuat tugas keamanan…") }
             }
 
             state.errorMessage?.let { message ->
@@ -259,14 +255,12 @@ fun SecurityScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Spacer(Modifier.height(18.dp))
-                                Button(
+                                SppgPrimaryButton(
+                                    label = if (state.isSubmitting) "Memulai…" else "Mulai Shift 12 Jam",
                                     onClick = onStartShift,
                                     enabled = overview.canStartShift && !state.isSubmitting,
                                     modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    if (state.isSubmitting) CircularProgressIndicator(Modifier.size(20.dp))
-                                    else Text("Mulai Shift 12 Jam")
-                                }
+                                )
                             }
                         }
                     }
@@ -401,7 +395,8 @@ fun SecurityScreen(
                                             style = MaterialTheme.typography.bodySmall,
                                         )
                                     }
-                                    Button(
+                                    SppgPrimaryButton(
+                                        label = if (state.isSubmitting) "Menyimpan…" else "Simpan Laporan",
                                         onClick = {
                                             onSubmitReport(
                                                 situation,
@@ -416,10 +411,7 @@ fun SecurityScreen(
                                         },
                                         enabled = !state.isSubmitting && photo.isNotBlank(),
                                         modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        if (state.isSubmitting) CircularProgressIndicator(Modifier.size(20.dp))
-                                        else Text("Simpan Laporan")
-                                    }
+                                    )
                                 }
                             }
                         }
@@ -498,7 +490,7 @@ private fun SecurityFeedback(message: String, isError: Boolean) {
             else MaterialTheme.colorScheme.secondaryContainer,
         ),
     ) {
-        Text(message, modifier = Modifier.padding(16.dp))
+        Text(if (isError) userFriendlyUiMessage(message) else message, modifier = Modifier.padding(16.dp))
     }
 }
 

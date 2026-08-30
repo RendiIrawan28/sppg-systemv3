@@ -1,6 +1,10 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Divisi Pengolahan" eyebrow="Monitoring Produksi per batch">
     <div class="mx-auto max-w-[1500px] space-y-5">
         <x-v3.flash-alert />
+        <x-v3.date-filter label="Tanggal produksi" />
+        @if($attentionRecords->isNotEmpty())
+            <section class="rounded-2xl border border-amber-200 bg-amber-50 p-4"><h3 class="font-bold text-amber-900">Batch tanggal lain yang belum selesai</h3><div class="mt-3 flex flex-wrap gap-2">@foreach($attentionRecords as $record)<button wire:click="select({{ $record->id }})" class="rounded-xl border border-amber-200 bg-white px-3 py-2 text-left text-xs"><b>{{ $record->batch_number }}</b><span class="ml-2 text-slate-500">{{ $record->production_date?->format('d/m/Y') }}</span></button>@endforeach</div></section>
+        @endif
 
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
             <p class="text-xs font-bold uppercase tracking-widest text-cyan-200">Pengolahan</p>
@@ -97,77 +101,107 @@
 
                     @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
                         <div class="grid gap-3 sm:grid-cols-2">
-                            <a href="{{ route('v3.warehouse.withdrawals.index') }}" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-center text-sm font-bold text-sky-700">Ambil bahan dari Gudang</a>
-                            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-700">Hasil Persiapan yang diserahkan akan muncul otomatis</div>
+                            <a href="{{ route('v3.warehouse.withdrawals.index') }}" class="rounded-2xl border border-sky-200 bg-sky-50 p-4 text-center text-sm font-bold text-sky-700">
+                                Ambil / Tambah Bahan dari Gudang
+                            </a>
+                            <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-700">
+                                Bahan baru masuk stok Pengolahan setelah diverifikasi/diterima
+                            </div>
+                        </div>
+                    @endif
+
+                    @php
+                        $pendingPreparation = $selected->preparationOutputWithdrawals
+                            ->where('status', \App\Models\PreparationOutputWithdrawal::WAITING);
+                    @endphp
+                    @if($pendingPreparation->isNotEmpty())
+                        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                            <h3 class="font-bold text-amber-900">Hasil Persiapan Menunggu Penerimaan</h3>
+                            <p class="mt-1 text-xs text-amber-700">Setelah diterima, bahan masuk ke stok global Pengolahan dan dapat dipakai oleh batch mana pun.</p>
+                            <div class="mt-3 space-y-2">
+                                @foreach($pendingPreparation as $withdrawal)
+                                    <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white p-3 text-sm">
+                                        <div>
+                                            <p class="font-bold">{{ $withdrawal->output?->output_name }}</p>
+                                            <p class="text-xs text-slate-500">{{ number_format((float) $withdrawal->requested_quantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }}</p>
+                                        </div>
+                                        @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
+                                            <button wire:click="acceptPreparationOutput({{ $withdrawal->id }})" class="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Terima ke Stok Pengolahan</button>
+                                        @endif
+                                    </div>
+                                @endforeach
+                            </div>
                         </div>
                     @endif
 
                     <div class="rounded-2xl border border-slate-200 bg-white p-5">
-                        <div class="flex items-center justify-between gap-3">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
                             <div>
-                                <h3 class="font-bold">1. Bahan Baku Aktual</h3>
-                                <p class="mt-1 text-xs text-slate-500">Tetap dicatat manual sesuai bahan yang benar-benar digunakan. Catatan ini tidak mengurangi stok lagi.</p>
+                                <h3 class="font-bold">1. Bahan Digunakan dari Stok Pengolahan</h3>
+                                <p class="mt-1 text-xs text-slate-500">Nama bahan, sumber, lot, dan satuan berasal otomatis dari stok Pengolahan. Isi hanya jumlah yang benar-benar dipakai batch ini.</p>
                             </div>
-                            @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
-                                <button wire:click="addManualMaterial" class="rounded-lg border px-3 py-2 text-xs font-bold">+ Tambah bahan</button>
-                            @endif
+                            <div class="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+                                Stok tidak boleh minus
+                            </div>
                         </div>
-                        <div class="mt-4 space-y-3">
-                            @foreach($manualMaterials as $index => $material)
-                                <div class="grid gap-3 rounded-xl bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_140px_140px_auto]">
-                                    <input wire:model="manualMaterials.{{ $index }}.material_name" list="processing-ingredient-suggestions" @disabled($selected->state !== \App\Enums\ProcessingBatchState::InProgress) class="h-10 rounded-lg border px-3 text-sm" placeholder="Nama bahan">
-                                    <input wire:model="manualMaterials.{{ $index }}.quantity" @disabled($selected->state !== \App\Enums\ProcessingBatchState::InProgress) type="number" min="0" step=".001" class="h-10 rounded-lg border px-3 text-sm" placeholder="Jumlah">
-                                    <input wire:model="manualMaterials.{{ $index }}.unit_name" @disabled($selected->state !== \App\Enums\ProcessingBatchState::InProgress) class="h-10 rounded-lg border px-3 text-sm" placeholder="Satuan">
-                                    @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
-                                        <button wire:click="removeManualMaterial({{ $index }})" class="text-xs font-bold text-rose-600">Hapus</button>
-                                    @endif
-                                </div>
-                                @error("manualMaterials.$index.material_name") <p class="text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
-                                @error("manualMaterials.$index.quantity") <p class="text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
-                                @error("manualMaterials.$index.unit_name") <p class="text-xs font-semibold text-rose-600">{{ $message }}</p> @enderror
-                            @endforeach
-                        </div>
-                        <datalist id="processing-ingredient-suggestions">
-                            @foreach($ingredientSuggestions as $ingredient)
-                                <option value="{{ $ingredient->name }}">{{ $ingredient->measurementUnit?->symbol ?: $ingredient->measurementUnit?->code }}</option>
-                            @endforeach
-                        </datalist>
-                    </div>
 
-                    <div class="rounded-2xl border border-slate-200 bg-white p-5">
-                        <h3 class="font-bold">Sumber Bahan Terintegrasi</h3>
-                        <p class="mt-1 text-xs text-slate-500">Informasi dari Gudang/Persiapan hanya sebagai jejak sumber. Bahan yang dipakai tetap dicatat pada Bahan Baku Aktual.</p>
-                        <div class="mt-4 grid gap-3 lg:grid-cols-2">
-                            <div class="rounded-xl bg-slate-50 p-4">
-                                <p class="text-xs font-bold uppercase text-slate-500">Dari Gudang</p>
-                                <div class="mt-3 space-y-2">
-                                    @forelse($selected->materialUsages->where('source_type', '!=', 'manual') as $usage)
-                                        <div class="rounded-lg bg-white p-3 text-sm">
-                                            <b>{{ $usage->material_name }}</b>
-                                            <span class="float-right">{{ number_format((float) $usage->quantity, 3, ',', '.') }} {{ $usage->unit_name }}</span>
+                        @error('materialConsumptions')
+                            <p class="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-semibold text-rose-700">{{ $message }}</p>
+                        @enderror
+
+                        <div class="mt-4 space-y-3">
+                            @forelse($processingStocks as $stock)
+                                @php
+                                    $availableForBatch = (float) $stock->getAttribute('available_for_selected_batch');
+                                    $sourceLabel = $stock->source_type === 'warehouse' ? 'Gudang' : 'Persiapan';
+                                @endphp
+                                <div class="rounded-xl border border-slate-200 bg-slate-50 p-4" wire:key="processing-stock-{{ $stock->id }}">
+                                    <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_170px] lg:items-end">
+                                        <div>
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <p class="text-sm font-bold text-slate-900">{{ $stock->material_name }}</p>
+                                                <span class="rounded-full bg-white px-2 py-1 text-[10px] font-bold uppercase text-slate-500">{{ $sourceLabel }}</span>
+                                            </div>
+                                            <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                                                <span>Tersedia untuk batch: <b class="text-slate-700">{{ number_format($availableForBatch, 3, ',', '.') }} {{ $stock->unit_name }}</b></span>
+                                                @if($stock->source_reference)
+                                                    <span>Ref: {{ $stock->source_reference }}</span>
+                                                @endif
+                                                @if($stock->inventoryLot?->lot_number)
+                                                    <span>Lot: {{ $stock->inventoryLot->lot_number }}</span>
+                                                @endif
+                                                @if($stock->expires_at)
+                                                    <span>Batas pakai: {{ $stock->expires_at->format('d-m-Y H:i') }}</span>
+                                                @endif
+                                            </div>
                                         </div>
-                                    @empty
-                                        <p class="text-xs text-slate-500">Belum ada bahan dari Gudang.</p>
-                                    @endforelse
+
+                                        <label>
+                                            <span class="mb-1 block text-xs font-semibold text-slate-600">Digunakan batch</span>
+                                            <div class="flex items-center overflow-hidden rounded-xl border border-slate-200 bg-white">
+                                                <input
+                                                    wire:model="materialConsumptions.{{ $stock->id }}"
+                                                    @disabled(!$canEdit || $selected->state !== \App\Enums\ProcessingBatchState::InProgress)
+                                                    type="number"
+                                                    min="0"
+                                                    step=".001"
+                                                    class="h-11 min-w-0 flex-1 border-0 px-3 text-sm focus:ring-0"
+                                                    placeholder="0"
+                                                >
+                                                <span class="border-l border-slate-200 px-3 text-xs font-semibold text-slate-500">{{ $stock->unit_name }}</span>
+                                            </div>
+                                            @error("materialConsumptions.{$stock->id}")
+                                                <p class="mt-1 text-xs font-semibold text-rose-600">{{ $message }}</p>
+                                            @enderror
+                                        </label>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="rounded-xl bg-emerald-50 p-4">
-                                <p class="text-xs font-bold uppercase text-emerald-700">Dari Persiapan</p>
-                                <div class="mt-3 space-y-2">
-                                    @forelse($selected->preparationOutputWithdrawals->whereIn('status', [\App\Models\PreparationOutputWithdrawal::WAITING, \App\Models\PreparationOutputWithdrawal::VERIFIED]) as $withdrawal)
-                                        @php($usedQuantity = $withdrawal->status === \App\Models\PreparationOutputWithdrawal::VERIFIED ? $withdrawal->verified_quantity : $withdrawal->requested_quantity)
-                                        <div class="rounded-lg bg-white p-3 text-sm">
-                                            <b>{{ $withdrawal->output?->output_name }}</b>
-                                            <span class="float-right">{{ number_format((float) $usedQuantity, 3, ',', '.') }} {{ $withdrawal->unit_snapshot }}</span>
-                                            @if($withdrawal->status === \App\Models\PreparationOutputWithdrawal::WAITING && $canEdit)
-                                                <button wire:click="acceptPreparationOutput({{ $withdrawal->id }})" class="mt-2 block rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Terima</button>
-                                            @endif
-                                        </div>
-                                    @empty
-                                        <p class="text-xs text-emerald-700">Belum ada hasil Persiapan.</p>
-                                    @endforelse
+                            @empty
+                                <div class="rounded-xl border border-dashed border-slate-300 p-6 text-center">
+                                    <p class="text-sm font-bold text-slate-700">Belum ada stok bahan Pengolahan.</p>
+                                    <p class="mt-1 text-xs text-slate-500">Ambil bahan dari Gudang atau terima hasil Persiapan terlebih dahulu.</p>
                                 </div>
-                            </div>
+                            @endforelse
                         </div>
                     </div>
 
@@ -242,7 +276,9 @@
                             <p class="mt-1 text-xs text-slate-500">Satu batch cukup memiliki satu hasil akhir utama dan satu foto dokumentasi wajib.</p>
                         </div>
 
-                        @php($output = $finishedOutputDocumentations[0] ?? null)
+                        @php
+                            $output = $finishedOutputDocumentations[0] ?? null;
+                        @endphp
                         @if($output)
                             <div class="mt-4 rounded-2xl border border-emerald-200 bg-white p-4">
                                 <div class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_180px]">
@@ -295,7 +331,7 @@
                         @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::InProgress)
                             <div class="mt-5 flex flex-col gap-3 border-t border-slate-200 pt-4">
                                 <div class="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
-                                    Sebelum selesai: minimal 1 bahan baku manual, 1 suhu pangan matang + foto, 1 hasil akhir, dan 1 foto monitoring produksi.
+                                    Sebelum selesai: minimal 1 bahan digunakan dari stok Pengolahan, 1 suhu pangan matang + foto, 1 hasil akhir, dan 1 foto monitoring produksi.
                                 </div>
                                 <div class="flex flex-wrap justify-end gap-2">
                                     <button type="button" wire:click="save" class="h-11 rounded-xl border border-slate-300 bg-white px-5 text-xs font-bold text-slate-700">Simpan sementara</button>

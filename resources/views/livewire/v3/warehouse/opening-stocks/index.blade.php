@@ -67,6 +67,7 @@
             </section>
         </form>
 
+        <x-v3.date-filter label="Tanggal riwayat stok awal" />
         <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <h3 class="font-bold text-slate-900">Riwayat input stok awal</h3>
             <div class="mt-4 space-y-3">

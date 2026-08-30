@@ -3,6 +3,7 @@
 namespace App\Livewire\V3\ContainerCollections;
 
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
 use App\Models\ContainerCollectionRun;
 use App\Models\ContainerCollectionTask;
 use App\Services\ContainerCollectionWorkflow;
@@ -14,6 +15,7 @@ use Livewire\WithFileUploads;
 class Index extends Component
 {
     use InteractsWithV3Shell;
+    use FiltersByWorkDate;
     use WithFileUploads;
 
     public string $kernetName = '';
@@ -133,6 +135,7 @@ class Index extends Component
         $tasks = ContainerCollectionTask::query()
             ->with('distributionRun')
             ->where('sppg_unit_id', $unit->getKey())
+            ->whereDate('delivery_date', $this->selectedWorkDate())
             ->whereIn('status', [ContainerCollectionTask::PENDING, ContainerCollectionTask::PARTIAL])
             ->where('remaining_containers', '>', 0)
             ->orderBy('delivery_date')
@@ -141,8 +144,17 @@ class Index extends Component
 
         $recentRuns = $this->visibleRunQuery()
             ->withCount('items')
+            ->whereDate('collection_date', $this->selectedWorkDate())
             ->latest('id')
             ->limit(15)
+            ->get();
+        $overdueTasks = ContainerCollectionTask::query()
+            ->where('sppg_unit_id', $unit->getKey())
+            ->whereDate('delivery_date', '<', $this->selectedWorkDate())
+            ->whereIn('status', [ContainerCollectionTask::PENDING, ContainerCollectionTask::PARTIAL])
+            ->where('remaining_containers', '>', 0)
+            ->orderBy('delivery_date')
+            ->limit(20)
             ->get();
 
         $selectedRun = null;
@@ -165,6 +177,7 @@ class Index extends Component
             ...$this->shellData($unit),
             'activeRun' => $activeRun,
             'tasks' => $tasks,
+            'overdueTasks' => $overdueTasks,
             'recentRuns' => $recentRuns,
             'selectedRun' => $selectedRun,
             'canOperate' => $this->allowed('distribution.update'),

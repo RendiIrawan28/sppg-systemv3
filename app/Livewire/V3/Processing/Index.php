@@ -6,7 +6,8 @@ use App\Enums\OperationalReportStatus;
 use App\Enums\ProcessingBatchState;
 use App\Enums\ProcessingTemperatureCheckpoint;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
-use App\Models\Ingredient;
+use App\Livewire\V3\Concerns\FiltersByWorkDate;
+use App\Models\ProcessingMaterialStock;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingDocumentation;
 use App\Services\ProcessingReturnService;
@@ -24,14 +25,15 @@ use Throwable;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell;
+    use InteractsWithV3Shell, FiltersByWorkDate;
     use WithFileUploads;
 
     public ?int $selectedId = null;
 
     public string $newProductionDate = '';
     public string $newProductName = '';
-    public array $manualMaterials = [];
+    /** @var array<int, string|float|int> */
+    public array $materialConsumptions = [];
 
     public string $cancellationReason = '';
 
@@ -101,29 +103,18 @@ class Index extends Component
             ])
             ->all();
         $this->temperaturePhotos = [];
-        $this->manualMaterials = $batch->materialUsages->where('source_type', 'manual')->values()->map(fn ($usage) => [
-            'id' => $usage->id, 'ingredient_id' => $usage->ingredient_id,
-            'material_name' => $usage->material_name, 'quantity' => $usage->quantity,
-            'unit_name' => $usage->unit_name, 'notes' => $usage->notes,
-        ])->all();
-        if ($batch->state === ProcessingBatchState::InProgress && $this->manualMaterials === []) $this->addManualMaterial();
+        $this->materialConsumptions = $batch->materialUsages
+            ->whereNotNull('processing_material_stock_id')
+            ->mapWithKeys(fn ($usage): array => [
+                (int) $usage->processing_material_stock_id => (string) $usage->quantity,
+            ])
+            ->all();
         if ($batch->state === ProcessingBatchState::InProgress && $this->cookedProducts === []) {
             $this->addCookedProduct();
         }
         if ($batch->state === ProcessingBatchState::InProgress && $this->finishedOutputDocumentations === []) {
             $this->addFinishedOutputDocumentation();
         }
-    }
-
-    public function addManualMaterial(): void
-    {
-        $this->manualMaterials[] = ['id' => null, 'ingredient_id' => null, 'material_name' => '', 'quantity' => '', 'unit_name' => '', 'notes' => ''];
-    }
-
-    public function removeManualMaterial(int $index): void
-    {
-        unset($this->manualMaterials[$index]);
-        $this->manualMaterials = array_values($this->manualMaterials);
     }
 
     public function createManualBatch(ProcessingWorkflow $workflow): void
@@ -204,17 +195,6 @@ class Index extends Component
         $batch = $this->record($this->selectedId);
         abort_unless($batch->state === ProcessingBatchState::InProgress, 422);
 
-        // Baris kosong otomatis hanya berfungsi sebagai formulir cepat. Jika bahan
-        // sudah berasal dari Gudang atau hasil Persiapan, petugas tidak perlu
-        // membuat ulang bahan yang sama sebagai catatan manual.
-        $this->manualMaterials = collect($this->manualMaterials)
-            ->reject(fn (array $material): bool => blank($material['material_name'] ?? null)
-                && blank($material['quantity'] ?? null)
-                && blank($material['unit_name'] ?? null)
-                && blank($material['notes'] ?? null))
-            ->values()
-            ->all();
-
         $this->validate([
             'notes' => ['nullable', 'string', 'max:2000'],
             'cookedProducts' => ['required', 'array', 'min:1'],
@@ -229,12 +209,8 @@ class Index extends Component
             'finishedOutputDocumentations.*.caption' => ['nullable', 'string', 'max:255'],
             'finishedOutputDocumentations.*.captured_at' => ['required', 'date'],
             'finishedOutputPhotos.*' => ['nullable', 'image', 'max:5120'],
-            'manualMaterials' => ['required', 'array', 'min:1'],
-            'manualMaterials.*.ingredient_id' => ['nullable', 'integer'],
-            'manualMaterials.*.material_name' => ['required', 'string', 'max:255'],
-            'manualMaterials.*.quantity' => ['required', 'numeric', 'gt:0'],
-            'manualMaterials.*.unit_name' => ['required', 'string', 'max:80'],
-            'manualMaterials.*.notes' => ['nullable', 'string', 'max:1000'],
+            'materialConsumptions' => ['array'],
+            'materialConsumptions.*' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         foreach ($this->cookedProducts as $index => $product) {
@@ -265,24 +241,8 @@ class Index extends Component
                     'updated_by' => auth()->id(),
                 ]);
 
-                $keptMaterials = [];
-                foreach ($this->manualMaterials as $index => $material) {
-                    $usage = $batch->materialUsages()->updateOrCreate(
-                        ['id' => $material['id'] ?: null],
-                        [
-                            'source_type' => 'manual', 'source_id' => null, 'source_item_id' => null,
-                            'ingredient_id' => filled($material['ingredient_id']) ? $material['ingredient_id'] : null,
-                            'material_name' => trim($material['material_name']),
-                            'quantity' => $material['quantity'], 'unit_name' => trim($material['unit_name']),
-                            'source_reference' => 'Catatan pemakaian aktual',
-                            'received_by' => auth()->id(), 'received_at' => now(),
-                            'notes' => filled($material['notes']) ? trim($material['notes']) : null,
-                            'sort_order' => $index + 1,
-                        ],
-                    );
-                    $keptMaterials[] = $usage->id;
-                }
-                $batch->materialUsages()->where('source_type', 'manual')->whereNotIn('id', $keptMaterials)->delete();
+                app(\App\Services\ProcessingMaterialStockService::class)
+                    ->syncBatchUsages($batch, $this->materialConsumptions, auth()->user());
 
                 $keptTemperatures = [];
                 foreach ($this->cookedProducts as $index => $product) {
@@ -404,7 +364,7 @@ class Index extends Component
             ->where('processing_batch_id', $this->selectedId)->findOrFail($withdrawalId);
         $service->verifyWithdrawal($withdrawal, auth()->user(), (float) $withdrawal->requested_quantity);
         $this->select($this->selectedId);
-        session()->flash('v3.status', 'Hasil Persiapan diterima ke batch Pengolahan.');
+        session()->flash('v3.status', 'Hasil Persiapan diterima dan masuk ke stok bahan Pengolahan.');
     }
 
     public function cancel(ProcessingWorkflow $workflow): void
@@ -487,6 +447,7 @@ class Index extends Component
         $records = ProcessingBatch::query()
             ->with([
                 'materialUsages.returns',
+                'materialUsages.stock',
                 'preparationOutputWithdrawals.output',
                 'temperatureLogs',
                 'documentations',
@@ -494,28 +455,65 @@ class Index extends Component
                 'portioningSession',
             ])
             ->where('sppg_unit_id', $unit->id)
+            ->whereDate('production_date', $this->selectedWorkDate())
             ->latest('production_date')
             ->latest('id')
             ->get();
+        $attentionRecords = ProcessingBatch::query()
+            ->where('sppg_unit_id', $unit->id)
+            ->whereDate('production_date', '!=', $this->selectedWorkDate())
+            ->whereNotIn('state', ['completed', 'cancelled'])
+            ->latest('production_date')
+            ->limit(10)
+            ->get();
         $selected = $this->selectedId
-            ? $records->firstWhere('id', $this->selectedId)
+            ? $this->record($this->selectedId)->load([
+                'materialUsages.returns', 'materialUsages.stock',
+                'preparationOutputWithdrawals.output', 'temperatureLogs',
+                'documentations', 'petugas', 'portioningSession',
+            ])
             : null;
         $cancellableBatchIds = $records
             ->filter(fn (ProcessingBatch $batch): bool => app(ProcessingWorkflow::class)->canCancel($batch))
             ->pluck('id')
             ->all();
 
+        $processingStocks = ProcessingMaterialStock::query()
+            ->with(['ingredient', 'inventoryLot'])
+            ->where('sppg_unit_id', $unit->id)
+            ->where(function ($query) use ($selected): void {
+                $query->where('available_quantity', '>', 0);
+                if ($selected) {
+                    $query->orWhereHas('usages', fn ($usageQuery) => $usageQuery
+                        ->where('processing_batch_id', $selected->getKey()));
+                }
+            })
+            ->orderByRaw('expires_at IS NULL')
+            ->orderBy('expires_at')
+            ->orderBy('received_at')
+            ->orderBy('id')
+            ->get();
+
+        $selectedUsageByStock = $selected
+            ? $selected->materialUsages
+                ->whereNotNull('processing_material_stock_id')
+                ->keyBy('processing_material_stock_id')
+            : collect();
+
+        foreach ($processingStocks as $stock) {
+            $currentUsage = $selectedUsageByStock->get($stock->getKey());
+            $stock->setAttribute(
+                'available_for_selected_batch',
+                (float) $stock->available_quantity + (float) ($currentUsage?->quantity ?? 0),
+            );
+        }
+
         return view('livewire.v3.processing.index', [
             ...$this->shellData($unit),
             'records' => $records,
+            'attentionRecords' => $attentionRecords,
             'selected' => $selected,
-            'ingredientSuggestions' => Ingredient::query()
-                ->with('measurementUnit')
-                ->where('sppg_unit_id', $unit->id)
-                ->where('is_active', true)
-                ->orderBy('name')
-                ->limit(500)
-                ->get(),
+            'processingStocks' => $processingStocks,
             'cancellableBatchIds' => $cancellableBatchIds,
             'canEdit' => $this->allowed('processing.update'),
             'canSubmit' => $this->allowed('processing.submit'),
@@ -523,6 +521,12 @@ class Index extends Component
             'canExport' => $this->allowed('processing.export'),
             'statusLabels' => OperationalReportStatus::options(),
         ])->layout('layouts.v3', ['title' => 'Pengolahan']);
+    }
+
+    protected function afterWorkDateChanged(): void
+    {
+        $this->selectedId = null;
+        $this->newProductionDate = $this->selectedWorkDate();
     }
 
     private function record(?int $id): ProcessingBatch

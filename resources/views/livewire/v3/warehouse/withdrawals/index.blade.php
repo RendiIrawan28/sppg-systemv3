@@ -1,6 +1,10 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Pengambilan Gudang" eyebrow="Divisi mengambil, Gudang memverifikasi setiap hari">
     <div class="mx-auto max-w-[1450px] space-y-5">
         <x-v3.flash-alert />
+        <x-v3.date-filter label="Tanggal pengambilan Gudang" />
+        @if($pendingOtherDates->isNotEmpty())
+            <section class="rounded-2xl border border-amber-200 bg-amber-50 p-4"><h3 class="font-bold text-amber-900">Pengambilan tanggal lain menunggu verifikasi</h3><p class="mt-1 text-xs text-amber-700">{{ $pendingOtherDates->count() }} dokumen tetap perlu diperiksa Gudang.</p><div class="mt-3 flex flex-wrap gap-2">@foreach($pendingOtherDates->groupBy(fn($item) => $item->withdrawal_date?->toDateString()) as $date => $items)<button wire:click="$set('workDate', '{{ $date }}')" type="button" class="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-amber-800">{{ optional($items->first()->withdrawal_date)->format('d/m/Y') }} · {{ $items->count() }} dokumen</button>@endforeach</div></section>
+        @endif
 
         <section class="rounded-[28px] bg-[#081d3a] p-6 text-white">
             <div class="flex flex-wrap items-end justify-between gap-4">
