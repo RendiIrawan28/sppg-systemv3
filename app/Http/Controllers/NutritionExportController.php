@@ -6,6 +6,7 @@ use App\Models\MenuAcceptanceEvaluation;
 use App\Models\MenuCycle;
 use App\Models\NutritionDailyReport;
 use App\Models\NutritionRequirementPlan;
+use App\Services\MenuCycleExportService;
 use App\Services\MenuServiceCalendarService;
 use App\Services\NutritionAccessService;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -38,6 +39,7 @@ class NutritionExportController extends Controller
         $cycle->load([
             'sppgUnit',
             'days.menu.items',
+            'days.variants.menu.items',
             'creator',
             'approver',
         ]);
@@ -125,11 +127,14 @@ class NutritionExportController extends Controller
             strtoupper($unitName)
         );
 
+        $exportData = app(MenuCycleExportService::class)->prepare($cycle);
+
         return Pdf::loadView(
             'nutrition.exports.menu-cycle',
             [
                 'cycle' => $cycle,
                 'holidays' => $holidays,
+                ...$exportData,
             ]
         )
             ->setPaper('letter', 'landscape')

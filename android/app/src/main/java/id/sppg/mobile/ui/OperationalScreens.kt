@@ -1157,6 +1157,7 @@ private fun OperationalDetailContent(
                     val primaryDocumentLabel = when (module) {
                         "persiapan" -> "Berita Acara Perhitungan Persiapan"
                         "pengolahan" -> "Monitoring Produksi Harian"
+                        "distribusi" -> "Laporan Seluruh Rute Distribusi"
                         "pencucian" -> "Laporan Harian Pencucian"
                         else -> null
                     }

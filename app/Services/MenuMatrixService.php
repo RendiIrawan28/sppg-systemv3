@@ -7,6 +7,7 @@ use App\Enums\MenuStatus;
 use App\Models\Menu;
 use App\Models\MenuCycle;
 use App\Models\MenuCycleDay;
+use App\Models\MenuCycleDayVariant;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -17,11 +18,16 @@ class MenuMatrixService
     /** @return array<int, array<string, mixed>> */
     public function rows(MenuCycle $cycle, User $actor): array
     {
-        $cycle->load(['days' => fn ($query) => $query->with(['menu.items', 'latestRevisionRequest'])->orderBy('day_number')]);
+        $cycle->load(['days' => fn ($query) => $query->with([
+            'menu.items',
+            'variants.menu.items',
+            'latestRevisionRequest',
+        ])->orderBy('day_number')]);
 
         if ($cycle->isEditable()) {
             foreach ($cycle->days as $day) {
-                if ($day->menu_id && $day->isHoliday()) {
+                if (($day->menu_id || $day->variants->isNotEmpty()) && $day->isHoliday()) {
+                    $day->variants()->delete();
                     $day->update([
                         'menu_id' => null,
                         'source_menu_id' => null,
@@ -35,6 +41,11 @@ class MenuMatrixService
 
         return $cycle->days->mapWithKeys(function (MenuCycleDay $day) use ($cycle, $actor): array {
             $menu = $day->menu;
+            $variant = $day->variants->firstWhere(
+                'audience_type',
+                MenuCycleDayVariant::AUDIENCE_POSYANDU_3B,
+            );
+            $variantMenu = $variant?->menu;
             $holiday = $day->holidayInfo();
 
             return [(int) $day->getKey() => [
@@ -52,6 +63,10 @@ class MenuMatrixService
                 'fruit' => $this->componentValue($menu, MenuComponentType::Fruit),
                 'notes' => $menu?->notes ?? '',
                 'status_label' => $menu?->status?->label() ?? 'Belum ada menu',
+                'variant_3b_id' => $variant?->getKey(),
+                'variant_3b_menu_id' => $variantMenu?->getKey(),
+                'variant_3b_menu_name' => $variantMenu?->name,
+                'variant_3b_state' => $variantMenu ? 'MENU BERBEDA' : 'SAMA DENGAN MENU UTAMA',
                 'is_holiday' => $holiday !== null,
                 'holiday_name' => $holiday?->name,
                 'has_holiday_conflict' => $holiday !== null && $menu !== null,
@@ -206,7 +221,80 @@ class MenuMatrixService
             throw ValidationException::withMessages(['cycle' => 'Siklus sudah dikunci.']);
         }
 
-        $this->day($cycle, $dayId)->update(['menu_id' => null, 'source_menu_id' => null, 'snapshot_version' => 0, 'snapshot_created_at' => null]);
+        DB::transaction(function () use ($cycle, $dayId): void {
+            $day = $this->day($cycle, $dayId);
+            $day->variants()->delete();
+            $day->update(['menu_id' => null, 'source_menu_id' => null, 'snapshot_version' => 0, 'snapshot_created_at' => null]);
+        });
+    }
+
+    public function createThreeBVariant(MenuCycle $cycle, int $dayId, User $actor): Menu
+    {
+        $this->authorize($actor, 'menus.update');
+
+        if (! $cycle->isEditable()) {
+            throw ValidationException::withMessages(['cycle' => 'Siklus sudah dikunci.']);
+        }
+
+        $day = $this->day($cycle, $dayId);
+        $this->assertServiceDay($day);
+
+        if (! $day->menu) {
+            throw ValidationException::withMessages(['menu' => 'Simpan Menu Utama terlebih dahulu.']);
+        }
+
+        $existing = $day->variants()
+            ->where('audience_type', MenuCycleDayVariant::AUDIENCE_POSYANDU_3B)
+            ->with('menu')
+            ->first();
+
+        if ($existing?->menu) {
+            return $existing->menu;
+        }
+
+        return DB::transaction(function () use ($day, $actor): Menu {
+            $clone = app(MenuCloneService::class)
+                ->cloneAsIndependentDraft($day->menu, $day, $actor);
+            $clone->update([
+                'name' => trim($day->menu->name.' — Menu 3B'),
+                'planned_portions' => $day->menu->planned_portions,
+            ]);
+
+            $day->variants()->create([
+                'audience_type' => MenuCycleDayVariant::AUDIENCE_POSYANDU_3B,
+                'menu_id' => $clone->getKey(),
+            ]);
+
+            return $clone->refresh();
+        });
+    }
+
+    public function removeThreeBVariant(MenuCycle $cycle, int $dayId, User $actor): void
+    {
+        $this->authorize($actor, 'menus.update');
+
+        if (! $cycle->isEditable()) {
+            throw ValidationException::withMessages(['cycle' => 'Siklus sudah dikunci.']);
+        }
+
+        $day = $this->day($cycle, $dayId);
+        $variant = $day->variants()
+            ->where('audience_type', MenuCycleDayVariant::AUDIENCE_POSYANDU_3B)
+            ->with('menu')
+            ->first();
+
+        if (! $variant) {
+            return;
+        }
+
+        DB::transaction(function () use ($variant): void {
+            $menu = $variant->menu;
+            $variant->delete();
+
+            if ($menu && ! $menu->cycleDays()->exists() && ! $menu->cycleDayVariants()->exists()) {
+                $menu->update(['status' => MenuStatus::Archived]);
+            }
+        });
     }
 
     private function syncOne(Menu $menu, MenuComponentType $type, ?string $name, int $sortOrder, bool $required): void

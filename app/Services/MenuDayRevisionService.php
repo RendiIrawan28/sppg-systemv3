@@ -127,6 +127,7 @@ class MenuDayRevisionService
                     ]);
                 }
 
+                $day->variants()->delete();
                 $day->update([
                     'menu_id' => null,
                     'source_menu_id' => null,

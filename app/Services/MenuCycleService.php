@@ -36,7 +36,7 @@ class MenuCycleService
 
             foreach ($days as $day) {
                 $old = $existing->get($day['day_number']);
-                $locked->days()->updateOrCreate(
+                $savedDay = $locked->days()->updateOrCreate(
                     ['day_number' => $day['day_number']],
                     [
                         ...$day,
@@ -48,6 +48,10 @@ class MenuCycleService
                         'notes' => $old?->notes,
                     ],
                 );
+
+                if ($this->calendar->isHoliday((int) $locked->sppg_unit_id, $day['service_date'])) {
+                    $savedDay->variants()->delete();
+                }
             }
 
             $locked->days()->where('day_number', '>', $count)->delete();
@@ -64,7 +68,12 @@ class MenuCycleService
     /** @return array{blocking: array<int,string>, warnings: array<int,string>} */
     public function readinessReport(MenuCycle $cycle): array
     {
-        $cycle->loadMissing('days.menu.items.recipeIngredients', 'days.menu.categoryTargets.category');
+        $cycle->loadMissing(
+            'days.menu.items.recipeIngredients',
+            'days.menu.categoryTargets.category',
+            'days.variants.menu.items.recipeIngredients',
+            'days.variants.menu.categoryTargets.category',
+        );
         $blocking = [];
         $warnings = [];
 
@@ -125,6 +134,44 @@ class MenuCycleService
                 fn (string $warning): string => "Hari ke-{$day->day_number}: {$warning}",
                 $checkedMenus[$menuId]['warnings'],
             )];
+
+            foreach ($day->variants as $variant) {
+                $variantMenu = $variant->menu;
+
+                if (! $variantMenu) {
+                    $blocking[] = "Hari ke-{$day->day_number}: relasi Menu 3B tidak memiliki menu.";
+
+                    continue;
+                }
+
+                if ((int) $variantMenu->sppg_unit_id !== (int) $cycle->sppg_unit_id) {
+                    $blocking[] = "Hari ke-{$day->day_number}: Menu 3B berasal dari Unit SPPG lain.";
+
+                    continue;
+                }
+
+                $variantMenuId = (int) $variantMenu->getKey();
+                if (! isset($checkedMenus[$variantMenuId])) {
+                    $checkedMenus[$variantMenuId] = [
+                        'blocking' => $this->warnings->blockingIssues($variantMenu),
+                        'warnings' => [],
+                    ];
+                    if ($checkedMenus[$variantMenuId]['blocking'] === []) {
+                        app(MenuNutritionCalculator::class)->refresh($variantMenu);
+                        $checkedMenus[$variantMenuId]['warnings'] = $this->warnings
+                            ->nutritionWarnings($variantMenu->refresh());
+                    }
+                }
+
+                $blocking = [...$blocking, ...array_map(
+                    fn (string $issue): string => "Hari ke-{$day->day_number} (Menu 3B): {$issue}",
+                    $checkedMenus[$variantMenuId]['blocking'],
+                )];
+                $warnings = [...$warnings, ...array_map(
+                    fn (string $warning): string => "Hari ke-{$day->day_number} (Menu 3B): {$warning}",
+                    $checkedMenus[$variantMenuId]['warnings'],
+                )];
+            }
         }
 
         return [

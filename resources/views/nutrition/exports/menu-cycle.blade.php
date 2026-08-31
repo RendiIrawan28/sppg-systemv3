@@ -181,6 +181,13 @@
             line-height: 1.2;
         }
 
+        .document-section {
+            margin-top: 7px;
+            font-size: 14px;
+            font-weight: bold;
+            color: #253e6b;
+        }
+
 
         /*
         |--------------------------------------------------------------------------
@@ -636,6 +643,7 @@
     */
 
     $maximumRows = 1;
+    $maximumThreeBRows = 1;
 
 
     foreach (
@@ -676,6 +684,16 @@
     $maximumRows,
     $rows->count()
     );
+
+    if ($hasDifferent3BMenu ?? false) {
+        $threeBRows = $buildMenuRows(
+            $threeBMenus->get((int) $cycleDay->getKey())
+        );
+        $maximumThreeBRows = max(
+            $maximumThreeBRows,
+            $threeBRows->count()
+        );
+    }
 
     }
 
@@ -777,6 +795,10 @@
             {{ $documentUnitName }}
 
         </div>
+
+        @if ($hasDifferent3BMenu ?? false)
+        <div class="document-section">A. Menu Anak Sekolah dan Tendik</div>
+        @endif
 
 
     </div>
@@ -1017,6 +1039,57 @@
     </table>
 
     <div class="header-divider"></div>
+
+
+    @if ($hasDifferent3BMenu ?? false)
+    <div class="document-title" style="margin-bottom: 24px;">
+        <div class="document-title-main">SIKLUS MENU MAKAN BERGIZI GRATIS (MBG)</div>
+        <div class="document-title-unit">{{ $documentUnitName }}</div>
+        <div class="document-section">B. Menu 3B (Bumil, Busui, dan Balita)</div>
+    </div>
+
+    <table class="menu-table">
+        <thead>
+            <tr>
+                @foreach ($cycle->days as $day)
+                <th>
+                    <div class="day-name">{{ $formatDay($day->service_date) }},</div>
+                    <div class="day-date">{{ $formatDate($day->service_date) }}</div>
+                </th>
+                @endforeach
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                @foreach ($cycle->days as $day)
+                @php
+                    $dateKey = $day->service_date
+                        ? Carbon::parse($day->service_date)->format('Y-m-d')
+                        : null;
+                    $holiday = $dateKey ? $holidays->get($dateKey) : null;
+                    $effectiveThreeBMenu = $threeBMenus->get((int) $day->getKey());
+                    $menuRows = $buildMenuRows($effectiveThreeBMenu);
+                @endphp
+
+                @if ($holiday)
+                <td class="holiday-cell">Libur<br>{{ $holiday->name }}</td>
+                @elseif (! $effectiveThreeBMenu)
+                <td class="holiday-cell empty-cell">Menu belum tersedia</td>
+                @else
+                <td class="menu-cell">
+                    @foreach ($menuRows as $row)
+                    <div class="menu-row">{{ $row }}</div>
+                    @endforeach
+                    @for ($i = $menuRows->count(); $i < $maximumThreeBRows; $i++)
+                    <div class="menu-row">&nbsp;</div>
+                    @endfor
+                </td>
+                @endif
+                @endforeach
+            </tr>
+        </tbody>
+    </table>
+    @endif
 
 
 

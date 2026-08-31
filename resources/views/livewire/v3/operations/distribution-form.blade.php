@@ -39,7 +39,7 @@
 
             @if ($record)
                 <a href="{{ route($definition['pdf'], $record) }}" target="_blank" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
-                    Unduh PDF
+                    Unduh PDF seluruh rute
                 </a>
             @endif
         </div>

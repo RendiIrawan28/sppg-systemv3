@@ -187,6 +187,45 @@ class MenuMatrix extends Component
         });
     }
 
+    public function createThreeBVariant(int $dayId, MenuMatrixService $matrix): void
+    {
+        $variantMenu = null;
+
+        $this->runAction(function () use ($dayId, $matrix, &$variantMenu): string {
+            $variantMenu = $matrix->createThreeBVariant(
+                $this->cycleOrFail(),
+                $dayId,
+                auth()->user(),
+            );
+
+            $this->loadRows($matrix);
+
+            return 'Menu 3B berhasil disalin dari Menu Utama.';
+        });
+
+        if ($variantMenu) {
+            $this->redirectRoute(
+                'v3.nutrition.menus.show',
+                ['menu' => $variantMenu],
+                navigate: true,
+            );
+        }
+    }
+
+    public function removeThreeBVariant(int $dayId, MenuMatrixService $matrix): void
+    {
+        $this->runAction(function () use ($dayId, $matrix): string {
+            $matrix->removeThreeBVariant(
+                $this->cycleOrFail(),
+                $dayId,
+                auth()->user(),
+            );
+            $this->loadRows($matrix);
+
+            return 'Menu 3B kembali mengikuti Menu Utama.';
+        });
+    }
+
     public function requestHolidayRevision(int $dayId, MenuMatrixService $matrix): void
     {
         $this->authorizePermission('menus.submit');
@@ -299,9 +338,16 @@ class MenuMatrix extends Component
                     ->orWhereHas('cycleDays', fn ($query) => $query->where('menu_cycle_id', $cycleId));
             }))
             ->orderByDesc('service_date')->orderBy('name')->limit(300)->get();
+        $rowMenuIds = collect($this->rows)
+            ->flatMap(fn (array $row): array => [
+                $row['menu_id'] ?? null,
+                $row['variant_3b_menu_id'] ?? null,
+            ])
+            ->filter()
+            ->unique();
         $rowMenus = Menu::query()
             ->where('sppg_unit_id', $unit->getKey())
-            ->whereIn('id', collect($this->rows)->pluck('menu_id')->filter()->unique())
+            ->whereIn('id', $rowMenuIds)
             ->get();
 
         return view('livewire.v3.nutrition.menu-matrix', [

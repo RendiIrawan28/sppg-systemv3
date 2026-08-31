@@ -16,8 +16,8 @@ class NutritionRequirementCalculator
         private readonly NutritionPortionAllocator $portionAllocator,
         private readonly MenuAllergenRequirementAdjuster $allergenAdjuster,
         private readonly MenuPortionProfileResolver $profileResolver,
-    ) {
-    }
+        private readonly MenuAudienceMenuResolver $menuResolver,
+    ) {}
 
     public function generate(NutritionRequirementPlan $plan): void
     {
@@ -67,105 +67,153 @@ class NutritionRequirementCalculator
         $groups = [];
         $coveredAllocations = [];
 
-        foreach ($menu->items as $menuItem) {
-            $applicableAllocations = collect($allocations)
-                ->filter(fn (array $allocation): bool => $this->menuItemAppliesToAllocation(
-                    menuAudience: $this->enumValue($menuItem->menu_audience ?? 'all', 'all'),
-                    portionSize: $this->enumValue($menuItem->portion_size ?? 'all', 'all'),
-                    allocation: $allocation,
-                ))
-                ->values();
+        $menuScopes = [[
+            'menu' => $menu,
+            'allocations' => collect($allocations),
+        ]];
 
-            if ($applicableAllocations->isEmpty()) {
+        if ($plan->menu_cycle_day_id) {
+            $day = $plan->menuCycleDay()
+                ->with('variants.menu.items.recipeIngredients.ingredient.measurementUnit')
+                ->first();
+            $threeBMenu = $day?->effectiveMenuForAudience(
+                MenuAudienceMenuResolver::POSYANDU_3B,
+            );
+
+            if ($threeBMenu && (int) $threeBMenu->getKey() !== (int) $menu->getKey()) {
+                $threeBMenu->loadMissing([
+                    'items.recipeIngredients.ingredient.measurementUnit',
+                    'items.recipeIngredients.measurementUnit',
+                    'categoryTargets.category',
+                ]);
+                $menuScopes = [
+                    [
+                        'menu' => $menu,
+                        'allocations' => collect($allocations)
+                            ->reject(fn (array $allocation): bool => $this->menuResolver
+                                ->allocationAudience($allocation) === MenuAudienceMenuResolver::POSYANDU_3B)
+                            ->values(),
+                    ],
+                    [
+                        'menu' => $threeBMenu,
+                        'allocations' => collect($allocations)
+                            ->filter(fn (array $allocation): bool => $this->menuResolver
+                                ->allocationAudience($allocation) === MenuAudienceMenuResolver::POSYANDU_3B)
+                            ->values(),
+                    ],
+                ];
+            }
+        }
+
+        foreach ($menuScopes as $scope) {
+            /** @var Menu $effectiveMenu */
+            $effectiveMenu = $scope['menu'];
+            $scopeAllocations = $scope['allocations'];
+
+            if ($scopeAllocations->isEmpty()) {
                 continue;
             }
 
-            foreach ($menuItem->recipeIngredients as $recipeIngredient) {
-                $ingredient = $recipeIngredient->ingredient;
+            foreach ($effectiveMenu->items as $menuItem) {
+                $applicableAllocations = $scopeAllocations
+                    ->filter(fn (array $allocation): bool => $this->menuItemAppliesToAllocation(
+                        menuAudience: $this->enumValue($menuItem->menu_audience ?? 'all', 'all'),
+                        portionSize: $this->enumValue($menuItem->portion_size ?? 'all', 'all'),
+                        allocation: $allocation,
+                    ))
+                    ->values();
 
-                if (! $ingredient) {
-                    throw ValidationException::withMessages([
-                        'items' => "Bahan pada hidangan {$menuItem->name} tidak ditemukan.",
-                    ]);
+                if ($applicableAllocations->isEmpty()) {
+                    continue;
                 }
 
-                $purchaseUnit = $ingredient->measurementUnit;
-                $unitSnapshot = (string) ($purchaseUnit?->symbol ?: $purchaseUnit?->code ?: 'unit');
-                $purchaseGramsPerUnit = (float) ($ingredient->grams_per_unit ?: $purchaseUnit?->to_base_factor ?: 1);
-                $groupKey = implode('|', [
-                    (int) $ingredient->getKey(),
-                    strtolower($unitSnapshot),
-                    (int) ($ingredient->measurement_unit_id ?? 0),
-                ]);
+                foreach ($menuItem->recipeIngredients as $recipeIngredient) {
+                    $ingredient = $recipeIngredient->ingredient;
 
-                $groups[$groupKey] ??= [
-                    'ingredient' => $ingredient,
-                    'unit_snapshot' => $unitSnapshot,
-                    'grams_per_unit' => max(0.0001, $purchaseGramsPerUnit),
-                    'base_quantity' => 0.0,
-                    'base_quantity_grams' => 0.0,
-                    'allocation_effective_portions' => [],
-                    'components' => [],
-                    'breakdown' => [],
-                ];
+                    if (! $ingredient) {
+                        throw ValidationException::withMessages([
+                            'items' => "Bahan pada hidangan {$menuItem->name} tidak ditemukan.",
+                        ]);
+                    }
 
-                foreach ($applicableAllocations as $allocation) {
-                    $allocationKey = $this->allocationKey($allocation);
-                    $actualPortionsForGroup = max(0, (int) ($allocation['actual_portions'] ?? 0));
-
-                    $category = new BeneficiaryCategory([
-                        'code' => (string) ($allocation['code'] ?? ''),
-                        'menu_audience' => $this->enumValue($allocation['menu_audience'] ?? ''),
-                        'portion_size' => $this->enumValue($allocation['portion_size'] ?? ''),
+                    $purchaseUnit = $ingredient->measurementUnit;
+                    $unitSnapshot = (string) ($purchaseUnit?->symbol ?: $purchaseUnit?->code ?: 'unit');
+                    $purchaseGramsPerUnit = (float) ($ingredient->grams_per_unit ?: $purchaseUnit?->to_base_factor ?: 1);
+                    $groupKey = implode('|', [
+                        (int) $ingredient->getKey(),
+                        strtolower($unitSnapshot),
+                        (int) ($ingredient->measurement_unit_id ?? 0),
                     ]);
-                    $category->id = (int) ($allocation['beneficiary_category_id'] ?? 0);
 
-                    $profile = $this->profileResolver->profileForCategory($category);
-                    $inputPerPortion = $recipeIngredient->inputQuantityFor($profile);
-                    $gramsPerPortion = $recipeIngredient->gramsFor($profile);
-
-                    if (! is_finite($inputPerPortion) || $inputPerPortion <= 0) {
-                        throw ValidationException::withMessages([
-                            'items' => "Jumlah bahan {$ingredient->name} untuk {$profile->label()} pada hidangan {$menuItem->name} belum valid.",
-                        ]);
-                    }
-
-                    if (! is_finite($gramsPerPortion) || $gramsPerPortion <= 0) {
-                        throw ValidationException::withMessages([
-                            'items' => "Konversi gram bahan {$ingredient->name} untuk {$profile->label()} pada hidangan {$menuItem->name} belum valid.",
-                        ]);
-                    }
-
-                    $quantityGrams = $gramsPerPortion * $actualPortionsForGroup;
-                    $quantity = $quantityGrams / max(0.0001, $purchaseGramsPerUnit);
-
-                    $coveredAllocations[$allocationKey] = true;
-                    $groups[$groupKey]['base_quantity'] += $quantity;
-                    $groups[$groupKey]['base_quantity_grams'] += $quantityGrams;
-                    $groups[$groupKey]['allocation_effective_portions'][$allocationKey] = $actualPortionsForGroup;
-                    $groups[$groupKey]['components'][] = $menuItem->name;
-
-                    $groups[$groupKey]['breakdown'][$allocationKey] ??= [
-                        'beneficiary_category_id' => $allocation['beneficiary_category_id'] ?? null,
-                        'code' => $allocation['code'] ?? null,
-                        'name' => $allocation['name'] ?? 'Kelompok penerima',
-                        'menu_audience' => $allocation['menu_audience'] ?? null,
-                        'portion_size' => $allocation['portion_size'] ?? null,
-                        'portion_profile' => $profile->value,
+                    $groups[$groupKey] ??= [
+                        'ingredient' => $ingredient,
                         'unit_snapshot' => $unitSnapshot,
-                        'quantity_per_portion' => round($gramsPerPortion / max(0.0001, $purchaseGramsPerUnit), 4),
-                        'grams_per_portion' => round($gramsPerPortion, 4),
-                        'actual_portions' => $actualPortionsForGroup,
-                        'portion_multiplier' => 1,
-                        'effective_portions' => $actualPortionsForGroup,
-                        'quantity' => 0.0,
-                        'quantity_grams' => 0.0,
+                        'grams_per_unit' => max(0.0001, $purchaseGramsPerUnit),
+                        'base_quantity' => 0.0,
+                        'base_quantity_grams' => 0.0,
+                        'allocation_effective_portions' => [],
                         'components' => [],
+                        'breakdown' => [],
                     ];
 
-                    $groups[$groupKey]['breakdown'][$allocationKey]['quantity'] += $quantity;
-                    $groups[$groupKey]['breakdown'][$allocationKey]['quantity_grams'] += $quantityGrams;
-                    $groups[$groupKey]['breakdown'][$allocationKey]['components'][] = $menuItem->name;
+                    foreach ($applicableAllocations as $allocation) {
+                        $allocationKey = $this->allocationKey($allocation);
+                        $actualPortionsForGroup = max(0, (int) ($allocation['actual_portions'] ?? 0));
+
+                        $category = new BeneficiaryCategory([
+                            'code' => (string) ($allocation['code'] ?? ''),
+                            'menu_audience' => $this->enumValue($allocation['menu_audience'] ?? ''),
+                            'portion_size' => $this->enumValue($allocation['portion_size'] ?? ''),
+                        ]);
+                        $category->id = (int) ($allocation['beneficiary_category_id'] ?? 0);
+
+                        $profile = $this->profileResolver->profileForCategory($category);
+                        $inputPerPortion = $recipeIngredient->inputQuantityFor($profile);
+                        $gramsPerPortion = $recipeIngredient->gramsFor($profile);
+
+                        if (! is_finite($inputPerPortion) || $inputPerPortion <= 0) {
+                            throw ValidationException::withMessages([
+                                'items' => "Jumlah bahan {$ingredient->name} untuk {$profile->label()} pada hidangan {$menuItem->name} belum valid.",
+                            ]);
+                        }
+
+                        if (! is_finite($gramsPerPortion) || $gramsPerPortion <= 0) {
+                            throw ValidationException::withMessages([
+                                'items' => "Konversi gram bahan {$ingredient->name} untuk {$profile->label()} pada hidangan {$menuItem->name} belum valid.",
+                            ]);
+                        }
+
+                        $quantityGrams = $gramsPerPortion * $actualPortionsForGroup;
+                        $quantity = $quantityGrams / max(0.0001, $purchaseGramsPerUnit);
+
+                        $coveredAllocations[$allocationKey] = true;
+                        $groups[$groupKey]['base_quantity'] += $quantity;
+                        $groups[$groupKey]['base_quantity_grams'] += $quantityGrams;
+                        $groups[$groupKey]['allocation_effective_portions'][$allocationKey] = $actualPortionsForGroup;
+                        $groups[$groupKey]['components'][] = $menuItem->name;
+
+                        $groups[$groupKey]['breakdown'][$allocationKey] ??= [
+                            'beneficiary_category_id' => $allocation['beneficiary_category_id'] ?? null,
+                            'code' => $allocation['code'] ?? null,
+                            'name' => $allocation['name'] ?? 'Kelompok penerima',
+                            'menu_audience' => $allocation['menu_audience'] ?? null,
+                            'portion_size' => $allocation['portion_size'] ?? null,
+                            'portion_profile' => $profile->value,
+                            'unit_snapshot' => $unitSnapshot,
+                            'quantity_per_portion' => round($gramsPerPortion / max(0.0001, $purchaseGramsPerUnit), 4),
+                            'grams_per_portion' => round($gramsPerPortion, 4),
+                            'actual_portions' => $actualPortionsForGroup,
+                            'portion_multiplier' => 1,
+                            'effective_portions' => $actualPortionsForGroup,
+                            'quantity' => 0.0,
+                            'quantity_grams' => 0.0,
+                            'components' => [],
+                        ];
+
+                        $groups[$groupKey]['breakdown'][$allocationKey]['quantity'] += $quantity;
+                        $groups[$groupKey]['breakdown'][$allocationKey]['quantity_grams'] += $quantityGrams;
+                        $groups[$groupKey]['breakdown'][$allocationKey]['components'][] = $menuItem->name;
+                    }
                 }
             }
         }
@@ -405,6 +453,7 @@ class NutritionRequirementCalculator
                         ]))
                         ->map(function ($members): array {
                             $member = $members->first();
+
                             return [
                                 'beneficiary_category_id' => (int) ($member->beneficiary_category_id ?? 0),
                                 'code' => (string) ($member->beneficiary_category_code_snapshot ?? ''),
@@ -421,6 +470,7 @@ class NutritionRequirementCalculator
                 ->map(function ($rows): array {
                     $first = $rows->first();
                     $first['actual_portions'] = (int) $rows->sum('actual_portions');
+
                     return $first;
                 })
                 ->values()
@@ -429,6 +479,7 @@ class NutritionRequirementCalculator
             try {
                 return array_map(static function (array $allocation): array {
                     $allocation['master_portions'] = $allocation['actual_portions'];
+
                     return $allocation;
                 }, $this->portionAllocator->allocate($groups, $targets));
             } catch (InvalidArgumentException $exception) {

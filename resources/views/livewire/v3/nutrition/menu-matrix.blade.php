@@ -177,6 +177,52 @@
                         @endif
                         @endif
                     </div>
+
+                    @if ($row['menu_id'])
+                    <section class="mt-4 rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4">
+                        <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                            <div>
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <p class="text-xs font-black uppercase tracking-[.14em] text-cyan-800">Menu 3B</p>
+                                    <span class="rounded-full px-2.5 py-1 text-[9px] font-black tracking-wide {{ $row['variant_3b_menu_id'] ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700' }}">
+                                        {{ $row['variant_3b_state'] }}
+                                    </span>
+                                </div>
+                                <p class="mt-1 text-xs font-semibold text-slate-700">Bumil, Busui, dan Balita</p>
+                                <p class="mt-1 text-[11px] leading-5 text-slate-500">
+                                    @if ($row['variant_3b_menu_id'])
+                                        {{ $row['variant_3b_menu_name'] }}
+                                    @else
+                                        Mengikuti Menu Utama. Buat menu berbeda hanya jika diperlukan pada hari ini.
+                                    @endif
+                                </p>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                @if (! $row['variant_3b_menu_id'] && $row['can_assign'])
+                                <button wire:click="createThreeBVariant({{ $dayId }})" class="rounded-lg bg-cyan-700 px-3 py-2 text-[10px] font-bold text-white">
+                                    + Buat Menu 3B Berbeda
+                                </button>
+                                @elseif ($row['variant_3b_menu_id'])
+                                    @if (isset($menuRecipeUrls[$row['variant_3b_menu_id']]))
+                                    <a wire:navigate href="{{ $menuRecipeUrls[$row['variant_3b_menu_id']] }}" class="rounded-lg bg-white px-3 py-2 text-[10px] font-bold text-cyan-800 ring-1 ring-cyan-200">
+                                        {{ $row['can_assign'] ? 'Edit' : 'Lihat' }} Menu 3B
+                                    </a>
+                                    @endif
+                                    @if (isset($menuNutritionUrls[$row['variant_3b_menu_id']]))
+                                    <a wire:navigate href="{{ $menuNutritionUrls[$row['variant_3b_menu_id']] }}" class="rounded-lg bg-white px-3 py-2 text-[10px] font-bold text-slate-700 ring-1 ring-slate-200">
+                                        Nilai gizi 3B
+                                    </a>
+                                    @endif
+                                    @if ($row['can_assign'])
+                                    <button wire:click="removeThreeBVariant({{ $dayId }})" wire:confirm="Menu 3B akan kembali mengikuti Menu Utama." class="rounded-lg px-3 py-2 text-[10px] font-bold text-rose-700 hover:bg-rose-50">
+                                        Hapus Perbedaan
+                                    </button>
+                                    @endif
+                                @endif
+                            </div>
+                        </div>
+                    </section>
+                    @endif
                     @endif
                 </article>
                 @endforeach

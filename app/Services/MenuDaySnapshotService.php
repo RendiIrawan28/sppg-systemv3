@@ -24,7 +24,7 @@ class MenuDaySnapshotService
     {
         DB::transaction(function () use ($cycle, $user): void {
             $locked = MenuCycle::query()
-                ->with(['days.menu'])
+                ->with(['days.menu', 'days.variants.menu'])
                 ->lockForUpdate()
                 ->findOrFail($cycle->getKey());
 
@@ -33,7 +33,33 @@ class MenuDaySnapshotService
                     continue;
                 }
 
+                $variantSources = $day->variants
+                    ->mapWithKeys(fn ($variant): array => [
+                        $variant->getKey() => $variant->menu,
+                    ]);
+
                 $this->snapshotDay($locked, $day, $user);
+
+                foreach ($variantSources as $variantId => $source) {
+                    if (! $source) {
+                        continue;
+                    }
+
+                    $snapshot = $this->cloneService->cloneForCycleSnapshot(
+                        source: $source,
+                        day: $day,
+                        creator: $user,
+                        version: max(1, (int) $day->snapshot_version),
+                        plannedPortions: $locked->bufferedTotalPortions(),
+                    );
+                    $day->variants()->whereKey($variantId)->update([
+                        'menu_id' => $snapshot->getKey(),
+                    ]);
+
+                    if ($source->is_cycle_snapshot && $source->isEditable()) {
+                        $source->updateQuietly(['status' => MenuStatus::Archived]);
+                    }
+                }
             }
         });
     }

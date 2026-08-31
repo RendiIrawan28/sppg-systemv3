@@ -23,9 +23,9 @@ class MenuCycleWorkflowService
             ]);
         }
 
-        DB::transaction(function () use ($cycle, $report): void {
+        DB::transaction(function () use ($cycle): void {
             $locked = MenuCycle::query()
-                ->with('days.menu')
+                ->with('days.menu', 'days.variants.menu')
                 ->lockForUpdate()
                 ->findOrFail($cycle->getKey());
 
@@ -40,7 +40,12 @@ class MenuCycleWorkflowService
             // Setiap hari mendapat clone tersendiri. Menu yang sama pada dua hari
             // tidak lagi saling memengaruhi setelah pengajuan.
             app(MenuDaySnapshotService::class)->snapshotCycle($locked, auth()->user());
-            $locked->load('days.menu.nutritionSummaries.component', 'days.menu.nutritionSummaries.category');
+            $locked->load(
+                'days.menu.nutritionSummaries.component',
+                'days.menu.nutritionSummaries.category',
+                'days.variants.menu.nutritionSummaries.component',
+                'days.variants.menu.nutritionSummaries.category',
+            );
 
             $snapshotWarnings = [];
             foreach ($locked->days as $day) {
@@ -55,6 +60,18 @@ class MenuCycleWorkflowService
                         app(MenuNutritionWarningService::class)->nutritionWarnings($day->menu),
                     ),
                 ];
+                foreach ($day->variants as $variant) {
+                    if (! $variant->menu) {
+                        continue;
+                    }
+                    $snapshotWarnings = [
+                        ...$snapshotWarnings,
+                        ...array_map(
+                            fn (string $warning): string => "Hari ke-{$day->day_number} (Menu 3B): {$warning}",
+                            app(MenuNutritionWarningService::class)->nutritionWarnings($variant->menu),
+                        ),
+                    ];
+                }
             }
             $snapshotWarnings = array_values(array_unique($snapshotWarnings));
 
@@ -73,6 +90,14 @@ class MenuCycleWorkflowService
                     'submitted_at' => now(),
                     'review_notes' => null,
                 ]);
+                foreach ($day->variants as $variant) {
+                    $variant->menu?->update([
+                        'status' => MenuStatus::PendingReview,
+                        'submitted_by' => auth()->id(),
+                        'submitted_at' => now(),
+                        'review_notes' => null,
+                    ]);
+                }
             }
 
             $this->history($locked, 'submitted', $previous->value, NutritionRecordStatus::Submitted->value, [
@@ -92,7 +117,7 @@ class MenuCycleWorkflowService
 
         DB::transaction(function () use ($cycle): void {
             $locked = MenuCycle::query()
-                ->with('days.menu')
+                ->with('days.menu', 'days.variants.menu')
                 ->lockForUpdate()
                 ->findOrFail($cycle->getKey());
 
@@ -123,6 +148,14 @@ class MenuCycleWorkflowService
                     'approved_at' => now(),
                     'review_notes' => null,
                 ]);
+                foreach ($day->variants as $variant) {
+                    $variant->menu?->update([
+                        'status' => MenuStatus::Approved,
+                        'approved_by' => auth()->id(),
+                        'approved_at' => now(),
+                        'review_notes' => null,
+                    ]);
+                }
             }
 
             $this->history($locked, 'approved', NutritionRecordStatus::Submitted->value, NutritionRecordStatus::Approved->value);
@@ -141,7 +174,7 @@ class MenuCycleWorkflowService
 
         DB::transaction(function () use ($cycle, $notes): void {
             $locked = MenuCycle::query()
-                ->with('days.menu')
+                ->with('days.menu', 'days.variants.menu')
                 ->lockForUpdate()
                 ->findOrFail($cycle->getKey());
 
@@ -163,6 +196,12 @@ class MenuCycleWorkflowService
                     'status' => MenuStatus::RevisionRequired,
                     'review_notes' => $notes,
                 ]);
+                foreach ($day->variants as $variant) {
+                    $variant->menu?->update([
+                        'status' => MenuStatus::RevisionRequired,
+                        'review_notes' => $notes,
+                    ]);
+                }
             }
 
             $this->history($locked, 'revision_requested', NutritionRecordStatus::Submitted->value, NutritionRecordStatus::RevisionRequired->value, ['notes' => $notes]);
@@ -177,7 +216,7 @@ class MenuCycleWorkflowService
 
         DB::transaction(function () use ($cycle): void {
             $locked = MenuCycle::query()
-                ->with('days.menu')
+                ->with('days.menu', 'days.variants.menu')
                 ->lockForUpdate()
                 ->findOrFail($cycle->getKey());
 
@@ -200,6 +239,9 @@ class MenuCycleWorkflowService
 
             foreach ($locked->days as $day) {
                 $day->menu?->update(['status' => MenuStatus::InUse]);
+                foreach ($day->variants as $variant) {
+                    $variant->menu?->update(['status' => MenuStatus::InUse]);
+                }
             }
 
             $this->history($locked, 'activated', NutritionRecordStatus::Approved->value, NutritionRecordStatus::Active->value);

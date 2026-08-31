@@ -81,3 +81,17 @@ it('keeps admin broadcast and security task notification paths intact', function
         ->toContain('notifyTask')
         ->toContain('deliverStoredNotification');
 });
+
+it('routes report approvals to division heads, the SPPG head, and the original submitter', function (): void {
+    $approval = file_get_contents(app_path('Services/Mobile/OperationalApprovalNotificationService.php'));
+    $workflows = file_get_contents(app_path('Services/PreparationSessionService.php'))
+        .file_get_contents(app_path('Services/ProcessingWorkflow.php'))
+        .file_get_contents(app_path('Services/PortioningWorkflow.php'));
+
+    expect($approval)
+        ->toContain("permission: \$module.'.approve'")
+        ->toContain('UserRole::KepalaSppg->value')
+        ->toContain("getAttribute('submitted_by')")
+        ->and(substr_count($workflows, 'OperationalApprovalNotificationService::class'))
+        ->toBeGreaterThanOrEqual(9);
+});

@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Menu extends Model
 {
@@ -142,6 +141,11 @@ class Menu extends Model
     public function cycleDays(): HasMany
     {
         return $this->hasMany(MenuCycleDay::class);
+    }
+
+    public function cycleDayVariants(): HasMany
+    {
+        return $this->hasMany(MenuCycleDayVariant::class);
     }
 
     public function revisionRequestsAsOriginal(): HasMany

@@ -29,7 +29,7 @@ class ServiceHolidayImpactService
             $revisionRequests = 0;
 
             $days = MenuCycleDay::query()
-                ->with(['cycle', 'menu'])
+                ->with(['cycle', 'menu', 'variants'])
                 ->whereDate('service_date', $date)
                 ->whereHas('cycle', fn ($query) => $query->where('sppg_unit_id', $unitId))
                 ->lockForUpdate()
@@ -41,6 +41,7 @@ class ServiceHolidayImpactService
                 }
 
                 if ($day->cycle?->isEditable()) {
+                    $day->variants()->delete();
                     $day->update([
                         'menu_id' => null,
                         'source_menu_id' => null,

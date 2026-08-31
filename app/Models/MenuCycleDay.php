@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\MenuDayRevisionStatus;
+use App\Services\MenuAudienceMenuResolver;
 use App\Services\MenuServiceCalendarService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -59,6 +60,17 @@ class MenuCycleDay extends Model
     public function sourceMenu(): BelongsTo
     {
         return $this->belongsTo(Menu::class, 'source_menu_id');
+    }
+
+    public function variants(): HasMany
+    {
+        return $this->hasMany(MenuCycleDayVariant::class, 'menu_cycle_day_id');
+    }
+
+    public function effectiveMenuForAudience(string $audienceType): ?Menu
+    {
+        return app(MenuAudienceMenuResolver::class)
+            ->effectiveMenu($this, $audienceType);
     }
 
     public function fieldDistributionPlan(): BelongsTo
