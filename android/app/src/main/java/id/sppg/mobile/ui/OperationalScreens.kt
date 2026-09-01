@@ -1159,6 +1159,9 @@ private fun OperationalDetailContent(
                         "pengolahan" -> "Monitoring Produksi Harian"
                         "distribusi" -> "Laporan Seluruh Rute Distribusi"
                         "pencucian" -> "Laporan Harian Pencucian"
+                        "ba-limbah-persiapan" -> "Berita Acara Limbah Persiapan"
+                        "ba-limbah-pencucian" -> "Berita Acara Limbah Pencucian"
+                        "ba-limbah-kebersihan" -> "Berita Acara Limbah Kebersihan"
                         else -> null
                     }
                     if (primaryDocumentLabel != null) {

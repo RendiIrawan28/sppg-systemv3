@@ -40,6 +40,7 @@ class MobileDocumentController extends Controller
             });
         }
         $item = $query->findOrFail($record);
+        $request->attributes->set('v3Unit', $systemUnit->get());
 
         return match ($module) {
             'lapangan-laporan' => app(FieldDailyReportPdfController::class)($item),
