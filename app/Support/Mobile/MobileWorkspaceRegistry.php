@@ -32,8 +32,8 @@ use App\Models\StockReceipt;
 use App\Models\StockReceiptItem;
 use App\Models\Supplier;
 use App\Models\User;
-use App\Models\WarehouseWithdrawal;
 use App\Models\Warehouse;
+use App\Models\WarehouseWithdrawal;
 use App\Models\WasteHandoverReport;
 use App\Support\V3\OperationalModuleRegistry;
 use Illuminate\Support\Facades\DB;
@@ -805,7 +805,7 @@ class MobileWorkspaceRegistry
 
         return [
             'label' => $label,
-            'description' => 'Buat catatan, tambahkan seluruh bahan dan foto, lalu kirim ke Gudang untuk verifikasi stok.',
+            'description' => 'Catat bahan yang diambil. Barang langsung tersedia di divisi, lalu Gudang memeriksa jenis dan jumlah untuk mengurangi stok.',
             'model' => WarehouseWithdrawal::class,
             'permission' => $permission,
             'number' => 'withdrawal_number',

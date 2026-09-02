@@ -19,7 +19,10 @@ class ProcessingMaterialStockService
         User $actor,
     ): void {
         if ($withdrawal->division_code !== 'pengolahan'
-            || $withdrawal->status !== WarehouseWithdrawal::VERIFIED) {
+            || ! in_array($withdrawal->status, [
+                WarehouseWithdrawal::WAITING,
+                WarehouseWithdrawal::VERIFIED,
+            ], true)) {
             return;
         }
 
@@ -29,40 +32,83 @@ class ProcessingMaterialStockService
                 ->lockForUpdate()
                 ->findOrFail($withdrawal->getKey());
 
+            $verified = $withdrawal->status === WarehouseWithdrawal::VERIFIED;
+            $sourceItemIds = $withdrawal->items->pluck('id');
+
             foreach ($withdrawal->items as $item) {
-                $quantity = (float) ($item->actual_quantity
-                    ?? $item->requested_quantity
-                    ?? $item->verified_quantity_kg
-                    ?? $item->taken_quantity_kg);
+                $quantity = (float) ($verified
+                    ? ($item->actual_quantity ?? $item->requested_quantity ?? $item->verified_quantity_kg ?? $item->taken_quantity_kg)
+                    : ($item->requested_quantity ?? $item->taken_quantity_kg));
 
                 if ($quantity <= 0) {
                     continue;
                 }
 
-                ProcessingMaterialStock::query()->firstOrCreate(
-                    [
+                $stock = ProcessingMaterialStock::query()
+                    ->where('source_type', 'warehouse')
+                    ->where('source_item_id', $item->getKey())
+                    ->lockForUpdate()
+                    ->first();
+                $usedQuantity = $stock
+                    ? max(0, (float) $stock->received_quantity - (float) $stock->available_quantity)
+                    : 0.0;
+                if ($quantity + 0.0001 < $usedQuantity) {
+                    throw ValidationException::withMessages([
+                        'items' => sprintf(
+                            'Jumlah aktual %s tidak boleh lebih kecil dari %s %s yang sudah dipakai Pengolahan.',
+                            $item->ingredient_name_snapshot,
+                            rtrim(rtrim(number_format($usedQuantity, 4, '.', ''), '0'), '.'),
+                            $item->unit_snapshot,
+                        ),
+                    ]);
+                }
+
+                $values = [
+                    'sppg_unit_id' => $withdrawal->sppg_unit_id,
+                    'source_id' => $withdrawal->getKey(),
+                    'ingredient_id' => $item->ingredient_id,
+                    'inventory_lot_id' => $item->inventory_lot_id,
+                    'material_name' => $item->ingredient_name_snapshot,
+                    'measurement_unit_id' => $item->ingredient?->measurement_unit_id,
+                    'unit_name' => $item->unit_snapshot,
+                    'received_quantity' => $quantity,
+                    'available_quantity' => round($quantity - $usedQuantity, 4),
+                    'source_reference' => $withdrawal->withdrawal_number,
+                    'received_by' => $withdrawal->taken_by ?: $actor->getKey(),
+                    'received_at' => $withdrawal->submitted_at ?: now(),
+                    'expires_at' => $item->expiry_date_snapshot?->endOfDay(),
+                    'status' => $quantity - $usedQuantity > 0.0001
+                        ? ProcessingMaterialStock::AVAILABLE
+                        : ProcessingMaterialStock::DEPLETED,
+                    'notes' => $verified
+                        ? 'Jumlah aktual pengambilan telah diverifikasi Gudang.'
+                        : 'Bahan langsung tersedia setelah diambil; verifikasi Gudang masih menunggu.',
+                ];
+
+                if ($stock) {
+                    $stock->update($values);
+                } else {
+                    ProcessingMaterialStock::query()->create([
                         'source_type' => 'warehouse',
                         'source_item_id' => $item->getKey(),
-                    ],
-                    [
-                        'sppg_unit_id' => $withdrawal->sppg_unit_id,
-                        'source_id' => $withdrawal->getKey(),
-                        'ingredient_id' => $item->ingredient_id,
-                        'inventory_lot_id' => $item->inventory_lot_id,
-                        'material_name' => $item->ingredient_name_snapshot,
-                        'measurement_unit_id' => $item->ingredient?->measurement_unit_id,
-                        'unit_name' => $item->unit_snapshot,
-                        'received_quantity' => $quantity,
-                        'available_quantity' => $quantity,
-                        'source_reference' => $withdrawal->withdrawal_number,
-                        'received_by' => $withdrawal->taken_by ?: $actor->getKey(),
-                        'received_at' => $withdrawal->verified_at ?: now(),
-                        'expires_at' => $item->expiry_date_snapshot?->endOfDay(),
-                        'status' => ProcessingMaterialStock::AVAILABLE,
-                        'notes' => 'Bahan diterima dari Gudang setelah pengambilan diverifikasi.',
-                    ],
-                );
+                        ...$values,
+                    ]);
+                }
             }
+
+            $staleStocks = ProcessingMaterialStock::query()
+                ->where('source_type', 'warehouse')
+                ->where('source_id', $withdrawal->getKey())
+                ->when($sourceItemIds->isNotEmpty(), fn ($query) => $query->whereNotIn('source_item_id', $sourceItemIds))
+                ->lockForUpdate()
+                ->get();
+            if ($staleStocks->contains(fn (ProcessingMaterialStock $stock): bool => $stock->usages()->exists()
+                || (float) $stock->received_quantity - (float) $stock->available_quantity > 0.0001)) {
+                throw ValidationException::withMessages([
+                    'items' => 'Bahan yang sudah dipakai Pengolahan tidak dapat dihapus dari pengambilan.',
+                ]);
+            }
+            ProcessingMaterialStock::query()->whereKey($staleStocks->pluck('id'))->delete();
         });
     }
 
@@ -113,7 +159,7 @@ class ProcessingMaterialStockService
     }
 
     /**
-     * @param array<int|string, float|int|string|null> $quantities
+     * @param  array<int|string, float|int|string|null>  $quantities
      */
     public function syncBatchUsages(
         ProcessingBatch $batch,

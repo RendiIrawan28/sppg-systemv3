@@ -9,6 +9,7 @@ use App\Models\InventoryLot;
 use App\Models\PortioningSession;
 use App\Models\PreparationSession;
 use App\Models\ProcessingBatch;
+use App\Models\ProcessingMaterialStock;
 use App\Models\StockMovement;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -438,7 +439,7 @@ class WarehouseWithdrawalService
         $withdrawal = $withdrawal->refresh()->load('items');
         if (! $isNonFood) {
             app(PreparationSessionService::class)->createFromWithdrawal($withdrawal);
-            // Pengolahan baru menerima bahan setelah Gudang memverifikasi.
+            app(ProcessingInputService::class)->syncWarehouseWithdrawal($withdrawal, $actor);
             app(PortioningInputService::class)->syncWarehouseWithdrawal($withdrawal, $actor);
         }
 
@@ -667,6 +668,21 @@ class WarehouseWithdrawalService
             if (! in_array($batch->state, [ProcessingBatchState::Planned, ProcessingBatchState::InProgress], true)) {
                 throw ValidationException::withMessages(['decisionNotes' => 'Pengolahan sudah ditutup. Koreksi bahan tidak dapat dilakukan.']);
             }
+
+            $stocks = ProcessingMaterialStock::query()
+                ->where('source_type', 'warehouse')
+                ->where('source_id', $withdrawal->id)
+                ->lockForUpdate()
+                ->get();
+            if ($stocks->contains(fn ($stock): bool => $stock->usages()->exists()
+                || (float) $stock->received_quantity - (float) $stock->available_quantity > 0.0001)) {
+                throw ValidationException::withMessages([
+                    'decisionNotes' => 'Bahan sudah dipakai Pengolahan. Pengambilan tidak dapat ditolak; koreksi jumlah aktual lalu verifikasi.',
+                ]);
+            }
+            ProcessingMaterialStock::query()
+                ->whereKey($stocks->pluck('id'))
+                ->delete();
             $batch->materialUsages()
                 ->where('source_type', 'warehouse_withdrawal')
                 ->where('source_id', $withdrawal->id)
@@ -742,7 +758,10 @@ class WarehouseWithdrawalService
         $reserved = DB::table('warehouse_withdrawal_items')
             ->join('warehouse_withdrawals', 'warehouse_withdrawals.id', '=', 'warehouse_withdrawal_items.warehouse_withdrawal_id')
             ->where('warehouse_withdrawal_items.inventory_lot_id', $lot->id)
-            ->where('warehouse_withdrawals.status', WarehouseWithdrawal::WAITING)
+            ->whereIn('warehouse_withdrawals.status', [
+                WarehouseWithdrawal::WAITING,
+                WarehouseWithdrawal::REVISION,
+            ])
             ->when($excludeWithdrawalId, fn ($query) => $query->where('warehouse_withdrawals.id', '!=', $excludeWithdrawalId))
             ->sum('warehouse_withdrawal_items.requested_quantity');
 

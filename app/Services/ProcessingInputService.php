@@ -13,7 +13,10 @@ class ProcessingInputService
         User $actor,
     ): ?ProcessingBatch {
         if ($withdrawal->division_code !== 'pengolahan'
-            || $withdrawal->status !== WarehouseWithdrawal::VERIFIED) {
+            || ! in_array($withdrawal->status, [
+                WarehouseWithdrawal::WAITING,
+                WarehouseWithdrawal::VERIFIED,
+            ], true)) {
             return null;
         }
 
@@ -29,12 +32,17 @@ class ProcessingInputService
             : null;
 
         if ($batch) {
+            $action = $withdrawal->status === WarehouseWithdrawal::VERIFIED
+                ? 'warehouse_material_verified'
+                : 'warehouse_material_available';
             $batch->histories()->create([
                 'actor_id' => $actor->getKey(),
-                'action' => 'warehouse_material_added_to_processing_stock',
+                'action' => $action,
                 'from_state' => $batch->state->value,
                 'to_state' => $batch->state->value,
-                'notes' => $withdrawal->withdrawal_number,
+                'notes' => $withdrawal->withdrawal_number.($withdrawal->status === WarehouseWithdrawal::VERIFIED
+                    ? ' · jumlah aktual diverifikasi Gudang'
+                    : ' · langsung tersedia sambil menunggu verifikasi Gudang'),
                 'snapshot' => $withdrawal->fresh('items')->toArray(),
             ]);
         }

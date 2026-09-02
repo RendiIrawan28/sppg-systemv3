@@ -105,7 +105,7 @@
                                 Ambil / Tambah Bahan dari Gudang
                             </a>
                             <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-700">
-                                Bahan baru masuk stok Pengolahan setelah diverifikasi/diterima
+                                Bahan langsung tersedia setelah diambil; Gudang tetap memverifikasi jenis dan jumlah
                             </div>
                         </div>
                     @endif

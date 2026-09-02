@@ -2,28 +2,28 @@
 
 namespace App\Livewire\V3\Warehouse\Withdrawals;
 
-use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Livewire\V3\Concerns\FiltersByWorkDate;
+use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\FieldDistributionPlan;
 use App\Models\InventoryLot;
 use App\Models\PortioningSession;
 use App\Models\ProcessingBatch;
-use App\Models\WarehouseWithdrawal;
 use App\Models\Warehouse;
+use App\Models\WarehouseWithdrawal;
 use App\Services\WarehouseWithdrawalService;
 use App\Support\DivisionRole;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
-use Livewire\Component;
 use Livewire\Attributes\Url;
+use Livewire\Component;
 use Livewire\WithFileUploads;
 use Livewire\WithPagination;
 use Throwable;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell, FiltersByWorkDate, WithFileUploads, WithPagination;
+    use FiltersByWorkDate, InteractsWithV3Shell, WithFileUploads, WithPagination;
 
     #[Url(as: 'gudang', history: true)]
     public string $warehouseType = Warehouse::TYPE_FOOD;
@@ -119,7 +119,7 @@ class Index extends Component
         $this->reset('referenceId', 'purposeReference', 'notes');
         $this->rows = [];
         $this->addRow();
-        session()->flash('v3.status', 'Pengambilan tercatat dan menunggu verifikasi Gudang. Untuk Pengolahan, bahan baru masuk stok setelah verifikasi.');
+        session()->flash('v3.status', 'Pengambilan tercatat. Barang langsung tersedia di divisi dan menunggu pengecekan Gudang untuk pengurangan stok.');
     }
 
     public function verify(int $id, WarehouseWithdrawalService $service): void
