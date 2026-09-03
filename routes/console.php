@@ -20,3 +20,7 @@ Schedule::command('mobile:send-task-reminders')
 Schedule::command('attendance:auto-check-out')
     ->everyMinute()
     ->withoutOverlapping();
+
+Schedule::command('attendance:mark-absent')
+    ->everyMinute()
+    ->withoutOverlapping();

@@ -1,17 +1,16 @@
-<x-v3.shell :$unit :$navigation :$roleLabel title="Presensi Relawan" eyebrow="RFID masuk dan pulang">
+<x-v3.shell :$unit :$navigation :$roleLabel title="Presensi Pegawai" eyebrow="RFID masuk dan pulang">
     <div wire:poll.15s class="mx-auto max-w-[1450px] space-y-5">
         <section class="overflow-hidden rounded-[28px] bg-[#081d3a] p-6 text-white shadow-xl sm:p-8">
             <div class="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
                 <div>
                     <p class="text-xs font-bold uppercase tracking-[.18em] text-cyan-300">Presensi RFID</p>
-                    <h2 class="mt-2 text-2xl font-bold">Kehadiran relawan SPPG</h2>
-                    <p class="mt-2 max-w-2xl text-sm text-slate-300">Jam kerja fleksibel. Tap pertama mencatat masuk, tap berikutnya mencatat pulang, dan masuk kembali dapat dilakukan enam jam setelah pulang.</p>
+                    <h2 class="mt-2 text-2xl font-bold">Kehadiran pegawai SPPG</h2>
+                    <p class="mt-2 max-w-2xl text-sm text-slate-300">Jadwal divisi menentukan keterlambatan dan ketidakhadiran. Minimal kerja 4 jam, jeda masuk kembali 6 jam, dan pulang otomatis setelah 14 jam.</p>
                 </div>
-                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <div class="rounded-2xl border border-white/10 bg-white/[.07] px-4 py-3"><p class="text-[10px] uppercase text-slate-400">Hadir</p><p class="mt-1 text-xl font-bold">{{ $summary['present'] }}</p></div>
-                    <div class="rounded-2xl border border-white/10 bg-white/[.07] px-4 py-3"><p class="text-[10px] uppercase text-slate-400">Bekerja</p><p class="mt-1 text-xl font-bold text-cyan-300">{{ $summary['working'] }}</p></div>
-                    <div class="rounded-2xl border border-white/10 bg-white/[.07] px-4 py-3"><p class="text-[10px] uppercase text-slate-400">Selesai</p><p class="mt-1 text-xl font-bold text-emerald-300">{{ $summary['finished'] }}</p></div>
-                    <div class="rounded-2xl border border-white/10 bg-white/[.07] px-4 py-3"><p class="text-[10px] uppercase text-slate-400">Lainnya</p><p class="mt-1 text-xl font-bold text-amber-300">{{ $summary['other'] }}</p></div>
+                <div class="grid grid-cols-3 gap-2">
+                    @foreach(['present'=>'Hadir','late'=>'Terlambat','working'=>'Bekerja','permission'=>'Izin','sick'=>'Sakit','absent'=>'Tidak Berangkat'] as $key=>$label)
+                        <div class="rounded-2xl border border-white/10 bg-white/[.07] px-4 py-3"><p class="text-[10px] uppercase text-slate-300">{{ $label }}</p><p class="mt-1 text-xl font-bold">{{ $summary[$key] }}</p></div>
+                    @endforeach
                 </div>
             </div>
         </section>
@@ -36,16 +35,37 @@
         </nav>
 
         @if($activeTab === 'attendance')
-            <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div class="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 md:flex-row md:items-end">
-                    <div><h3 class="font-bold text-slate-900">Kehadiran per tanggal masuk</h3><p class="mt-1 text-xs text-slate-500">Sesi yang melewati tengah malam tetap berada pada tanggal masuk.</p></div>
-                    <div class="flex flex-col gap-2 sm:flex-row"><input wire:model.live="filterDate" type="date" class="h-10 rounded-xl border border-slate-200 px-3 text-sm"><input wire:model.live.debounce.350ms="search" type="search" class="h-10 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Cari nama atau UID">@if($canExport)<a href="{{ route('v3.attendance.pdf', ['date_from'=>$filterDate,'date_to'=>$filterDate]) }}" target="_blank" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-bold text-slate-700">PDF</a><a href="{{ route('v3.attendance.xlsx', ['date_from'=>$filterDate,'date_to'=>$filterDate]) }}" class="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white">Excel</a>@endif @if($canReset && $sessions->isNotEmpty())<button wire:click="openResetPanel" type="button" class="inline-flex h-10 items-center justify-center rounded-xl bg-rose-50 px-4 text-xs font-bold text-rose-700">Reset tanggal ini</button>@endif</div>
+            <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                <div class="space-y-4 border-b border-slate-100 p-5 dark:border-slate-700">
+                    <div class="flex flex-wrap items-center justify-between gap-3"><div><h3 class="font-bold text-slate-900 dark:text-white">Kehadiran per tanggal kerja</h3><p class="mt-1 text-xs text-slate-500 dark:text-slate-300">Shift lintas tengah malam mengikuti tanggal mulai jadwal. Terlambat merupakan bagian dari jumlah hadir.</p></div>@if($canSchedules)<a href="{{ route('v3.attendance.work-schedules') }}" wire:navigate class="rounded-xl bg-sky-50 px-4 py-3 text-sm font-bold text-sky-700 dark:bg-sky-950 dark:text-sky-200">Jam Kerja & Shift</a>@endif</div>
+                    <div class="flex flex-wrap gap-2">
+                        <input aria-label="Tanggal presensi" wire:model.live="filterDate" type="date" class="h-10 rounded-xl border border-slate-200 px-3 text-sm dark:bg-slate-800">
+                        <select aria-label="Divisi" wire:model.live="filterDivisionId" class="h-10 rounded-xl border border-slate-200 px-3 text-sm dark:bg-slate-800"><option value="">Semua divisi</option>@foreach($divisions as $division)<option value="{{ $division->id }}">{{ $division->name }}</option>@endforeach</select>
+                        <input aria-label="Cari pegawai" wire:model.live.debounce.350ms="search" type="search" class="h-10 rounded-xl border border-slate-200 px-3 text-sm dark:bg-slate-800" placeholder="Cari nama atau UID">
+                        @if($canExport && $validDate)
+                            <a href="{{ route('v3.attendance.pdf', ['date_from'=>$filterDate,'date_to'=>$filterDate,'division_id'=>$filterDivisionId ?: null,'search'=>$search]) }}" target="_blank" rel="noopener" class="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-bold text-slate-700 dark:text-slate-200">PDF</a>
+                            <a href="{{ route('v3.attendance.xlsx', ['date_from'=>$filterDate,'date_to'=>$filterDate,'division_id'=>$filterDivisionId ?: null,'search'=>$search]) }}" class="inline-flex h-10 items-center justify-center rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white">Excel</a>
+                        @endif
+                        @if($canReset && $sessions->isNotEmpty())<button wire:click="openResetPanel" type="button" class="inline-flex h-10 items-center justify-center rounded-xl bg-rose-50 px-4 text-xs font-bold text-rose-700">Reset tanggal ini</button>@endif
+                    </div>
+                    @if(! $validDate)<p role="alert" class="text-sm text-rose-600">Pilih tanggal presensi yang valid.</p>@endif
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full min-w-[920px] text-left"><thead><tr class="border-b border-slate-100 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-400"><th class="px-5 py-3">Relawan</th><th class="px-5 py-3">Status</th><th class="px-5 py-3">Masuk</th><th class="px-5 py-3">Pulang</th><th class="px-5 py-3">Durasi</th><th class="px-5 py-3">Sumber</th><th class="px-5 py-3">Catatan</th>@if($canCorrect)<th class="px-5 py-3 text-right">Aksi</th>@endif</tr></thead>
-                        <tbody class="divide-y divide-slate-100">@forelse($sessions as $session)<tr><td class="px-5 py-4"><p class="text-sm font-bold text-slate-800">{{ $session->user->name }}</p><p class="mt-0.5 text-xs text-slate-400">UID {{ $session->user->employee_number ?: 'belum terdaftar' }} · {{ $session->user->divisions->first()?->name ?: \App\Enums\UserRole::labelFor($session->user->roles->first()?->name) }}</p></td><td class="px-5 py-4"><span class="rounded-full px-2.5 py-1 text-[10px] font-bold {{ $session->status === 'present' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }}">{{ ['present'=>'Hadir','permission'=>'Izin','sick'=>'Sakit','absent'=>'Tidak hadir'][$session->status] ?? $session->status }}</span></td><td class="px-5 py-4 text-sm text-slate-700">{{ $session->check_in_at?->format('H:i') ?: '—' }}</td><td class="px-5 py-4 text-sm text-slate-700">{{ $session->check_out_at?->format('d/m H:i') ?: 'Masih bekerja' }}@if($session->check_out_source === 'automatic')<span class="mt-1 block text-[10px] font-bold text-amber-600">Otomatis 14 jam</span>@endif</td><td class="px-5 py-4 text-sm font-semibold text-slate-700">@if($session->durationMinutes() !== null){{ intdiv($session->durationMinutes(),60) }}j {{ $session->durationMinutes()%60 }}m @else—@endif</td><td class="px-5 py-4 text-xs text-slate-500">{{ $session->source === 'manual' ? 'Manual' : ($session->source === 'rfid_offline' ? 'RFID offline' : 'RFID') }}</td><td class="max-w-[220px] px-5 py-4 text-xs text-slate-500">{{ $session->notes ?: '—' }}</td>@if($canCorrect)<td class="px-5 py-4 text-right"><button wire:click="editSession({{ $session->id }})" class="rounded-lg bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700">Koreksi</button></td>@endif</tr>@empty<tr><td colspan="8" class="p-10 text-center text-sm text-slate-400">Belum ada data presensi pada tanggal ini.</td></tr>@endforelse</tbody>
-                    </table>
-                </div>
+                @forelse($sessionGroups as $group)
+                    <div class="border-b border-slate-200 dark:border-slate-700">
+                        <h4 class="bg-slate-100 px-5 py-3 font-bold text-slate-800 dark:bg-slate-800 dark:text-white">{{ $group['name'] }} <span class="text-sm font-normal">· {{ $group['sessions']->pluck('user_id')->unique()->count() }} pegawai</span></h4>
+                        <div class="overflow-x-auto"><table class="w-full min-w-[1200px] text-left text-sm"><thead><tr class="border-b border-slate-100 text-xs text-slate-500 dark:text-slate-300"><th class="p-3">Pegawai / UID</th><th class="p-3">Shift</th><th class="p-3">Jadwal masuk–pulang</th><th class="p-3">Masuk</th><th class="p-3">Pulang</th><th class="p-3">Durasi</th><th class="p-3">Status</th><th class="p-3">Keterangan</th><th class="p-3">Sumber</th><th class="p-3">Catatan</th>@if($canCorrect)<th class="p-3">Aksi</th>@endif</tr></thead>
+                        <tbody class="divide-y divide-slate-100 dark:divide-slate-800">@foreach($group['sessions'] as $session)<tr wire:key="attendance-{{ $session->id }}">
+                            <td class="p-3"><p class="font-semibold">{{ $session->user?->name ?? 'Pegawai tidak tersedia' }}</p><p class="text-xs text-slate-500 dark:text-slate-300">UID {{ $session->user?->employee_number ?: 'belum terdaftar' }}</p></td>
+                            <td class="p-3">{{ $session->shift_name_snapshot ?: 'Tidak terjadwal' }}</td>
+                            <td class="p-3 whitespace-nowrap">{{ $session->scheduled_check_in_at?->format('H:i') ?: '—' }} – {{ $session->scheduled_check_out_at?->format('H:i') ?: '—' }}@if($session->scheduled_check_out_at && $session->scheduled_check_in_at && ! $session->scheduled_check_out_at->isSameDay($session->scheduled_check_in_at))<span class="block text-xs">(+1 hari)</span>@endif</td>
+                            <td class="p-3">{{ $session->check_in_at?->format('d/m H:i') ?: '—' }}</td>
+                            <td class="p-3">{{ $session->check_out_at?->format('d/m H:i') ?: ($session->status === 'present' && $session->check_in_at ? 'Masih bekerja' : '—') }}@if($session->check_out_source === 'automatic')<span class="block text-xs text-amber-600">Otomatis 14 jam</span>@endif</td>
+                            <td class="p-3 whitespace-nowrap">@if($session->durationMinutes() !== null){{ intdiv($session->durationMinutes(),60) }}j {{ $session->durationMinutes()%60 }}m @else—@endif</td>
+                            <td class="p-3">{{ $session->statusLabel() }}</td><td class="p-3 {{ $session->punctuality_status === 'late' ? 'text-amber-700 dark:text-amber-300' : '' }}">{{ $session->attendanceRemark() }}</td><td class="p-3">{{ $session->sourceLabel() }}</td><td class="max-w-[220px] p-3 text-xs">{{ $session->notes ?: '—' }}</td>
+                            @if($canCorrect)<td class="p-3"><button wire:click="editSession({{ $session->id }})" class="rounded-lg bg-sky-50 px-3 py-2 text-xs font-bold text-sky-700 dark:bg-sky-950 dark:text-sky-200">Koreksi</button></td>@endif
+                        </tr>@endforeach</tbody></table></div>
+                    </div>
+                @empty<p class="p-10 text-center text-sm text-slate-500 dark:text-slate-300">Belum ada data presensi sesuai tanggal dan filter ini.</p>@endforelse
             </section>
 
             @if($showResetPanel && $canReset)
@@ -72,10 +92,10 @@
                 <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <label class="md:col-span-2"><span class="mb-1 block text-xs font-semibold text-slate-600">Relawan *</span><select wire:model="manualUserId" class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="">Pilih relawan</option>@foreach($users as $user)<option value="{{ $user->id }}">{{ $user->name }} · {{ $user->employee_number ?: 'UID kosong' }}</option>@endforeach</select>@error('manualUserId')<span class="mt-1 block text-xs text-rose-600">{{ $message }}</span>@enderror</label>
                     <label><span class="mb-1 block text-xs font-semibold text-slate-600">Tanggal kerja *</span><input wire:model="manualWorkDate" type="date" class="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm">@error('manualWorkDate')<span class="mt-1 block text-xs text-rose-600">{{ $message }}</span>@enderror</label>
-                    <label><span class="mb-1 block text-xs font-semibold text-slate-600">Status *</span><select wire:model.live="manualStatus" class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="present">Hadir</option><option value="permission">Izin</option><option value="sick">Sakit</option><option value="absent">Tidak hadir</option></select></label>
+                    <label><span class="mb-1 block text-xs font-semibold text-slate-600">Status *</span><select wire:model.live="manualStatus" class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="present">Hadir</option><option value="permission">Izin</option><option value="sick">Sakit</option><option value="absent">Tidak Berangkat</option></select></label>
                     @if($manualStatus === 'present')<label><span class="mb-1 block text-xs font-semibold text-slate-600">Jam masuk *</span><input wire:model="manualCheckIn" type="time" class="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm">@error('manualCheckIn')<span class="mt-1 block text-xs text-rose-600">{{ $message }}</span>@enderror</label><label><span class="mb-1 block text-xs font-semibold text-slate-600">Jam pulang</span><input wire:model="manualCheckOut" type="time" class="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm"><span class="mt-1 block text-[10px] text-slate-400">Jika lebih kecil dari jam masuk, dianggap hari berikutnya.</span></label>@endif
                     <label class="md:col-span-2"><span class="mb-1 block text-xs font-semibold text-slate-600">Catatan</span><input wire:model="manualNotes" type="text" class="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" placeholder="Opsional"></label>
-                    <label class="md:col-span-2"><span class="mb-1 block text-xs font-semibold text-slate-600">Alasan input/koreksi *</span><textarea wire:model="manualReason" rows="3" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Contoh: relawan lupa membawa kartu">@error('manualReason')<span class="mt-1 block text-xs text-rose-600">{{ $message }}</span>@enderror</textarea></label>
+                    <label class="md:col-span-2"><span class="mb-1 block text-xs font-semibold text-slate-600">Alasan input/koreksi *</span><textarea wire:model="manualReason" rows="3" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Contoh: pegawai lupa membawa kartu"></textarea>@error('manualReason')<span class="mt-1 block text-xs text-rose-600">{{ $message }}</span>@enderror</label>
                 </div>
                 <div class="mt-5 flex justify-end"><button type="submit" class="h-11 rounded-xl bg-sky-600 px-5 text-sm font-bold text-white">{{ $sessionId ? 'Simpan koreksi' : 'Tambah presensi' }}</button></div>
             </form>

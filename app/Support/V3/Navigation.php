@@ -66,7 +66,8 @@ final class Navigation
                 $this->item('Laporan keamanan', 'shield', route('v3.security.index'), request()->routeIs('v3.security.*'), $this->allowed($user, 'security.view')),
             ]),
             $this->module('kepegawaian', 'Kepegawaian', 'briefcase', [
-                $this->item('Presensi relawan', 'users', route('v3.attendance.index'), request()->routeIs('v3.attendance.*'), $this->allowed($user, 'attendance.view')),
+                $this->item('Presensi Pegawai', 'users', route('v3.attendance.index'), request()->routeIs('v3.attendance.index'), $this->allowed($user, 'attendance.view')),
+                $this->item('Jam Kerja & Shift', 'calendar', route('v3.attendance.work-schedules'), request()->routeIs('v3.attendance.work-schedules'), $this->allowed($user, 'attendance.schedules')),
             ]),
             $this->module('administrasi', 'Administrasi Sistem', 'settings', [
                 $this->item('Kirim notifikasi', 'alert', route('v3.notifications.broadcast'), request()->routeIs('v3.notifications.broadcast'), $this->allowed($user, 'notifications.manage')),

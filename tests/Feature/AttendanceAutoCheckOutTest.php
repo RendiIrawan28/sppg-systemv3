@@ -4,9 +4,9 @@ use App\Models\AttendanceSession;
 use App\Models\SppgUnit;
 use App\Models\User;
 use Carbon\Carbon;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\IsolatedAttendanceDatabase;
 
-uses(RefreshDatabase::class);
+uses(IsolatedAttendanceDatabase::class);
 
 it('automatically checks out an open attendance session after fourteen hours', function (): void {
     Carbon::setTestNow('2026-08-06 22:30:00');

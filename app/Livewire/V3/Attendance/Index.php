@@ -7,7 +7,9 @@ use App\Models\AttendanceDevice;
 use App\Models\AttendanceRegistrationSession;
 use App\Models\AttendanceSession;
 use App\Models\AttendanceTap;
+use App\Models\Division;
 use App\Models\User;
+use App\Services\AttendanceReportData;
 use App\Services\VolunteerAttendanceService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -27,6 +29,9 @@ class Index extends Component
 
     #[Url(as: 'q')]
     public string $search = '';
+
+    #[Url(as: 'divisi')]
+    public string $filterDivisionId = '';
 
     public ?int $sessionId = null;
 
@@ -268,15 +273,10 @@ class Index extends Component
     public function render()
     {
         $unit = $this->currentUnit();
-        $sessionsQuery = AttendanceSession::query()
-            ->where('sppg_unit_id', $unit->getKey())
-            ->whereDate('work_date', $this->filterDate)
-            ->with(['user.roles', 'user.divisions', 'checkInDevice', 'checkOutDevice'])
-            ->when(trim($this->search) !== '', fn ($query) => $query->whereHas('user', fn ($query) => $query->where('name', 'like', '%'.trim($this->search).'%')->orWhere('employee_number', 'like', '%'.trim($this->search).'%')));
-
-        $summaryQuery = clone $sessionsQuery;
-        $sessions = $sessionsQuery->latest('check_in_at')->latest('id')->get();
-        $summarySessions = $summaryQuery->get();
+        $validDate = validator(['date' => $this->filterDate], ['date' => 'required|date_format:Y-m-d'])->passes();
+        $report = app(AttendanceReportData::class);
+        $sessions = $validDate ? $report->sessions($unit->id, $this->filterDate, $this->filterDate, (int) $this->filterDivisionId ?: null, $this->search) : collect();
+        $summarySessions = $sessions;
         $devices = AttendanceDevice::query()->where('sppg_unit_id', $unit->getKey())->latest()->get();
         $activeRegistration = AttendanceRegistrationSession::query()
             ->where('sppg_unit_id', $unit->getKey())->where('status', 'pending')->where('expires_at', '>', now())
@@ -285,18 +285,25 @@ class Index extends Component
         return view('livewire.v3.attendance.index', [
             ...$this->shellData($unit),
             'sessions' => $sessions,
+            'sessionGroups' => $report->groups($sessions),
+            'divisions' => Division::query()->orderBy('sort_order')->orderBy('name')->get(),
+            'validDate' => $validDate,
             'summary' => [
                 'present' => $summarySessions->where('status', 'present')->pluck('user_id')->unique()->count(),
                 'working' => $summarySessions->where('status', 'present')->whereNull('check_out_at')->count(),
                 'finished' => $summarySessions->where('status', 'present')->whereNotNull('check_out_at')->count(),
                 'other' => $summarySessions->whereIn('status', ['permission', 'sick', 'absent'])->count(),
+                'late' => $summarySessions->where('status', 'present')->where('punctuality_status', 'late')->pluck('user_id')->unique()->count(),
+                'permission' => $summarySessions->where('status', 'permission')->pluck('user_id')->unique()->count(),
+                'sick' => $summarySessions->where('status', 'sick')->pluck('user_id')->unique()->count(),
+                'absent' => $summarySessions->where('status', 'absent')->pluck('user_id')->unique()->count(),
             ],
             'users' => User::query()->where('is_active', true)->orderBy('name')->get(['id', 'name', 'employee_number']),
             'devices' => $devices,
             'activeRegistration' => $activeRegistration,
             'recentTaps' => AttendanceTap::query()
                 ->where('sppg_unit_id', $unit->getKey())
-                ->whereDate('received_at', $this->filterDate)
+                ->when($validDate, fn ($query) => $query->whereDate('received_at', $this->filterDate), fn ($query) => $query->whereRaw('1 = 0'))
                 ->with(['user', 'device'])
                 ->latest('received_at')
                 ->limit(20)
@@ -306,7 +313,8 @@ class Index extends Component
             'canDevices' => $this->allowed('attendance.devices'),
             'canExport' => $this->allowed('attendance.export'),
             'canReset' => auth()->user()->is_super_admin,
-        ])->layout('layouts.v3', ['title' => 'Presensi Relawan']);
+            'canSchedules' => $this->allowed('attendance.schedules'),
+        ])->layout('layouts.v3', ['title' => 'Presensi Pegawai']);
     }
 
     private function resetManualForm(): void

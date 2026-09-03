@@ -7,8 +7,14 @@ it('limits attendance management to the approved roles', function (): void {
     expect(AccessControl::permissionsForRole(UserRole::KepalaSppg->value))->toContain('attendance.devices', 'attendance.correct')
         ->and(AccessControl::permissionsForRole(UserRole::AdminSppg->value))->toContain('attendance.devices', 'attendance.correct')
         ->and(AccessControl::permissionsForRole(UserRole::PengawasKeuangan->value))->toContain('attendance.correct', 'attendance.export')
-        ->not->toContain('attendance.devices')
+        ->not->toContain('attendance.devices', 'attendance.schedules')
         ->and(AccessControl::permissionsForRole(UserRole::Satpam->value))->not->toContain('attendance.view');
+});
+
+it('grants schedule management to administrators and heads only', function (): void {
+    expect(AccessControl::permissionsForRole(UserRole::KepalaSppg->value))->toContain('attendance.schedules')
+        ->and(AccessControl::permissionsForRole(UserRole::AdminSppg->value))->toContain('attendance.schedules')
+        ->and(AccessControl::permissionsForRole(UserRole::Satpam->value))->not->toContain('attendance.schedules');
 });
 
 it('exposes secured device endpoints and volunteer name lcd payloads', function (): void {

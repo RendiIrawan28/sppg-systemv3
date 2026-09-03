@@ -5,16 +5,16 @@ use App\Models\AttendanceDevice;
 use App\Models\AttendanceRegistrationSession;
 use App\Models\AttendanceSession;
 use App\Models\AttendanceTap;
-use App\Models\FieldDistributionPlan;
 use App\Models\SppgUnit;
 use App\Models\User;
+use App\Services\MenuServiceCalendarService;
 use App\Services\VolunteerAttendanceService;
 use Carbon\Carbon;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Tests\Support\IsolatedAttendanceDatabase;
 
-uses(RefreshDatabase::class);
+uses(IsolatedAttendanceDatabase::class);
 
 beforeEach(function (): void {
     Carbon::setTestNow(Carbon::parse('2026-08-03T09:00:00+07:00'));
@@ -134,17 +134,10 @@ it('stores an offline UTC tap using the local application time', function (): vo
         ->and($tap->is_offline)->toBeTrue();
 });
 
-it('allows warehouse and H-1 divisions to check in on a holiday before an active service day', function (): void {
+it('allows attendance independently of service holidays and menu planning', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-08-23T09:00:00+07:00'));
     $this->user->assignRole(Role::findOrCreate(UserRole::StafGudang->value, 'web'));
-    FieldDistributionPlan::query()->create([
-        'sppg_unit_id' => $this->unit->id,
-        'distribution_date' => '2026-08-24',
-        'service_date' => '2026-08-24',
-        'production_date' => '2026-08-23',
-        'status' => 'activated',
-        'planned_total_portions' => 100,
-    ]);
+    $this->mock(MenuServiceCalendarService::class)->shouldNotReceive('holidayFor');
 
     $response = app(VolunteerAttendanceService::class)
         ->recordTap($this->device, 'A1B2C3D4', 'tap-h1');
@@ -180,8 +173,8 @@ it('renders the attendance workspace for an authorized user', function (): void 
     $this->actingAs($this->user)
         ->get('/v3/presensi-relawan')
         ->assertOk()
-        ->assertSee('Kehadiran relawan SPPG')
-        ->assertSee('Kehadiran per tanggal masuk');
+        ->assertSee('Kehadiran pegawai SPPG')
+        ->assertSee('Kehadiran per tanggal kerja');
 });
 
 it('exports attendance reports as pdf and excel for authorized users', function (): void {

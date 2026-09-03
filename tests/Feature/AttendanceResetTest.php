@@ -6,11 +6,11 @@ use App\Models\AttendanceSession;
 use App\Models\AttendanceTap;
 use App\Models\SppgUnit;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
+use Tests\Support\IsolatedAttendanceDatabase;
 
-uses(RefreshDatabase::class);
+uses(IsolatedAttendanceDatabase::class);
 
 beforeEach(function (): void {
     $this->unit = SppgUnit::query()->create([

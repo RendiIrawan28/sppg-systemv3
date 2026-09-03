@@ -66,7 +66,7 @@ final class AccessControl
             'incidents' => ['view', 'create', 'update', 'close'],
             'sanitation' => ['view', 'manage', 'verify'],
             'security' => ['view', 'create', 'update', 'close'],
-            'attendance' => ['view', 'manage', 'correct', 'export', 'devices'],
+            'attendance' => ['view', 'manage', 'correct', 'export', 'devices', 'schedules'],
 
             'finance' => ['view', 'create', 'update', 'verify', 'approve', 'close_period', 'export'],
             'head_dashboard' => ['view'],
@@ -174,7 +174,7 @@ final class AccessControl
             ...self::module('incidents', ['view', 'close']),
             ...self::module('sanitation', ['view']),
             ...self::module('security', ['view']),
-            ...self::module('attendance', ['view', 'manage', 'correct', 'export', 'devices']),
+            ...self::module('attendance', ['view', 'manage', 'correct', 'export', 'devices', 'schedules']),
 
             // Modul khusus Kepala SPPG.
             'head_dashboard.view',
@@ -213,7 +213,7 @@ final class AccessControl
             ...self::module('field_incidents', ['view']),
             ...self::module('incidents', ['view']),
             ...self::module('security', ['view']),
-            ...self::module('attendance', ['view', 'manage', 'correct', 'export', 'devices']),
+            ...self::module('attendance', ['view', 'manage', 'correct', 'export', 'devices', 'schedules']),
         ];
     }
 

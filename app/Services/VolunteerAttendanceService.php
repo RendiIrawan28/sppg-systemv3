@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Enums\UserRole;
 use App\Models\AttendanceDevice;
 use App\Models\AttendanceRegistrationSession;
 use App\Models\AttendanceSession;
@@ -74,6 +73,11 @@ class VolunteerAttendanceService
         }
 
         return DB::transaction(function () use ($device, $uid, $requestId, $eventAt, $offline): array {
+            AttendanceDevice::query()->whereKey($device->id)->lockForUpdate()->firstOrFail();
+            $existing = AttendanceTap::query()->where('attendance_device_id', $device->id)->where('request_id', $requestId)->first();
+            if ($existing) {
+                return $existing->response_payload ?? [];
+            }
             if ($registration = $this->pendingRegistration($device, lock: true)) {
                 return $this->completeRegistration($device, $registration, $uid, $requestId, $eventAt, $offline);
             }
@@ -81,6 +85,7 @@ class VolunteerAttendanceService
             $user = User::query()
                 ->where('is_active', true)
                 ->whereRaw("UPPER(REPLACE(REPLACE(employee_number, ' ', ''), '-', '')) = ?", [$uid])
+                ->lockForUpdate()
                 ->first();
 
             if (! $user) {
@@ -96,6 +101,7 @@ class VolunteerAttendanceService
                 ->where('sppg_unit_id', $device->sppg_unit_id)
                 ->where('user_id', $user->getKey())
                 ->where('status', 'present')
+                ->where('check_in_at', '<=', $eventAt)
                 ->latest('check_in_at')
                 ->lockForUpdate()
                 ->first();
@@ -153,29 +159,57 @@ class VolunteerAttendanceService
                 }
             }
 
-            $holiday = app(MenuServiceCalendarService::class)->holidayFor((int) $device->sppg_unit_id, $eventAt);
-            $allowedForPreService = $holiday
-                && $this->isPreServiceWorker($user)
-                && app(MenuServiceCalendarService::class)->hasServiceOnNextDay((int) $device->sppg_unit_id, $eventAt);
-            if ($holiday && ! $allowedForPreService) {
-                return $this->storeTap($device, $user, null, $uid, $requestId, 'service_holiday', 'blocked', 'Libur pelayanan.', $eventAt, $offline, [
-                    'status' => 'success',
-                    'action' => 'service_holiday',
-                    'pegawai' => $user->name,
-                    'message' => "Presensi masuk ditutup karena {$holiday->name}.",
-                    'recorded_at' => $eventAt->toIso8601String(),
+            $resolver = app(AttendanceWorkScheduleResolver::class);
+            $schedule = $resolver->resolveForTap($user, (int) $device->sppg_unit_id, $eventAt);
+            $workDate = $schedule?->workDate ?? $eventAt->toDateString();
+            $dayRecords = AttendanceSession::query()->where('sppg_unit_id', $device->sppg_unit_id)
+                ->where('user_id', $user->id)->whereDate('work_date', $workDate)->lockForUpdate()->get();
+            $conflict = $dayRecords->first(fn ($row) => in_array($row->status, ['permission', 'sick', 'absent'], true)
+                && ! ($row->status === 'absent' && $row->source === 'system_absence' && ! $row->check_in_at));
+            if ($conflict) {
+                return $this->storeTap($device, $user, $conflict, $uid, $requestId, 'attendance_status_conflict', 'blocked', 'Status presensi perlu dikoreksi admin.', $eventAt, $offline, [
+                    'status' => 'error', 'action' => 'attendance_status_conflict', 'pegawai' => $user->name,
+                    'message' => 'Sudah ada izin, sakit, atau ketidakhadiran manual pada tanggal kerja ini. Hubungi admin untuk koreksi.',
                 ]);
             }
-
-            $session = AttendanceSession::query()->create([
+            if ($dayRecords->contains(fn ($row) => $row->status === 'present' && $row->check_in_at?->gt($eventAt))) {
+                return $this->storeTap($device, $user, null, $uid, $requestId, 'attendance_status_conflict', 'blocked', 'Urutan tap perlu diperiksa admin.', $eventAt, $offline, [
+                    'status' => 'error', 'action' => 'attendance_status_conflict', 'pegawai' => $user->name,
+                    'message' => 'Tap ini lebih awal dari presensi yang sudah tersimpan. Hubungi admin untuk koreksi agar tidak membuat sesi ganda.',
+                ]);
+            }
+            $snapshot = $schedule?->snapshot($eventAt) ?? $resolver->unscheduledSnapshot($user, (int) $device->sppg_unit_id);
+            if ($dayRecords->contains('status', 'present')) {
+                $snapshot['late_minutes'] = 0;
+                $snapshot['punctuality_status'] = null;
+            }
+            $session = $dayRecords->first(fn ($row) => $row->status === 'absent' && $row->source === 'system_absence' && ! $row->check_in_at);
+            if ($session?->scheduled_check_in_at) {
+                $snapshot = $session->only(AttendanceSession::SCHEDULE_FIELDS);
+                $late = max(0, (int) floor($session->scheduled_check_in_at->copy()->addMinutes($session->late_tolerance_minutes_snapshot ?? 0)->diffInSeconds($eventAt, false) / 60));
+                $snapshot['late_minutes'] = $late;
+                $snapshot['punctuality_status'] = $late > 0 ? 'late' : 'on_time';
+            }
+            $before = $session?->toArray();
+            $session ??= new AttendanceSession;
+            $session->fill([
+                ...$snapshot,
                 'sppg_unit_id' => $device->sppg_unit_id,
                 'user_id' => $user->getKey(),
-                'work_date' => $eventAt->toDateString(),
+                'work_date' => $workDate,
                 'check_in_at' => $eventAt,
                 'check_in_device_id' => $device->getKey(),
                 'source' => $offline ? 'rfid_offline' : 'rfid',
                 'status' => 'present',
-            ]);
+                'notes' => $before ? 'Ketidakhadiran otomatis diperbarui berdasarkan waktu tap RFID.' : null,
+            ])->save();
+            if ($before) {
+                AttendanceSessionHistory::query()->create([
+                    'attendance_session_id' => $session->id, 'actor_id' => $user->id,
+                    'action' => 'auto_absence_reconciled', 'before_data' => $before, 'after_data' => $session->toArray(),
+                    'reason' => 'Rekonsiliasi otomatis berdasarkan tap kartu pegawai; bukan koreksi manual.',
+                ]);
+            }
 
             return $this->storeTap($device, $user, $session, $uid, $requestId, 'check_in', 'success', 'Presensi masuk berhasil.', $eventAt, $offline, [
                 'status' => 'success',
@@ -185,24 +219,6 @@ class VolunteerAttendanceService
                 'recorded_at' => $eventAt->toIso8601String(),
             ]);
         });
-    }
-
-    private function isPreServiceWorker(User $user): bool
-    {
-        if ($user->is_super_admin) {
-            return true;
-        }
-
-        return $user->hasAnyRole([
-            UserRole::AdminSppg->value,
-            UserRole::KepalaSppg->value,
-            UserRole::StafGudang->value,
-            UserRole::KepalaDivisiPersiapan->value,
-            UserRole::PetugasPersiapan->value,
-            UserRole::KepalaDivisiPengolahan->value,
-            UserRole::PetugasPengolahan->value,
-            UserRole::Satpam->value,
-        ]);
     }
 
     public function autoCheckOutOverdue(?Carbon $asOf = null): int
@@ -256,10 +272,55 @@ class VolunteerAttendanceService
         ?AttendanceSession $session = null,
     ): AttendanceSession {
         return DB::transaction(function () use ($unitId, $user, $attributes, $actor, $reason, $session): AttendanceSession {
-            $before = $session?->only(['user_id', 'work_date', 'check_in_at', 'check_out_at', 'status', 'notes']);
+            User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            if ($session) {
+                $session = AttendanceSession::query()->where('sppg_unit_id', $unitId)->lockForUpdate()->findOrFail($session->id);
+            } else {
+                $sameDay = AttendanceSession::query()->where('sppg_unit_id', $unitId)->where('user_id', $user->id)
+                    ->whereDate('work_date', $attributes['work_date'])->lockForUpdate()->get();
+                $session = $sameDay->first(fn ($row) => $row->status === 'absent' && $row->source === 'system_absence' && ! $row->check_in_at);
+                if ($sameDay->isNotEmpty() && ! $session) {
+                    throw ValidationException::withMessages(['manualUserId' => 'Presensi tanggal ini sudah ada. Gunakan tombol Koreksi agar tidak membuat data ganda.']);
+                }
+            }
+            $auditFields = ['user_id', 'work_date', 'check_in_at', 'check_out_at', 'status', 'notes', ...AttendanceSession::SCHEDULE_FIELDS];
+            $before = $session?->only($auditFields);
+            $resolver = app(AttendanceWorkScheduleResolver::class);
+            $schedule = $resolver->resolveForUserAndWorkDate($user, $unitId, Carbon::parse($attributes['work_date']));
+            $checkIn = ! empty($attributes['check_in_at']) ? Carbon::parse($attributes['check_in_at']) : null;
+            $checkOut = ! empty($attributes['check_out_at']) ? Carbon::parse($attributes['check_out_at']) : null;
+            $preserveSnapshot = $session && $session->user_id === $user->id && $session->work_date->toDateString() === $attributes['work_date'];
+            $start = $preserveSnapshot ? $session->scheduled_check_in_at : $schedule?->startsAt;
+            $end = $preserveSnapshot ? $session->scheduled_check_out_at : $schedule?->endsAt;
+            if ($checkIn && $start && $end && $end->toDateString() > $start->toDateString()
+                && $checkIn->format('H:i:s') <= $end->format('H:i:s')) {
+                $checkIn = Carbon::parse($end->toDateString().' '.$checkIn->format('H:i:s'));
+                if ($checkOut) {
+                    $checkOut = Carbon::parse($checkIn->toDateString().' '.$checkOut->format('H:i:s'));
+                    if ($checkOut->lt($checkIn)) {
+                        $checkOut->addDay();
+                    }
+                }
+            }
+            $snapshot = $preserveSnapshot ? $session->only(AttendanceSession::SCHEDULE_FIELDS)
+                : ($schedule?->snapshot() ?? $resolver->unscheduledSnapshot($user, $unitId));
+            $late = $checkIn && $start ? max(0, (int) floor($start->copy()->addMinutes($snapshot['late_tolerance_minutes_snapshot'] ?? 0)->diffInSeconds($checkIn, false) / 60)) : 0;
+            $snapshot['late_minutes'] = $attributes['status'] === 'present' ? $late : 0;
+            $snapshot['punctuality_status'] = $attributes['status'] === 'present' && $start ? ($late > 0 ? 'late' : 'on_time') : null;
+            $earlierPresent = $checkIn && AttendanceSession::query()->where('sppg_unit_id', $unitId)->where('user_id', $user->id)
+                ->whereDate('work_date', $attributes['work_date'])->where('status', 'present')
+                ->when($session, fn ($q) => $q->where('id', '!=', $session->id))
+                ->where('check_in_at', '<', $checkIn)->exists();
+            if ($earlierPresent) {
+                $snapshot['late_minutes'] = 0;
+                $snapshot['punctuality_status'] = null;
+            }
             $session ??= new AttendanceSession;
             $session->fill([
                 ...$attributes,
+                ...$snapshot,
+                'check_in_at' => $attributes['status'] === 'present' ? $checkIn : null,
+                'check_out_at' => $attributes['status'] === 'present' ? $checkOut : null,
                 'sppg_unit_id' => $unitId,
                 'user_id' => $user->getKey(),
                 'source' => 'manual',
@@ -272,7 +333,7 @@ class VolunteerAttendanceService
                 'actor_id' => $actor->getKey(),
                 'action' => $before ? 'corrected' : 'created_manual',
                 'before_data' => $before,
-                'after_data' => $session->only(['user_id', 'work_date', 'check_in_at', 'check_out_at', 'status', 'notes']),
+                'after_data' => $session->only($auditFields),
                 'reason' => trim($reason),
             ]);
 
