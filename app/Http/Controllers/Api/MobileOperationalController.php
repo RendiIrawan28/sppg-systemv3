@@ -62,6 +62,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -148,10 +149,6 @@ class MobileOperationalController extends Controller
     ): JsonResponse {
         $definition = $registry->authorize($request->user(), $module);
 
-        if ($module === 'kebersihan') {
-            $cleaningSchedule->ensureForDate($systemUnit->id(), now()->toDateString(), $request->user());
-        }
-
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', 'string', 'max:50'],
@@ -160,6 +157,13 @@ class MobileOperationalController extends Controller
             'view' => ['nullable', Rule::in(['active'])],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
+        // Reading an earlier date must not create today's (or backdated) work.
+        $today = now()->toDateString();
+        if ($module === 'kebersihan'
+            && (empty($filters['date_from']) || Carbon::parse($filters['date_from'])->toDateString() <= $today)
+            && (empty($filters['date_to']) || Carbon::parse($filters['date_to'])->toDateString() >= $today)) {
+            $cleaningSchedule->ensureForDate($systemUnit->id(), $today, $request->user());
+        }
         $includeCrossDayWorkflow = in_array($module, ['persiapan', 'pengolahan', 'pemorsian'], true)
             && blank($filters['view'] ?? null)
             && ($filters['date_from'] ?? null) === now()->toDateString()
@@ -1516,6 +1520,13 @@ class MobileOperationalController extends Controller
     /** @param array<string, mixed> $definition */
     private function applyActiveWorkflowScope(Builder $query, string $module, array $definition): void
     {
+        // Unstarted cleaning work can still be completed on a later day.
+        if ($module === 'kebersihan') {
+            $query->whereIn('state', ['planned', 'in_progress']);
+
+            return;
+        }
+
         $activeStates = match ($module) {
             'persiapan', 'pengolahan', 'pemorsian' => ['planned', 'in_progress'],
             'distribusi' => ['planned', 'assigned', 'loaded', 'departed', 'destinations_completed'],

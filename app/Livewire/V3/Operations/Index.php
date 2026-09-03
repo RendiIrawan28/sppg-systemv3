@@ -53,7 +53,9 @@ class Index extends Component
 
         $model = $definition['model'];
         $actor = auth()->user();
-        if ($this->module === 'kebersihan' && $actor->can('cleaning.view')) {
+        $selectedDate = $this->selectedWorkDate();
+        if ($this->module === 'kebersihan' && $selectedDate === now()->toDateString()
+            && $actor->can('cleaning.view')) {
             app(CleaningScheduleService::class)->ensureForDate($unit, now()->toDateString(), $actor);
         }
 
@@ -78,18 +80,18 @@ class Index extends Component
 
         $terminalStates = match ($this->module) {
             'distribusi' => ['returned', 'cancelled'],
-            'pencucian', 'kebersihan' => ['completed'],
+            'pencucian', 'kebersihan' => ['completed', 'ready'],
             default => ['completed', 'cancelled'],
         };
         $attentionRecords = (clone $query)
-            ->whereDate($definition['date'], '!=', $this->selectedWorkDate())
+            ->whereDate($definition['date'], '!=', $selectedDate)
             ->whereNotIn('state', $terminalStates)
             ->latest($definition['date'])
             ->limit(10)
             ->get();
 
         $selectedDateQuery = (clone $query)
-            ->whereDate($definition['date'], $this->selectedWorkDate());
+            ->whereDate($definition['date'], $selectedDate);
         $washingSummary = $this->module === 'pencucian' ? [
             'waiting' => (clone $selectedDateQuery)->where('state', 'planned')->count(),
             'washing' => (clone $selectedDateQuery)->whereIn('state', ['received', 'washing'])->count(),
@@ -172,6 +174,7 @@ class Index extends Component
             'periodStart' => $this->periodStart,
             'periodEnd' => $this->periodEnd,
             'cleaningAreas' => $cleaningAreas,
+            'selectedDate' => $selectedDate,
         ])->layout('layouts.v3', ['title' => $definition['label']]);
     }
 }

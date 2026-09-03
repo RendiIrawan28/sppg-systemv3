@@ -35,7 +35,8 @@ trait FiltersByWorkDate
 
     protected function selectedWorkDate(): string
     {
-        if (blank($this->workDate)) {
+        if (! preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $this->workDate, $parts)
+            || ! checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])) {
             $this->workDate = now()->toDateString();
         }
 
@@ -51,6 +52,7 @@ trait FiltersByWorkDate
 
     private function workDateWasChanged(): void
     {
+        $this->selectedWorkDate();
         $this->resetWorkDatePagination();
 
         if (method_exists($this, 'afterWorkDateChanged')) {

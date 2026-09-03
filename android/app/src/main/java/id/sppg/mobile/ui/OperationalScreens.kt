@@ -115,13 +115,23 @@ fun OperationalRecordListScreen(
     onRecordClick: (Long) -> Unit,
     onCreate: () -> Unit,
 ) {
-    LaunchedEffect(module) { onLoad(module) }
+    LaunchedEffect(module) {
+        // Keep the selected cleaning date when returning from a checklist.
+        if (module == "kebersihan" && state.activeModule == module) onRefresh() else onLoad(module)
+    }
     val context = LocalContext.current
-    var showHistory by remember(module) { mutableStateOf(false) }
-    var historyDate by remember(module) { mutableStateOf(LocalDate.now()) }
+    var showHistory by remember(module) {
+        mutableStateOf(module == "kebersihan" && state.activeModule == module && state.dateFilter != null)
+    }
+    var historyDate by remember(module) {
+        mutableStateOf(
+            if (state.activeModule == module) runCatching { LocalDate.parse(state.dateFilter) }.getOrNull() ?: LocalDate.now()
+            else LocalDate.now()
+        )
+    }
     var stockSearch by remember(module) { mutableStateOf("") }
     val isStockCard = module in setOf("gudang-stok", "gudang-stok-non-pangan")
-    val displayedRecords = state.records.filter { it.isHistory == showHistory }
+    val displayedRecords = state.records.filter { it.visibleInWorkHistory(module, showHistory) }
     val selectedDateLabel = operationalDateDisplay(
         (state.dateFilter ?: LocalDate.now().format(apiDateFormatter)),
         "date",
@@ -237,6 +247,15 @@ fun OperationalRecordListScreen(
                 }
                 if (showHistory) {
                     item { HistoryDateSelector(selectedDateLabel, ::selectHistoryDate) }
+                    if (module == "kebersihan") {
+                        item {
+                            Text(
+                                "Semua pekerjaan pada tanggal yang dipilih ditampilkan dengan status aslinya, termasuk yang belum selesai.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
                 if (!showHistory && module == "distribusi") {
                     item {
@@ -256,11 +275,18 @@ fun OperationalRecordListScreen(
                     item {
                         if (isStockCard && stockSearch.isNotBlank()) {
                             OperationalEmptyCard("Bahan atau barang yang dicari tidak ditemukan")
+                        } else if (showHistory && module == "kebersihan") {
+                            OperationalEmptyCard("Belum ada pekerjaan yang tercatat pada $selectedDateLabel")
                         } else if (showHistory) HistoryEmptyState()
                         else OperationalEmptyCard("Belum ada pekerjaan untuk hari ini")
                     }
                 } else {
-                    item { OperationalListSectionTitle(if (showHistory) "PEKERJAAN SELESAI" else "PERLU DIKERJAKAN") }
+                    item {
+                        OperationalListSectionTitle(
+                            if (showHistory && module == "kebersihan") "PEKERJAAN PADA TANGGAL INI"
+                            else if (showHistory) "PEKERJAAN SELESAI" else "PERLU DIKERJAKAN"
+                        )
+                    }
                     items(displayedRecords, key = { it.id }) { record ->
                         OperationalRecordCard(
                             module = module,

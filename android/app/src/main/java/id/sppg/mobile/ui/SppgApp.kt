@@ -418,7 +418,7 @@ private fun AuthenticatedContent(
                 operationalViewModel.loadRecords(
                     it,
                     force = true,
-                    date = if (it.startsWith("gudang-stok") || it == "pengolahan") null else LocalDate.now().toString(),
+                    date = if (it.startsWith("gudang-stok") || it in setOf("pengolahan", "kebersihan")) null else LocalDate.now().toString(),
                 )
             },
             onRefresh = operationalViewModel::refreshRecords,

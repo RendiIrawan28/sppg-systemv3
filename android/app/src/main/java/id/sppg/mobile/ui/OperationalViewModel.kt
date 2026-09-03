@@ -42,8 +42,10 @@ data class OperationalUiState(
 class OperationalViewModel(private val repository: OperationalRepository) : ViewModel() {
     private val _uiState = MutableStateFlow(OperationalUiState())
     val uiState: StateFlow<OperationalUiState> = _uiState.asStateFlow()
+    private var recordsRequestVersion = 0L
 
     fun resetSession() {
+        recordsRequestVersion++
         _uiState.value = OperationalUiState()
     }
 
@@ -71,6 +73,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         if (!force && current.activeModule == module && current.records.isNotEmpty()
             && current.statusFilter == status && current.dateFilter == date
             && current.searchFilter == search) return
+        val requestVersion = ++recordsRequestVersion
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -89,6 +92,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
             }
             repository.getRecords(module, page = 1, status = status, date = date, search = search)
                 .onSuccess { page ->
+                    if (requestVersion != recordsRequestVersion) return@onSuccess
                     _uiState.update {
                         it.copy(
                             records = page.records,
@@ -97,8 +101,14 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                         )
                     }
                 }
-                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
-            _uiState.update { it.copy(isLoading = false) }
+                .onFailure { error ->
+                    if (requestVersion == recordsRequestVersion) {
+                        _uiState.update { it.copy(errorMessage = error.message) }
+                    }
+                }
+            if (requestVersion == recordsRequestVersion) {
+                _uiState.update { it.copy(isLoading = false) }
+            }
         }
     }
 
@@ -106,6 +116,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         val current = _uiState.value
         val module = current.activeModule ?: return
         if (current.isLoading || current.isLoadingMore || current.currentPage >= current.lastPage) return
+        val requestVersion = recordsRequestVersion
 
         viewModelScope.launch {
             val nextPage = _uiState.value.currentPage + 1
@@ -118,6 +129,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                 search = current.searchFilter,
             )
                 .onSuccess { page ->
+                    if (requestVersion != recordsRequestVersion) return@onSuccess
                     _uiState.update { state ->
                         state.copy(
                             records = (state.records + page.records).distinctBy { it.id },
@@ -126,8 +138,14 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                         )
                     }
                 }
-                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
-            _uiState.update { it.copy(isLoadingMore = false) }
+                .onFailure { error ->
+                    if (requestVersion == recordsRequestVersion) {
+                        _uiState.update { it.copy(errorMessage = error.message) }
+                    }
+                }
+            if (requestVersion == recordsRequestVersion) {
+                _uiState.update { it.copy(isLoadingMore = false) }
+            }
         }
     }
 
