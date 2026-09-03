@@ -269,7 +269,7 @@ final class AccessControl
         return [
             'dashboard.view', 'reports.view', 'reports.export',
             ...self::module('finance', ['view', 'verify', 'approve', 'export']),
-            ...self::module('attendance', ['view', 'correct', 'export']),
+            ...self::module('attendance', ['view', 'manage', 'correct', 'export', 'devices', 'schedules']),
             ...self::module('procurement', ['view', 'update', 'price_input', 'approve', 'export', 'submit']),
             ...self::module('non_food_procurement', ['view', 'update']),
             ...self::module('stock', ['view']),
