@@ -11,10 +11,10 @@ use App\Models\WarehouseWithdrawal;
 use App\Services\OpeningStockService;
 use App\Services\WarehouseWithdrawalService;
 use App\Support\AccessControl;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
+use Tests\Support\IsolatedStockCardDatabase;
 
-uses(RefreshDatabase::class);
+uses(IsolatedStockCardDatabase::class);
 
 beforeEach(function (): void {
     $this->unit = SppgUnit::query()->create([

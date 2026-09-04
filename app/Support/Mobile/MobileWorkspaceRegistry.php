@@ -1077,7 +1077,7 @@ class MobileWorkspaceRegistry
     {
         return [
             'label' => $nonFood ? 'Kartu Stok Non-Pangan' : 'Kartu Stok Pangan',
-            'description' => 'Lihat saldo barang, lokasi penyimpanan, masa kedaluwarsa, dan riwayat mutasi.',
+            'description' => $nonFood ? 'Lihat saldo barang, lokasi penyimpanan, masa kedaluwarsa, dan riwayat mutasi.' : 'Satu kartu per bahan. Buka untuk melihat seluruh lot, saldo total, dan riwayat mutasi.',
             'model' => InventoryLot::class,
             'with' => $nonFood ? ['nonFoodItem'] : ['ingredient'],
             'permission' => $nonFood ? 'non_food_stock' : 'stock',

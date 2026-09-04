@@ -10,11 +10,11 @@ use App\Models\Supplier;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\StockReceiptService;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Tests\Support\IsolatedStockCardDatabase;
 
-uses(RefreshDatabase::class);
+uses(IsolatedStockCardDatabase::class);
 
 beforeEach(function (): void {
     Storage::fake('public');

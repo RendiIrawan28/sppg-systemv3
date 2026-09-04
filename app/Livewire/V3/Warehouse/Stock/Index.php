@@ -5,8 +5,9 @@ namespace App\Livewire\V3\Warehouse\Stock;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\InventoryLot;
 use App\Models\StockMovement;
-use App\Models\WarehouseWithdrawal;
 use App\Models\Warehouse;
+use App\Models\WarehouseWithdrawal;
+use App\Services\WarehouseStockCardService;
 use App\Support\V3\OperationsPresentation;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Url;
@@ -27,6 +28,9 @@ class Index extends Component
     #[Url(as: 'gudang', history: true)]
     public string $warehouseType = Warehouse::TYPE_FOOD;
 
+    #[Url(as: 'bahan', history: true)]
+    public ?int $ingredientId = null;
+
     public function mount(): void
     {
         $this->currentUnit();
@@ -45,6 +49,7 @@ class Index extends Component
 
     public function updatedWarehouseType(): void
     {
+        $this->ingredientId = null;
         if (! in_array($this->warehouseType, [Warehouse::TYPE_FOOD, Warehouse::TYPE_NON_FOOD], true)) {
             $this->warehouseType = Warehouse::TYPE_FOOD;
         }
@@ -65,7 +70,7 @@ class Index extends Component
                     ->orWhere('supplier_batch_number', 'like', "%{$search}%"));
             })
             ->when($this->type !== 'all', fn ($query) => $query->where('movement_type', $this->type));
-        $balances = StockMovement::query()
+        $balances = $warehouse->type === Warehouse::TYPE_FOOD ? collect() : StockMovement::query()
             ->where('sppg_unit_id', $unit->getKey())
             ->where('warehouse_id', $warehouse->getKey())
             ->select([
@@ -81,6 +86,20 @@ class Index extends Component
             ->groupBy('ingredient_id', 'non_food_item_id', 'ingredient_name_snapshot', 'unit_snapshot')
             ->orderBy('ingredient_name_snapshot')
             ->get();
+        $card = null;
+        $ledger = collect();
+        $cardLots = collect();
+        if ($warehouse->type === Warehouse::TYPE_FOOD) {
+            $cards = app(WarehouseStockCardService::class);
+            $balances = $cards->cards($unit->getKey(), $warehouse->getKey(), $this->search);
+            if ($this->ingredientId !== null) {
+                $card = $cards->cards($unit->getKey(), $warehouse->getKey(), ingredientId: $this->ingredientId)->first();
+                abort_unless($card, 404);
+                $ledger = $cards->ledger($unit->getKey(), $warehouse->getKey(), $this->ingredientId);
+                $cardLots = $cards->detailLots($unit->getKey(), $warehouse->getKey(), $this->ingredientId);
+                $movements->where('ingredient_id', $this->ingredientId);
+            }
+        }
         $lots = InventoryLot::query()->with(['ingredient', 'nonFoodItem'])
             ->where('sppg_unit_id', $unit->getKey())->where('warehouse_id', $warehouse->getKey())->where('balance_quantity', '>', 0)
             ->orderByRaw('expired_date IS NULL')->orderBy('expired_date')->limit(100)->get();
@@ -92,11 +111,14 @@ class Index extends Component
             ...$this->shellData($unit),
             'balances' => $balances,
             'lots' => $lots,
+            'card' => $card,
+            'ledger' => $ledger,
+            'cardLots' => $cardLots,
             'movements' => $movements->orderByDesc('movement_date')->orderByDesc('created_at')->paginate(15),
             'types' => OperationsPresentation::movementTypes(),
             'ingredientCount' => $balances->count(),
             'unitCount' => $balances->pluck('unit_snapshot')->filter()->unique()->count(),
-            'activeLotCount' => $lots->count(),
+            'activeLotCount' => $warehouse->type === Warehouse::TYPE_FOOD ? $balances->sum('active_lot_count') : $lots->count(),
             'pendingCount' => $pendingCount,
             'warehouse' => $warehouse,
         ])->layout('layouts.v3', ['title' => 'Kartu Stok']);

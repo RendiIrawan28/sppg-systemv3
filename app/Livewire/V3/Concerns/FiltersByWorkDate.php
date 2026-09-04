@@ -35,12 +35,36 @@ trait FiltersByWorkDate
 
     protected function selectedWorkDate(): string
     {
-        if (! preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $this->workDate, $parts)
-            || ! checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])) {
+        $normalized = $this->normalizeWorkDate($this->workDate);
+        if ($normalized === null) {
             $this->workDate = now()->toDateString();
+        } else {
+            $this->workDate = $normalized;
         }
 
         return $this->workDate;
+    }
+
+    private function normalizeWorkDate(string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+
+        foreach (['Y-m-d', 'd-m-Y', 'd/m/Y', 'Y/m/d'] as $format) {
+            try {
+                $date = CarbonImmutable::createFromFormat('!'.$format, $value);
+            } catch (\Throwable) {
+                $date = false;
+            }
+
+            if ($date !== false && $date->format($format) === $value) {
+                return $date->toDateString();
+            }
+        }
+
+        return null;
     }
 
     private function resetWorkDatePagination(): void

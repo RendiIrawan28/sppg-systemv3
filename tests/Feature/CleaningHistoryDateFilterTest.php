@@ -184,7 +184,19 @@ it('normalizes malformed dates before navigation and resets pagination', functio
     expect($filter->selected())->toBe('2026-09-02');
     $filter->nextWorkDate();
     expect($filter->selected())->toBe('2026-09-03');
-})->with(['', 'invalid-date', '2026-02-30', '2026-13-01', '03/09/2026']);
+})->with(['', 'invalid-date', '2026-02-30', '2026-13-01']);
+
+it('accepts Indonesian display date formats in the web cleaning date filter', function (string $value): void {
+    $filter = new class
+    {
+        use FiltersByWorkDate;
+        public function selected(): string { return $this->selectedWorkDate(); }
+    };
+    $filter->workDate = $value;
+
+    expect($filter->selected())->toBe('2026-09-02')
+        ->and($filter->workDate)->toBe('2026-09-02');
+})->with(['02-09-2026', '02/09/2026']);
 
 it('compiles the cleaning date list and detail templates', function (string $view): void {
     $compiled = app('blade.compiler')->compileString(file_get_contents(resource_path('views/livewire/v3/operations/'.$view.'.blade.php')));

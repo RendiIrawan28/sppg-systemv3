@@ -26,13 +26,24 @@
 
         <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <p class="text-[10px] font-bold uppercase tracking-[.16em] text-sky-700">Saldo resmi saat ini</p>
-            <h3 class="mt-1 text-lg font-bold text-slate-950">Ringkasan per barang dan satuan</h3>
+            <h3 class="mt-1 text-lg font-bold text-slate-950">Ringkasan per barang</h3>
+            @if($warehouseType === 'food')
+                <div class="mt-3 flex flex-wrap gap-3">
+                    <input wire:model.live.debounce.350ms="search" type="search" placeholder="Cari nama/kode bahan atau lokasi..." class="h-11 flex-1 rounded-xl border border-slate-200 px-4 text-sm">
+                    <a href="{{ route('v3.warehouse.stock.export', ['q' => $search]) }}" class="rounded-xl bg-sky-700 px-4 py-3 text-sm font-bold text-white">Ekspor rekap CSV</a>
+                </div>
+            @endif
             <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 @forelse ($balances as $balance)
                     <article class="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
                         <p class="text-sm font-bold text-slate-800">{{ $balance->ingredient_name_snapshot }}</p>
                         <p class="mt-1 text-[10px] text-slate-400">Mutasi terakhir {{ $balance->last_movement_date ? \Illuminate\Support\Carbon::parse($balance->last_movement_date)->translatedFormat('d M Y') : '—' }}</p>
-                        <p class="mt-4 text-2xl font-bold {{ (float) $balance->balance_quantity < 0 ? 'text-rose-700' : 'text-slate-950' }}">{{ number_format((float) $balance->balance_quantity, 3, ',', '.') }} <span class="text-sm font-semibold text-slate-400">{{ $balance->unit_snapshot }}</span></p>
+                        <p class="mt-4 text-2xl font-bold {{ (float) $balance->balance_quantity < 0 ? 'text-rose-700' : 'text-slate-950' }}">{{ $balance->balance_quantity === null ? 'Periksa satuan' : number_format((float) $balance->balance_quantity, 3, ',', '.') }} <span class="text-sm font-semibold text-slate-400">{{ $balance->unit_snapshot }}</span></p>
+                        @if($warehouseType === 'food')
+                            <p class="mt-2 text-xs text-slate-500">{{ $balance->code }} · {{ $balance->active_lot_count }} lot aktif</p>
+                            @if($balance->conversion_warning)<p class="mt-2 text-xs text-amber-700">{{ $balance->conversion_warning }}</p>@endif
+                            <button wire:click="$set('ingredientId', {{ $balance->ingredient_id }})" class="mt-3 rounded-lg bg-sky-100 px-3 py-2 text-xs font-bold text-sky-800">Lihat lot dan mutasi</button>
+                        @endif
                         <div class="mt-3 flex justify-between border-t border-slate-200 pt-3 text-[10px] text-slate-500"><span>Masuk {{ number_format((float) $balance->total_in, 2, ',', '.') }}</span><span>Keluar {{ number_format((float) $balance->total_out, 2, ',', '.') }}</span></div>
                     </article>
                 @empty
@@ -41,6 +52,9 @@
             </div>
         </section>
 
+        @if($card)
+            @include('livewire.v3.warehouse.stock.detail')
+        @endif
         <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div class="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:p-5">
                 <input wire:model.live.debounce.350ms="search" type="search" placeholder="Cari barang, referensi, atau batch..." class="h-11 flex-1 rounded-xl border border-slate-200 bg-slate-50/50 px-4 text-sm">

@@ -95,6 +95,7 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/gudang/penerimaan/manual', StockReceiptCreateManual::class)->name('warehouse.receipts.manual');
             Route::get('/gudang/penerimaan/{receipt}', StockReceiptShow::class)->name('warehouse.receipts.show');
             Route::get('/gudang/stok', StockIndex::class)->name('warehouse.stock.index');
+            Route::get('/gudang/stok/ekspor', \App\Http\Controllers\WarehouseStockCardExportController::class)->name('warehouse.stock.export');
             Route::get('/gudang/stok-awal', OpeningStockIndex::class)->name('warehouse.opening-stocks.index');
             Route::get('/gudang/non-pangan', NonFoodItemIndex::class)->name('warehouse.non-food-items.index');
             Route::get('/gudang/pengambilan', WarehouseWithdrawalIndex::class)->name('warehouse.withdrawals.index');

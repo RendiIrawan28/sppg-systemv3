@@ -8,13 +8,13 @@ use App\Models\OpeningStock;
 use App\Models\SppgUnit;
 use App\Models\StockMovement;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
+use Tests\Support\IsolatedStockCardDatabase;
 
-uses(RefreshDatabase::class);
+uses(IsolatedStockCardDatabase::class);
 
 beforeEach(function (): void {
     $this->unit = SppgUnit::query()->create([

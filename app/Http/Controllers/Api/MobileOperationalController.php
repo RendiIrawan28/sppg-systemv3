@@ -48,11 +48,13 @@ use App\Services\SecurityMonitoringService;
 use App\Services\StockControlService;
 use App\Services\StockReceiptService;
 use App\Services\V3\OperationalRecordInitializer;
+use App\Services\WarehouseStockCardService;
 use App\Services\WarehouseWithdrawalService;
 use App\Services\WashingWorkflow;
 use App\Services\WasteHandoverWorkflow;
 use App\Support\DivisionRole;
 use App\Support\Mobile\MobileOperationalRecordTransformer;
+use App\Support\Mobile\MobileStockCardPresenter;
 use App\Support\Mobile\MobileWorkspaceRegistry;
 use App\Support\V3\SystemUnit;
 use DateTimeInterface;
@@ -73,6 +75,13 @@ use RuntimeException;
 
 class MobileOperationalController extends Controller
 {
+    private function foodStockCards(int $unitId, string $search = '', string $status = ''): Collection
+    {
+        return Warehouse::query()->where('sppg_unit_id', $unitId)->where('type', Warehouse::TYPE_FOOD)->where('is_active', true)->get()
+            ->flatMap(fn ($warehouse) => app(WarehouseStockCardService::class)->cards($unitId, $warehouse->id, $search, $status))
+            ->sortBy('ingredient_name_snapshot')->values();
+    }
+
     public function modules(
         Request $request,
         MobileWorkspaceRegistry $registry,
@@ -100,14 +109,15 @@ class MobileOperationalController extends Controller
                 } else {
                     $currentWorkQuery->whereDate($definition['date'], $today);
                 }
+                $stockCardCount = $slug === 'gudang-stok' ? $this->foodStockCards((int) $systemUnit->id())->count() : null;
 
                 return [
                     'slug' => $slug,
                     'label' => $definition['label'],
                     'description' => $definition['description'],
                     'permission' => $definition['permission'],
-                    'record_count' => $query->count(),
-                    'today_count' => $currentWorkQuery->count(),
+                    'record_count' => $stockCardCount ?? $query->count(),
+                    'today_count' => $stockCardCount ?? $currentWorkQuery->count(),
                     'can_create' => ($definition['allow_create'] ?? true)
                         && $request->user()->can($definition['permission'].'.create'),
                     'form_fields' => $this->formFields(
@@ -157,6 +167,17 @@ class MobileOperationalController extends Controller
             'view' => ['nullable', Rule::in(['active'])],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
+        if ($module === 'gudang-stok') {
+            // Stock balances are cumulative, not filtered by expiry or the client's default date.
+            $cards = $this->foodStockCards((int) $systemUnit->id(), $filters['search'] ?? '', $filters['status'] ?? '');
+            $perPage = (int) ($filters['per_page'] ?? 20);
+            $page = max(1, (int) $request->input('page', 1));
+
+            return response()->json([
+                'data' => $cards->forPage($page, $perPage)->map(fn ($card) => app(MobileStockCardPresenter::class)->summary($card))->values(),
+                'meta' => ['current_page' => $page, 'last_page' => max(1, (int) ceil($cards->count() / $perPage)), 'per_page' => $perPage, 'total' => $cards->count()],
+            ]);
+        }
         // Reading an earlier date must not create today's (or backdated) work.
         $today = now()->toDateString();
         if ($module === 'kebersihan'
@@ -265,6 +286,16 @@ class MobileOperationalController extends Controller
         $this->applyDistributionActorScope($query, $module, $request->user());
         $this->addSummaryCounts($query, $module);
         $item = $query->with($relations)->findOrFail($record);
+
+        if ($module === 'gudang-stok' && $item->warehouse_id) {
+            $card = app(WarehouseStockCardService::class)->cards((int) $systemUnit->id(), (int) $item->warehouse_id, ingredientId: (int) $item->ingredient_id)->first();
+            abort_unless($card, 404);
+
+            return response()->json(['data' => [
+                ...app(MobileStockCardPresenter::class)->detail($card, (int) $systemUnit->id()),
+                'capabilities' => $this->capabilities($request, $definition, $item, $module),
+            ]]);
+        }
 
         $detail = $transformer->detail(
             $module,
@@ -556,6 +587,7 @@ class MobileOperationalController extends Controller
                         'target_output_quantity' => 0, 'target_output_unit' => 'porsi',
                         'created_by' => $request->user()->getKey(), 'updated_by' => $request->user()->getKey(),
                     ]);
+
                     return app(ProcessingWorkflow::class)->start($batch, $request->user());
                 }
 
@@ -1379,6 +1411,7 @@ class MobileOperationalController extends Controller
             app(PreparationOutputService::class)->verifyWithdrawal(
                 $child, $request->user(), (float) $child->requested_quantity,
             );
+
             return response()->json(['message' => 'Hasil Persiapan berhasil diterima.']);
         }
 
@@ -1566,7 +1599,7 @@ class MobileOperationalController extends Controller
         $query->where(function (Builder $query) use ($actor): void {
             $query->where('state', 'planned')
                 ->orWhere('petugas_id', $actor->getKey());
-        });
+            });
     }
 
     private function assertDistributionRecordAccess(string $module, Model $item, $actor): void
@@ -1774,14 +1807,22 @@ class MobileOperationalController extends Controller
 
         if (in_array($module, ['gudang-stok', 'gudang-stok-non-pangan'], true)
             && $actor->can($module === 'gudang-stok-non-pangan' ? 'non_food_stock.update' : 'stock.update')) {
+            $lotFields = [];
+            if ($module === 'gudang-stok' && $item->warehouse_id) {
+                $options = app(WarehouseStockCardService::class)->lots((int) $item->sppg_unit_id, (int) $item->warehouse_id, (int) $item->ingredient_id)
+                    ->orderBy('id')->get()->mapWithKeys(fn ($lot) => [(string) $lot->id => '#'.$lot->id.' · '.$lot->lot_number.' · '.$lot->location_name.' · '.$lot->balance_quantity.' '.$lot->unit_snapshot])->all();
+                $lotFields[] = $this->actionField('inventory_lot_id', 'Lot yang diperiksa', 'select', true, null, $options);
+            }
+
             return [
                 $this->actionDefinition('adjust_stock', 'Sesuaikan dengan stok fisik', false, [
+                    ...$lotFields,
                     $this->actionField(
                         'actual_quantity',
                         'Jumlah fisik aktual',
                         'number',
                         true,
-                        (string) $item->balance_quantity,
+                        $lotFields ? null : (string) $item->balance_quantity,
                     ),
                     $this->actionField('adjustment_type', 'Jenis penyesuaian', 'select', true, 'stock_opname', [
                         'stock_opname' => 'Stok opname',
@@ -1791,14 +1832,15 @@ class MobileOperationalController extends Controller
                     $this->actionField('reason', 'Alasan penyesuaian', 'textarea', true),
                 ]),
                 $this->actionDefinition('update_lot', 'Ubah lokasi atau status lot', false, [
-                    $this->actionField('location_name', 'Lokasi penyimpanan', 'text', true, (string) $item->location_name),
-                    $this->actionField('storage_type', 'Jenis penyimpanan', 'select', true, (string) $item->storage_type, [
+                    ...$lotFields,
+                    $this->actionField('location_name', 'Lokasi penyimpanan', 'text', true, $lotFields ? null : (string) $item->location_name),
+                    $this->actionField('storage_type', 'Jenis penyimpanan', 'select', true, $lotFields ? null : (string) $item->storage_type, [
                         'wet' => 'Gudang basah',
                         'dry' => 'Gudang kering',
                         'freezer' => 'Freezer',
                         'chiller' => 'Chiller',
                     ]),
-                    $this->actionField('lot_status', 'Status lot', 'select', true, (string) $item->status, [
+                    $this->actionField('lot_status', 'Status lot', 'select', true, $lotFields ? null : (string) $item->status, [
                         'available' => 'Tersedia',
                         'quarantine' => 'Karantina',
                         'rejected' => 'Ditolak',
@@ -2243,6 +2285,15 @@ class MobileOperationalController extends Controller
         ?string $notes,
     ): Model {
         abort_unless($actor->can('stock.update'), 403);
+        if ($item->ingredient_id && $item->warehouse_id) {
+            $query = app(WarehouseStockCardService::class)->lots((int) $item->sppg_unit_id, (int) $item->warehouse_id, (int) $item->ingredient_id);
+            if ($query->count() > 1 && empty($fields['inventory_lot_id'])) {
+                throw ValidationException::withMessages(['fields.inventory_lot_id' => 'Pilih lot yang akan diperiksa, bukan saldo total bahan.']);
+            }
+            if (filled($fields['inventory_lot_id'] ?? null)) {
+                $item = $query->findOrFail((int) $fields['inventory_lot_id']);
+            }
+        }
         $service = app(StockControlService::class);
 
         if ($action === 'update_lot') {
@@ -2518,6 +2569,7 @@ class MobileOperationalController extends Controller
                 'defer_target' => true,
                 'notes' => $notes,
             ]);
+
             return $item->refresh();
         }
         $service = app(PreparationSessionService::class);
@@ -2582,6 +2634,7 @@ class MobileOperationalController extends Controller
         abort_unless($item instanceof PortioningSession && $batchId > 0, 422);
         $batch = ProcessingBatch::query()->where('sppg_unit_id', $item->sppg_unit_id)->findOrFail($batchId);
         app(ProcessingPortioningHandoverService::class)->receive($batch, $item, $actor);
+
         return $item->refresh();
     }
 
@@ -3014,7 +3067,10 @@ class MobileOperationalController extends Controller
                     'photo_path' => $path, 'captured_at' => now(),
                     'created_by' => $request->user()->getKey(),
                 ]);
-                if ($oldPath && $oldPath !== $path) Storage::disk('public')->delete($oldPath);
+                if ($oldPath && $oldPath !== $path) {
+                    Storage::disk('public')->delete($oldPath);
+                }
+
                 continue;
             }
             $oldPath = $item->getAttribute($field['name']);
@@ -3469,6 +3525,12 @@ class MobileOperationalController extends Controller
         MobileOperationalRecordTransformer $transformer,
         int $unitId,
     ): array {
+        if ($module === 'gudang-stok' && $item->warehouse_id) {
+            $card = app(WarehouseStockCardService::class)->cards($unitId, (int) $item->warehouse_id, ingredientId: (int) $item->ingredient_id)->first();
+            abort_unless($card, 404);
+
+            return app(MobileStockCardPresenter::class)->detail($card, $unitId);
+        }
         $detail = $transformer->detail($module, $definition, $item, $unitId);
         $detail['sections'] = $this->enrichSections(
             $detail['sections'],
