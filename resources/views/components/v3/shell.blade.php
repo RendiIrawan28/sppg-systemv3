@@ -75,7 +75,7 @@
                             <x-v3.icon
                                 name="chevron-down"
                                 class="size-4 shrink-0 text-slate-500 transition-transform duration-200"
-                                x-bind:class="openModule === @js($group['key']) && 'rotate-180 text-cyan-300'"
+                                x-bind:class="openModule === {{ \Illuminate\Support\Js::from($group['key']) }} && 'rotate-180 text-cyan-300'"
                             />
                         </button>
                         <div

@@ -25,6 +25,27 @@ class CleaningDateInteractionPage extends Index
     protected function shellData(SppgUnit $unit): array { return ['unit' => $unit, 'navigation' => [], 'roleLabel' => 'Penguji']; }
 }
 
+// Render the real module templates with empty fixtures; no operational queries.
+class OperationalPageStructureProbe extends CleaningDateInteractionPage
+{
+    public function render(OperationalModuleRegistry $registry)
+    {
+        return view('livewire.v3.operations.index', [
+            ...$this->shellData($this->currentUnit()),
+            'navigation' => [[
+                'key' => 'kebersihan', 'label' => 'Kebersihan', 'icon' => 'home',
+                'active' => true, 'standalone' => false, 'items' => [],
+            ]],
+            'definition' => $registry->get($this->module),
+            'selectedDate' => $this->selectedWorkDate(),
+            'records' => new \Illuminate\Pagination\LengthAwarePaginator([], 0, 15),
+            'attentionRecords' => collect(), 'cleaningAreas' => collect(),
+            'activeRoute' => null, 'availableCount' => 0,
+            'washingSummary' => [], 'canCreate' => false,
+        ]);
+    }
+}
+
 // Deliberately no RefreshDatabase or migrations: all fixtures live in a named,
 // disposable SQLite memory connection, never the configured operational DB.
 beforeEach(function (): void {
@@ -234,3 +255,44 @@ it('compiles the cleaning date list and detail templates', function (string $vie
 
     expect(token_get_all($compiled, TOKEN_PARSE))->not->toBeEmpty();
 })->with(['cleaning-index', 'cleaning-form']);
+
+it('keeps every date input and action inside the Livewire root', function (string $module): void {
+    $page = Livewire::withQueryParams(['tanggal' => '2026-09-02'])
+        ->test(OperationalPageStructureProbe::class, ['module' => $module]);
+
+    foreach (['2026-09-02', '2026-09-01'] as $date) {
+        $page->assertSet('workDate', $date);
+        $dom = new DOMDocument();
+        @$dom->loadHTML('<?xml encoding="UTF-8">'.$page->html());
+        $xpath = new DOMXPath($dom);
+        $root = $xpath->query('//*[@*[name()="wire:id"]]')->item(0);
+        expect($root)->not->toBeNull();
+        $inputs = $xpath->query('//input[@type="date"]');
+        expect($inputs->length)->toBe($module === 'kebersihan' ? 3 : 1);
+        foreach ($inputs as $input) {
+            $ancestors = $xpath->query('ancestor::*[@*[name()="wire:id"]]', $input);
+            expect($ancestors->length)->toBe(1);
+        }
+        $buttons = $xpath->query('.//button[@*[name()="wire:click"]]', $root);
+        expect($buttons->length)->toBeGreaterThanOrEqual(3);
+        // Updates return the snapshot separately from the morphed HTML.
+        $snapshot = $page->snapshot;
+        expect($snapshot['data']['workDate'])->toBe($date);
+        if ($date === '2026-09-02') {
+            $page->call('previousWorkDate');
+        }
+    }
+})->with(['distribusi', 'pencucian', 'kebersihan']);
+
+it('compiles the sidebar icon expression instead of sending a raw Blade directive', function (): void {
+    $page = Livewire::withQueryParams(['tanggal' => '2026-09-02'])
+        ->test(OperationalPageStructureProbe::class, ['module' => 'kebersihan']);
+    $dom = new DOMDocument();
+    @$dom->loadHTML('<?xml encoding="UTF-8">'.$page->html());
+    $xpath = new DOMXPath($dom);
+    $icons = $xpath->query('//svg[@*[name()="x-bind:class"]]');
+    expect($icons->length)->toBe(1);
+    $expression = $icons->item(0)->getAttribute('x-bind:class');
+    expect($expression)->not->toContain('@js', '$group')
+        ->and($expression)->toContain("openModule === 'kebersihan'", 'rotate-180');
+});
