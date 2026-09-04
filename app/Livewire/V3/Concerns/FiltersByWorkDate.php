@@ -10,6 +10,12 @@ trait FiltersByWorkDate
     #[Url(as: 'tanggal', history: true)]
     public string $workDate = '';
 
+    public function selectWorkDate(string $date): void
+    {
+        $this->workDate = $date;
+        $this->workDateWasChanged();
+    }
+
     public function previousWorkDate(): void
     {
         $this->workDate = CarbonImmutable::parse($this->selectedWorkDate())->subDay()->toDateString();

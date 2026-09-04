@@ -17,6 +17,13 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Livewire\Livewire;
+
+class CleaningDateInteractionPage extends Index
+{
+    protected function currentUnit(): SppgUnit { return SppgUnit::findOrFail(1); }
+    protected function shellData(SppgUnit $unit): array { return ['unit' => $unit, 'navigation' => [], 'roleLabel' => 'Penguji']; }
+}
 
 // Deliberately no RefreshDatabase or migrations: all fixtures live in a named,
 // disposable SQLite memory connection, never the configured operational DB.
@@ -197,6 +204,30 @@ it('accepts Indonesian display date formats in the web cleaning date filter', fu
     expect($filter->selected())->toBe('2026-09-02')
         ->and($filter->workDate)->toBe('2026-09-02');
 })->with(['02-09-2026', '02/09/2026']);
+
+it('rerenders the web page when selecting September 2 after September 4', function (): void {
+    $previous = cleaningHistoryFixture('2026-09-02', 'ready');
+    $later = cleaningHistoryFixture('2026-09-04', 'ready');
+    Livewire::withQueryParams(['tanggal' => '2026-09-04'])
+        ->test(CleaningDateInteractionPage::class, ['module' => 'kebersihan'])
+        ->assertSet('workDate', '2026-09-04')
+        ->assertViewHas('records', fn ($records) => $records->pluck('id')->all() === [$later])
+        ->assertSee('selectWorkDate($event.target.value)', false)
+        ->call('setPage', 3)
+        ->call('selectWorkDate', '2026-09-02')
+        ->assertSet('workDate', '2026-09-02')
+        ->assertSet('paginators.page', 1)
+        ->assertViewHas('selectedDate', '2026-09-02')
+        ->assertViewHas('records', fn ($records) => $records->pluck('id')->all() === [$previous])
+        ->assertSee('Pekerjaan tanggal 02 September 2026')
+        ->assertDontSee('Pekerjaan tanggal 04 September 2026')
+        ->call('previousWorkDate')
+        ->assertViewHas('selectedDate', '2026-09-01')
+        ->assertViewHas('records', fn ($records) => $records->isEmpty())
+        ->call('nextWorkDate')
+        ->assertViewHas('records', fn ($records) => $records->pluck('id')->all() === [$previous]);
+    expect(DB::table('cleaning_sessions')->count())->toBe(2);
+});
 
 it('compiles the cleaning date list and detail templates', function (string $view): void {
     $compiled = app('blade.compiler')->compileString(file_get_contents(resource_path('views/livewire/v3/operations/'.$view.'.blade.php')));
