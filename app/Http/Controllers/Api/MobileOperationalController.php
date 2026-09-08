@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Enums\DistributionIncidentStatus;
 use App\Enums\FieldIncidentStatus;
 use App\Enums\OperationalReportStatus;
+use App\Enums\NutritionRecordStatus;
 use App\Http\Controllers\Controller;
 use App\Models\CleaningSession;
 use App\Models\ContainerCollectionRun;
@@ -13,6 +14,7 @@ use App\Models\DistributionRun;
 use App\Models\DistributionStop;
 use App\Models\FieldDistributionPlan;
 use App\Models\InventoryLot;
+use App\Models\MenuCycleDay;
 use App\Models\PortioningSession;
 use App\Models\PreparationOutputWithdrawal;
 use App\Models\PreparationReturn;
@@ -135,11 +137,43 @@ class MobileOperationalController extends Controller
             ->where('status', '!=', 'cancelled')
             ->get();
 
+        // Rencana distribusi terbaru sengaja tidak lagi terikat langsung ke menu.
+        // Karena itu menu ringkasan harus dibaca dari Siklus Menu yang berlaku
+        // untuk tanggal pelayanan, bukan hanya dari menu_name_snapshot pada plan.
+        $menuNames = MenuCycleDay::query()
+            ->with(['menu:id,name', 'variants.menu:id,name'])
+            ->whereDate('service_date', $today)
+            ->whereHas('cycle', fn ($query) => $query
+                ->where('sppg_unit_id', $systemUnit->id())
+                ->whereIn('status', [
+                    NutritionRecordStatus::Approved->value,
+                    NutritionRecordStatus::Active->value,
+                ]))
+            ->get()
+            ->flatMap(function (MenuCycleDay $day): Collection {
+                return collect([$day->menu?->name])
+                    ->merge($day->variants->pluck('menu.name'));
+            })
+            ->filter(fn ($name): bool => filled($name))
+            ->map(fn ($name): string => trim((string) $name))
+            ->unique()
+            ->values();
+
+        // Kompatibilitas data lama: bila belum ada siklus menu yang cocok,
+        // gunakan snapshot menu yang masih tersimpan pada rencana distribusi.
+        if ($menuNames->isEmpty()) {
+            $menuNames = $plans->pluck('menu_name_snapshot')
+                ->filter(fn ($name): bool => filled($name))
+                ->map(fn ($name): string => trim((string) $name))
+                ->unique()
+                ->values();
+        }
+
         return response()->json([
             'data' => $modules,
             'daily_summary' => [
                 'date' => $today,
-                'menu_names' => $plans->pluck('menu_name_snapshot')->filter()->unique()->values(),
+                'menu_names' => $menuNames,
                 'beneficiaries' => (int) $plans->sum(
                     fn (FieldDistributionPlan $plan): int => (int) ($plan->confirmed_beneficiaries ?: $plan->planned_beneficiaries),
                 ),

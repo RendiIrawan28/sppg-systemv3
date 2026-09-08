@@ -269,18 +269,16 @@
             @forelse($batches as $batchIndex => $batch)
 
                 @php
-                    /*
-                     * Hanya bahan yang dicatat manual sebagai
-                     * Monitoring Produksi.
-                     */
                     $materials = $batch->materialUsages
-                        ->where('source_type', 'manual')
+                        ->filter(fn ($usage): bool => (
+                            $usage->processing_material_stock_id !== null
+                            || $usage->source_type === 'manual'
+                        )
+                            && filled($usage->material_name)
+                            && (float) $usage->quantity > 0
+                            && filled($usage->unit_name))
                         ->values();
 
-                    /*
-                     * Bila tidak ada bahan, tetap buat satu baris
-                     * supaya batch tetap muncul di laporan.
-                     */
                     $rows = max(1, $materials->count());
 
                     /*
