@@ -1397,7 +1397,7 @@ fun OperationalRecordEditScreen(
                         Spacer(Modifier.height(5.dp))
                         Text(
                             if (isManualReceipt) {
-                                "Gunakan untuk kiriman supplier yang tidak berasal dari dokumen pengadaan."
+                                "Pilih supplier, tambahkan barang yang datang, lalu lengkapi jumlah dan dokumentasi setiap barang."
                             } else if (isCreate && createActionLabel != null) {
                                 if (createActionLabel == "Mulai Pemorsian") {
                                     "Pemorsian langsung dimulai setelah rencana dipilih. Barang dapat diambil sesudahnya."
@@ -1744,7 +1744,7 @@ private fun ManualReceiptRowsInput(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         ) {
             Column(Modifier.padding(16.dp)) {
-                Text("Penerimaan manual", fontWeight = FontWeight.Bold)
+                Text("Penerimaan barang", fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(5.dp))
                 Text(
                     "Isi pemeriksaan setiap barang. Setelah draft dibuat, buka bagian Dokumentasi per Barang untuk mengunggah satu atau beberapa foto.",

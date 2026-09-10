@@ -155,7 +155,7 @@ class CreateManual extends Component
             throw $exception;
         }
 
-        session()->flash('v3.status', 'Draft penerimaan manual berhasil dibuat. Periksa kembali lalu masukkan barang baik ke stok.');
+        session()->flash('v3.status', 'Draft penerimaan barang berhasil dibuat. Periksa kembali lalu masukkan barang baik ke stok.');
         $this->redirectRoute('v3.warehouse.receipts.show', ['receipt' => $receipt], navigate: true);
     }
 
@@ -177,6 +177,6 @@ class CreateManual extends Component
             'itemUnits' => $items->mapWithKeys(fn ($item): array => [
                 $item->getKey() => $item->measurementUnit?->symbol ?: $item->measurementUnit?->code ?: 'unit',
             ])->all(),
-        ])->layout('layouts.v3', ['title' => 'Penerimaan Manual']);
+        ])->layout('layouts.v3', ['title' => 'Penerimaan Barang']);
     }
 }

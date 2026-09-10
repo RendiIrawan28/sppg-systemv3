@@ -43,7 +43,15 @@ beforeEach(function (): void {
     $this->warehouse = Warehouse::forUnit($this->unit->id, Warehouse::TYPE_FOOD);
 });
 
-it('creates a traceable manual receipt and only adds accepted quantity to stock', function (): void {
+it('creates a traceable manual receipt and only adds accepted quantity to stock', function (bool $nonFood): void {
+    if ($nonFood) {
+        $this->warehouse = Warehouse::forUnit($this->unit->id, Warehouse::TYPE_NON_FOOD);
+        $this->ingredient = \App\Models\NonFoodItem::create([
+            'sppg_unit_id' => $this->unit->id, 'measurement_unit_id' => $this->unitPcs->id,
+            'code' => 'SPONS', 'name' => 'Spons', 'category' => 'Pencucian', 'is_active' => true,
+            'tracks_lot' => false, 'tracks_expiry' => false,
+        ]);
+    }
     $service = app(StockReceiptService::class);
     $receipt = $service->createManual(
         $this->unit->id,
@@ -52,7 +60,7 @@ it('creates a traceable manual receipt and only adds accepted quantity to stock'
         today()->toDateString(),
         'Penerimaan mendadak',
         [[
-            'ingredient_id' => $this->ingredient->id,
+            ($nonFood ? 'non_food_item_id' : 'ingredient_id') => $this->ingredient->id,
             'received_quantity' => 100,
             'accepted_quantity' => 90,
             'rejected_quantity' => 10,
@@ -64,8 +72,8 @@ it('creates a traceable manual receipt and only adds accepted quantity to stock'
 
     expect($receipt->procurement_request_id)->toBeNull()
         ->and($receipt->status)->toBe(StockReceipt::STATUS_DRAFT)
-        ->and((float) $receipt->items->first()->accepted_quantity_kg)->toBe(5.4)
-        ->and((float) $receipt->items->first()->rejected_quantity_kg)->toBe(0.6);
+        ->and((float) $receipt->items->first()->accepted_quantity_kg)->toBe($nonFood ? 0.0 : 5.4)
+        ->and((float) $receipt->items->first()->rejected_quantity_kg)->toBe($nonFood ? 0.0 : 0.6);
 
     $item = $receipt->items->first();
     $path = 'stock-receipts/test/telur.jpg';
@@ -82,9 +90,9 @@ it('creates a traceable manual receipt and only adds accepted quantity to stock'
 
     $lot = InventoryLot::query()->where('stock_receipt_item_id', $item->id)->firstOrFail();
     expect((float) $lot->balance_quantity)->toBe(90.0)
-        ->and((float) $lot->balance_quantity_kg)->toBe(5.4)
+        ->and((float) $lot->balance_quantity_kg)->toBe($nonFood ? 0.0 : 5.4)
         ->and((float) StockMovement::query()->where('source_id', $receipt->id)->value('quantity_in'))->toBe(90.0);
-});
+})->with(['pangan' => false, 'non-pangan' => true]);
 
 it('rejects manual receipt rows whose qc totals do not reconcile', function (): void {
     app(StockReceiptService::class)->createManual(

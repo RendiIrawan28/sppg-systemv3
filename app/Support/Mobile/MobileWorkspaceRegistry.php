@@ -895,7 +895,7 @@ class MobileWorkspaceRegistry
                 [...$this->field('supplier_id', 'Supplier', 'select', true, 'active_suppliers'), 'create_only' => true],
                 [...$this->field(
                     'manual_rows_payload',
-                    'Daftar barang penerimaan manual',
+                    'Daftar barang penerimaan',
                     'manual_receipt_rows',
                     true,
                     $nonFood ? 'manual_receipt_non_food_catalog' : 'manual_receipt_catalog',

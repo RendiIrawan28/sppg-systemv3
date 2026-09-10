@@ -56,6 +56,7 @@ class Index extends Component
 
     public function createReceipt(StockReceiptService $service): void
     {
+        abort_unless(config('warehouse.receipt_from_procurement_enabled'), 403, 'Buat penerimaan langsung dari supplier.');
         $unit = $this->currentUnit();
         $warehouse = Warehouse::forUnit($unit->getKey(), $this->warehouseType);
         abort_unless($this->allowed('stock.create'), 403);
@@ -105,12 +106,12 @@ class Index extends Component
             ...$this->shellData($unit),
             'receipts' => $query->orderByDesc('receipt_date')->orderByDesc('created_at')->paginate(12),
             'statuses' => OperationsPresentation::receiptStatuses(),
-            'orderedRequests' => ProcurementRequest::query()
+            'orderedRequests' => config('warehouse.receipt_from_procurement_enabled') ? ProcurementRequest::query()
                 ->where('sppg_unit_id', $unit->getKey())
                 ->where('warehouse_id', $warehouse->getKey())
                 ->where('status', ProcurementRequest::STATUS_ORDERED)
                 ->whereNotIn('id', StockReceipt::query()->select('procurement_request_id')->whereNotNull('procurement_request_id'))
-                ->latest('ordered_at')->limit(50)->get(),
+                ->latest('ordered_at')->limit(50)->get() : collect(),
             'receiptCount' => (clone $base)->count(),
             'draftCount' => (clone $base)->where('status', StockReceipt::STATUS_DRAFT)->count(),
             'receivedCount' => (clone $base)->where('status', StockReceipt::STATUS_RECEIVED)->count(),

@@ -1,8 +1,8 @@
-<x-v3.shell :$unit :$navigation :$roleLabel title="Penerimaan Manual" eyebrow="Penerimaan supplier tanpa dokumen pengadaan">
+<x-v3.shell :$unit :$navigation :$roleLabel title="Penerimaan Barang" eyebrow="Penerimaan langsung dari supplier">
     <div class="mx-auto max-w-[1250px] space-y-5">
         <x-v3.flash-alert />
         <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-            <div><p class="text-xs font-bold uppercase tracking-[.18em] text-sky-700">Gudang</p><h2 class="mt-2 text-2xl font-bold text-slate-950">Catat kiriman di luar pengadaan</h2><p class="mt-1 max-w-3xl text-sm text-slate-500">Setiap barang tetap melalui pemeriksaan jumlah, QC, dan dokumentasi. Hanya jumlah baik yang nantinya masuk kartu stok.</p></div>
+            <div><p class="text-xs font-bold uppercase tracking-[.18em] text-sky-700">Gudang</p><h2 class="mt-2 text-2xl font-bold text-slate-950">Catat barang dari supplier</h2><p class="mt-1 max-w-3xl text-sm text-slate-500">Setiap barang tetap melalui pemeriksaan jumlah, QC, dan dokumentasi. Hanya jumlah baik yang nantinya masuk kartu stok.</p></div>
             <a wire:navigate href="{{ route('v3.warehouse.receipts.index', ['gudang' => $warehouseType]) }}" class="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700">Kembali ke penerimaan</a>
         </div>
 
@@ -12,7 +12,7 @@
                 <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <label><span class="mb-1 block text-xs font-semibold text-slate-600">Tanggal penerimaan *</span><input wire:model="receiptDate" type="date" max="{{ today()->toDateString() }}" class="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm">@error('receiptDate')<span class="mt-1 block text-xs text-rose-600">{{ $message }}</span>@enderror</label>
                     <label class="xl:col-span-2"><span class="mb-1 block text-xs font-semibold text-slate-600">Supplier *</span><select wire:model="supplierId" class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="">Pilih supplier</option>@foreach($suppliers as $supplier)<option value="{{ $supplier->id }}">{{ $supplier->name }}{{ $supplier->code ? ' · '.$supplier->code : '' }}</option>@endforeach</select>@error('supplierId')<span class="mt-1 block text-xs text-rose-600">{{ $message }}</span>@enderror</label>
-                    <label><span class="mb-1 block text-xs font-semibold text-slate-600">Catatan umum</span><input wire:model="notes" class="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" placeholder="Alasan penerimaan manual"></label>
+                    <label><span class="mb-1 block text-xs font-semibold text-slate-600">Catatan umum</span><input wire:model="notes" class="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" placeholder="Catatan penerimaan (opsional)"></label>
                 </div>
             </section>
 
