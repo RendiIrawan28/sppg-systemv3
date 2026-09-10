@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package id.sppg.mobile.ui
 
 import android.app.DatePickerDialog
@@ -8,6 +10,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,10 +42,8 @@ import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -53,14 +55,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -82,7 +81,6 @@ import id.sppg.mobile.data.remote.OperationalRelationAction
 import id.sppg.mobile.data.remote.OperationalRecord
 import id.sppg.mobile.data.remote.OperationalSection
 import id.sppg.mobile.data.remote.OperationalSectionItem
-import id.sppg.mobile.ui.theme.Navy
 import com.google.gson.Gson
 import java.io.File
 import java.time.LocalDate
@@ -171,17 +169,6 @@ fun OperationalRecordListScreen(
                     }
                 },
                 actions = {
-                    if (!showHistory && state.modules.firstOrNull { it.slug == module }?.canCreate == true) {
-                        if (module == "pengolahan" || module == "pemorsian") {
-                            TextButton(onClick = onCreate) {
-                                Text(if (module == "pengolahan") "Mulai produksi" else "Mulai Pemorsian")
-                            }
-                        } else {
-                            IconButton(onClick = onCreate) {
-                                Icon(Icons.Outlined.Add, contentDescription = "Tambah data")
-                            }
-                        }
-                    }
                     IconButton(onClick = onRefresh, enabled = !state.isLoading) {
                         Icon(Icons.Outlined.Refresh, contentDescription = "Muat ulang")
                     }
@@ -198,12 +185,12 @@ fun OperationalRecordListScreen(
                 onRetry = onRefresh,
             )
             else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().imePadding(),
                 contentPadding = PaddingValues(
                     start = SppgPagePadding,
                     top = innerPadding.calculateTopPadding() + 12.dp,
                     end = SppgPagePadding,
-                    bottom = 32.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 24.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -213,6 +200,20 @@ fun OperationalRecordListScreen(
                         label = if (showHistory) "Riwayat · $selectedDateLabel" else moduleLabel,
                         count = displayedRecords.size,
                     )
+                }
+                if (!showHistory && state.modules.firstOrNull { it.slug == module }?.canCreate == true) {
+                    item {
+                        SppgPrimaryButton(
+                            label = when (module) {
+                                "pengolahan" -> "Mulai produksi"
+                                "pemorsian" -> "Mulai Pemorsian"
+                                "gudang-penerimaan", "gudang-penerimaan-non-pangan" -> "Tambah penerimaan"
+                                else -> "Tambah data"
+                            },
+                            onClick = onCreate,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
                 item {
                     WorkHistoryTabs(showHistory) { history ->
@@ -224,7 +225,7 @@ fun OperationalRecordListScreen(
                 }
                 if (isStockCard) {
                     item {
-                        OutlinedTextField(
+                        SppgTextField(
                             value = stockSearch,
                             onValueChange = { stockSearch = it },
                             modifier = Modifier.fillMaxWidth(),
@@ -259,9 +260,9 @@ fun OperationalRecordListScreen(
                 }
                 if (!showHistory && module == "distribusi") {
                     item {
-                        Card(
+                        SppgCard(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                            shape = RoundedCornerShape(18.dp),
+                            shape = RoundedCornerShape(16.dp),
                         ) {
                             Text(
                                 "Pilih rute, lengkapi kendaraan, lalu ikuti perjalanan sampai kembali ke SPPG.",
@@ -297,10 +298,10 @@ fun OperationalRecordListScreen(
                 }
                 if (state.currentPage < state.lastPage) {
                     item(key = "load-more-$module-${state.currentPage}") {
-                        OutlinedButton(
+                        SppgOutlinedButton(
                             onClick = onLoadMore,
                             enabled = !state.isLoadingMore,
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(16.dp),
                         ) {
                             if (state.isLoadingMore) {
@@ -336,11 +337,11 @@ private fun OperationalListSectionTitle(label: String) {
 
 @Composable
 private fun OperationalRecordCard(module: String, record: OperationalRecord, onClick: () -> Unit) {
-    Card(
+    SppgCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
@@ -365,7 +366,7 @@ private fun OperationalRecordCard(module: String, record: OperationalRecord, onC
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 SppgStatusPill(record.stateLabel ?: record.statusLabel ?: "-")
                 if (!record.statusLabel.isNullOrBlank() && record.statusLabel != record.stateLabel) {
                     SppgStatusPill(record.statusLabel)
@@ -417,9 +418,9 @@ private fun OperationalRecordCard(module: String, record: OperationalRecord, onC
 @Composable
 private fun OperationalModuleHeader(module: String, label: String, count: Int) {
     val visual = moduleVisual(module)
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = visual.container),
     ) {
         Row(
@@ -537,7 +538,7 @@ fun OperationalRecordDetailScreen(
                     }
                     if (action.notesRequired || action.fields.orEmpty().none { it.key == "notes" }) {
                         item {
-                            OutlinedTextField(
+                            SppgTextField(
                                 value = actionNotes,
                                 onValueChange = { actionNotes = it },
                                 modifier = Modifier.fillMaxWidth(),
@@ -549,7 +550,7 @@ fun OperationalRecordDetailScreen(
                 }
             },
             confirmButton = {
-                Button(
+                SppgButton(
                     enabled = !state.isSaving
                         && requiredReady
                         && (!action.notesRequired || actionNotes.isNotBlank()),
@@ -614,7 +615,7 @@ fun OperationalRecordDetailScreen(
                     }
                     if (action.notesRequired) {
                         item {
-                            OutlinedTextField(
+                            SppgTextField(
                                 value = relationActionNotes,
                                 onValueChange = { relationActionNotes = it },
                                 modifier = Modifier.fillMaxWidth(),
@@ -626,7 +627,7 @@ fun OperationalRecordDetailScreen(
                 }
             },
             confirmButton = {
-                Button(
+                SppgButton(
                     enabled = !state.isSaving && requiredReady
                         && (!action.notesRequired || relationActionNotes.isNotBlank()),
                     onClick = {
@@ -742,9 +743,9 @@ private fun DistributionProgressCard(record: OperationalRecord) {
         "returned" -> 5
         else -> 0
     }
-    Card(
+    SppgCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(18.dp),
@@ -754,25 +755,12 @@ private fun DistributionProgressCard(record: OperationalRecord) {
             steps.forEachIndexed { index, label ->
                 val completed = index < currentIndex || record.state == "returned"
                 val current = index == currentIndex && record.state != "returned"
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        when {
-                            completed -> "✓"
-                            current -> "●"
-                            else -> "○"
-                        },
-                        color = if (completed || current) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        label,
-                        fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
-                        color = if (current) MaterialTheme.colorScheme.onSurface
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                SppgTimelineItem(
+                    label = label,
+                    completed = completed,
+                    current = current,
+                    last = index == steps.lastIndex,
+                )
             }
         }
     }
@@ -797,9 +785,9 @@ private fun WashingProgressCard(record: OperationalRecord) {
         "ready" -> 3
         else -> 0
     }
-    Card(
+    SppgCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(18.dp),
@@ -809,25 +797,12 @@ private fun WashingProgressCard(record: OperationalRecord) {
             steps.forEachIndexed { index, label ->
                 val completed = index < currentIndex || record.state == "ready"
                 val current = index == currentIndex && record.state != "ready"
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        when {
-                            completed -> "✓"
-                            current -> "●"
-                            else -> "○"
-                        },
-                        color = if (completed || current) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        label,
-                        fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
-                        color = if (current) MaterialTheme.colorScheme.onSurface
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                SppgTimelineItem(
+                    label = label,
+                    completed = completed,
+                    current = current,
+                    last = index == steps.lastIndex,
+                )
             }
         }
     }
@@ -839,9 +814,9 @@ private fun WashingNextStepCard(
     isSaving: Boolean,
     onAction: (OperationalAction) -> Unit,
 ) {
-    Card(
+    SppgCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(18.dp),
@@ -853,10 +828,10 @@ private fun WashingNextStepCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             actions.forEach { action ->
-                Button(
+                SppgButton(
                     onClick = { onAction(action) },
                     enabled = !isSaving,
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) { Text(action.label, fontWeight = FontWeight.Bold) }
             }
@@ -924,19 +899,19 @@ private fun OperationalDetailContent(
         remainingActions.filter { it.key != "start" }
     } else emptyList()
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().imePadding(),
         contentPadding = PaddingValues(
             start = SppgPagePadding,
             top = padding.calculateTopPadding() + 12.dp,
             end = SppgPagePadding,
-            bottom = 32.dp,
+            bottom = padding.calculateBottomPadding() + 24.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Navy),
-                shape = RoundedCornerShape(24.dp),
+            SppgCard(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
@@ -948,7 +923,7 @@ private fun OperationalDetailContent(
                                 record.number,
                                 modifier = Modifier.weight(1f),
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         } else {
                             Spacer(Modifier.weight(1f))
@@ -960,11 +935,11 @@ private fun OperationalDetailContent(
                         record.title,
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     if (!record.date.isNullOrBlank()) {
                         Spacer(Modifier.height(8.dp))
-                        Text(formatOperationalDate(record.date), color = Color.White.copy(alpha = 0.78f))
+                        Text(formatOperationalDate(record.date), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -1014,14 +989,14 @@ private fun OperationalDetailContent(
         }
         if (!successMessage.isNullOrBlank()) {
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                SppgCard(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                     Text(successMessage, modifier = Modifier.padding(16.dp), fontWeight = FontWeight.SemiBold)
                 }
             }
         }
         if (!errorMessage.isNullOrBlank()) {
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                SppgCard(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                     Text(
                         userFriendlyUiMessage(errorMessage),
                         modifier = Modifier.padding(16.dp),
@@ -1040,9 +1015,9 @@ private fun OperationalDetailContent(
         }
         if (receiptActions.isNotEmpty()) {
             item {
-                Card(
+                SppgCard(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(16.dp),
                 ) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(18.dp),
@@ -1054,10 +1029,10 @@ private fun OperationalDetailContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         receiptActions.forEach { action ->
-                            Button(
+                            SppgButton(
                                 onClick = { onAction(action) },
                                 enabled = !isSaving,
-                                modifier = Modifier.fillMaxWidth().height(54.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                                 shape = RoundedCornerShape(16.dp),
                             ) { Text(action.label, fontWeight = FontWeight.Bold) }
                         }
@@ -1067,9 +1042,9 @@ private fun OperationalDetailContent(
         }
         if (module == "distribusi" && remainingActions.isNotEmpty()) {
             item {
-                Card(
+                SppgCard(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(16.dp),
                 ) {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(18.dp),
@@ -1081,10 +1056,10 @@ private fun OperationalDetailContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         remainingActions.forEach { action ->
-                            Button(
+                            SppgButton(
                                 onClick = { onAction(action) },
                                 enabled = !isSaving,
-                                modifier = Modifier.fillMaxWidth().height(54.dp),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                                 shape = RoundedCornerShape(16.dp),
                             ) { Text(action.label, fontWeight = FontWeight.Bold) }
                         }
@@ -1166,10 +1141,10 @@ private fun OperationalDetailContent(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("LANGKAH BERIKUTNYA", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     remainingActions.forEach { action ->
-                        Button(
+                        SppgButton(
                             onClick = { onAction(action) },
                             enabled = !isSaving,
-                            modifier = Modifier.fillMaxWidth().height(54.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                             shape = RoundedCornerShape(16.dp),
                         ) { Text(action.label, fontWeight = FontWeight.Bold) }
                     }
@@ -1194,17 +1169,17 @@ private fun OperationalDetailContent(
                         Text(primaryDocumentLabel, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(
+                        SppgOutlinedButton(
                             onClick = { onOpenDocument(null) }, enabled = !isSaving,
-                            modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.weight(1f).heightIn(min = 52.dp), shape = RoundedCornerShape(16.dp),
                         ) {
                             Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Buka PDF", fontWeight = FontWeight.Bold)
                         }
-                        Button(
+                        SppgButton(
                             onClick = { onShareDocument(null) }, enabled = !isSaving,
-                            modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.weight(1f).heightIn(min = 52.dp), shape = RoundedCornerShape(16.dp),
                         ) {
                             Icon(Icons.Outlined.Share, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
@@ -1214,17 +1189,17 @@ private fun OperationalDetailContent(
                     if (module == "pengolahan") {
                         Text("Pemantauan Suhu Pengolahan & Penyajian Harian", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedButton(
+                            SppgOutlinedButton(
                                 onClick = { onOpenDocument("temperature") }, enabled = !isSaving,
-                                modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.weight(1f).heightIn(min = 52.dp), shape = RoundedCornerShape(16.dp),
                             ) {
                                 Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
                                 Text("Buka PDF", fontWeight = FontWeight.Bold)
                             }
-                            Button(
+                            SppgButton(
                                 onClick = { onShareDocument("temperature") }, enabled = !isSaving,
-                                modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.weight(1f).heightIn(min = 52.dp), shape = RoundedCornerShape(16.dp),
                             ) {
                                 Icon(Icons.Outlined.Share, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
@@ -1243,17 +1218,17 @@ private fun OperationalDetailContent(
                             fontWeight = FontWeight.Bold,
                         )
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedButton(
+                            SppgOutlinedButton(
                                 onClick = { onOpenDocument("waste") }, enabled = !isSaving,
-                                modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.weight(1f).heightIn(min = 52.dp), shape = RoundedCornerShape(16.dp),
                             ) {
                                 Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
                                 Text("Buka PDF", fontWeight = FontWeight.Bold)
                             }
-                            Button(
+                            SppgButton(
                                 onClick = { onShareDocument("waste") }, enabled = !isSaving,
-                                modifier = Modifier.weight(1f).height(52.dp), shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.weight(1f).heightIn(min = 52.dp), shape = RoundedCornerShape(16.dp),
                             ) {
                                 Icon(Icons.Outlined.Share, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
@@ -1268,16 +1243,16 @@ private fun OperationalDetailContent(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (capabilities.canUpdate) {
-                        Button(
+                        SppgButton(
                             onClick = onEdit,
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                             shape = RoundedCornerShape(16.dp),
                         ) { Text("Ubah data", fontWeight = FontWeight.Bold) }
                     }
                     if (capabilities.canDelete) {
-                        OutlinedButton(
+                        SppgOutlinedButton(
                             onClick = onDelete,
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                             shape = RoundedCornerShape(16.dp),
                         ) {
                             Text("Hapus data", color = MaterialTheme.colorScheme.error)
@@ -1291,9 +1266,9 @@ private fun OperationalDetailContent(
 
 @Composable
 private fun PreparationReturnCallout(returnCount: Int, onCreate: () -> Unit) {
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
     ) {
         Column(
@@ -1313,9 +1288,9 @@ private fun PreparationReturnCallout(returnCount: Int, onCreate: () -> Unit) {
                     style = MaterialTheme.typography.labelMedium,
                 )
             }
-            Button(
+            SppgButton(
                 onClick = onCreate,
-                modifier = Modifier.fillMaxWidth().height(50.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                 shape = RoundedCornerShape(15.dp),
             ) {
                 Icon(Icons.Outlined.Add, contentDescription = null)
@@ -1372,18 +1347,18 @@ fun OperationalRecordEditScreen(
         }
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().imePadding(),
             contentPadding = PaddingValues(
                 start = SppgPagePadding,
                 top = padding.calculateTopPadding() + 12.dp,
                 end = SppgPagePadding,
-                bottom = 32.dp,
+                bottom = padding.calculateBottomPadding() + 24.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item {
-                Card(
-                    shape = RoundedCornerShape(20.dp),
+                SppgCard(
+                    shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                 ) {
                     Column(Modifier.padding(18.dp)) {
@@ -1432,10 +1407,10 @@ fun OperationalRecordEditScreen(
                 }
             }
             item {
-                Button(
+                SppgButton(
                     onClick = onSave,
                     enabled = !state.isSaving,
-                    modifier = Modifier.fillMaxWidth().height(54.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                     shape = RoundedCornerShape(16.dp),
                 ) {
                     if (state.isSaving) {
@@ -1518,7 +1493,7 @@ private fun OperationalFormInput(
             value = value,
             onValueChange = onValueChange,
         )
-        field.type == "file" -> Card(
+        field.type == "file" -> SppgCard(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1539,7 +1514,7 @@ private fun OperationalFormInput(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Button(
+                    SppgButton(
                         onClick = {
                             photoError = null
                             runCatching { createOperationalCameraCaptureTarget(context) }
@@ -1558,7 +1533,7 @@ private fun OperationalFormInput(
                         Spacer(Modifier.width(6.dp))
                         Text("Kamera")
                     }
-                    OutlinedButton(
+                    SppgOutlinedButton(
                         onClick = {
                             photoError = null
                             photoLauncher.launch(
@@ -1586,7 +1561,7 @@ private fun OperationalFormInput(
                 }
             }
         }
-        field.type == "boolean" -> Card(
+        field.type == "boolean" -> SppgCard(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1628,7 +1603,7 @@ private fun OperationalFormInput(
                 expanded = expanded,
                 onExpandedChange = { expanded = !expanded },
             ) {
-                OutlinedTextField(
+                SppgTextField(
                     value = field.options[value] ?: "",
                     onValueChange = {},
                     readOnly = true,
@@ -1665,7 +1640,7 @@ private fun OperationalFormInput(
                 }
             }
         }
-        field.type == "select" -> OutlinedTextField(
+        field.type == "select" -> SppgTextField(
             value = "",
             onValueChange = {},
             readOnly = true,
@@ -1675,7 +1650,7 @@ private fun OperationalFormInput(
             placeholder = { Text("Belum ada pekerjaan aktif") },
             shape = RoundedCornerShape(16.dp),
         )
-        else -> OutlinedTextField(
+        else -> SppgTextField(
             value = value.orEmpty(),
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth(),
@@ -1739,8 +1714,8 @@ private fun ManualReceiptRowsInput(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Card(
-            shape = RoundedCornerShape(18.dp),
+        SppgCard(
+            shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         ) {
             Column(Modifier.padding(16.dp)) {
@@ -1753,9 +1728,9 @@ private fun ManualReceiptRowsInput(
             }
         }
         rows.forEachIndexed { index, row ->
-            Card(
+            SppgCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1781,7 +1756,7 @@ private fun ManualReceiptRowsInput(
                             else row.copy(ingredient_id = selected)
                         })
                     }
-                    OutlinedTextField(
+                    SppgTextField(
                         value = row.received_quantity.orEmpty(),
                         onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(received_quantity = text) }) },
                         modifier = Modifier.fillMaxWidth(),
@@ -1789,7 +1764,7 @@ private fun ManualReceiptRowsInput(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RoundedCornerShape(16.dp),
                     )
-                    OutlinedTextField(
+                    SppgTextField(
                         value = row.accepted_quantity.orEmpty(),
                         onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(accepted_quantity = text) }) },
                         modifier = Modifier.fillMaxWidth(),
@@ -1797,7 +1772,7 @@ private fun ManualReceiptRowsInput(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RoundedCornerShape(16.dp),
                     )
-                    OutlinedTextField(
+                    SppgTextField(
                         value = row.rejected_quantity,
                         onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(rejected_quantity = text) }) },
                         modifier = Modifier.fillMaxWidth(),
@@ -1806,7 +1781,7 @@ private fun ManualReceiptRowsInput(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                         shape = RoundedCornerShape(16.dp),
                     )
-                    OutlinedTextField(
+                    SppgTextField(
                         value = row.supplier_batch_number.orEmpty(),
                         onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(supplier_batch_number = text) }) },
                         modifier = Modifier.fillMaxWidth(),
@@ -1822,7 +1797,7 @@ private fun ManualReceiptRowsInput(
                         onValueChange = { date -> publish(rows.toMutableList().also { it[index] = row.copy(expired_date = date) }) },
                     )
                     if (!isNonFood) {
-                        OutlinedTextField(
+                        SppgTextField(
                             value = row.received_temperature_celsius.orEmpty(),
                             onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(received_temperature_celsius = text) }) },
                             modifier = Modifier.fillMaxWidth(),
@@ -1831,7 +1806,7 @@ private fun ManualReceiptRowsInput(
                             shape = RoundedCornerShape(16.dp),
                         )
                     }
-                    OutlinedTextField(
+                    SppgTextField(
                         value = row.quality_notes.orEmpty(),
                         onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(quality_notes = text) }) },
                         modifier = Modifier.fillMaxWidth(),
@@ -1842,9 +1817,9 @@ private fun ManualReceiptRowsInput(
                 }
             }
         }
-        OutlinedButton(
+        SppgOutlinedButton(
             onClick = { publish(rows + ManualReceiptMobileRow()) },
-            modifier = Modifier.fillMaxWidth().height(50.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
             Icon(Icons.Outlined.Add, contentDescription = null)
@@ -1910,9 +1885,9 @@ private fun OpeningStockRowsInput(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         rows.forEachIndexed { index, row ->
-            Card(
+            SppgCard(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1928,19 +1903,19 @@ private fun OpeningStockRowsInput(
                             }
                         }
                     }
-                    if (!isNonFood) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!isNonFood) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (row.mode == "existing") {
-                            Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("Barang tersedia") }
+                            SppgButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Barang tersedia") }
                         } else {
-                            OutlinedButton(
+                            SppgOutlinedButton(
                                 onClick = { publish(rows.toMutableList().also { it[index] = row.copy(mode = "existing") }) },
                                 modifier = Modifier.weight(1f),
                             ) { Text("Barang tersedia") }
                         }
                         if (row.mode == "new") {
-                            Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("Barang baru") }
+                            SppgButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Barang baru") }
                         } else {
-                            OutlinedButton(
+                            SppgOutlinedButton(
                                 onClick = { publish(rows.toMutableList().also { it[index] = row.copy(mode = "new") }) },
                                 modifier = Modifier.weight(1f),
                             ) { Text("Barang baru") }
@@ -1955,7 +1930,7 @@ private fun OpeningStockRowsInput(
                             })
                         }
                     } else {
-                        OutlinedTextField(
+                        SppgTextField(
                             value = row.new_name.orEmpty(),
                             onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(new_name = text) }) },
                             modifier = Modifier.fillMaxWidth(),
@@ -1969,7 +1944,7 @@ private fun OpeningStockRowsInput(
                             publish(rows.toMutableList().also { it[index] = row.copy(measurement_unit_id = selected) })
                         }
                     }
-                    OutlinedTextField(
+                    SppgTextField(
                         value = row.quantity.orEmpty(),
                         onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(quantity = text) }) },
                         modifier = Modifier.fillMaxWidth(),
@@ -1980,14 +1955,14 @@ private fun OpeningStockRowsInput(
                     OpeningStockDropdown("Penyimpanan *", row.storage_type, storages) { selected ->
                         publish(rows.toMutableList().also { it[index] = row.copy(storage_type = selected ?: "dry") })
                     }
-                    OutlinedTextField(
+                    SppgTextField(
                         value = row.location_name,
                         onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(location_name = text) }) },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Lokasi") },
                         shape = RoundedCornerShape(16.dp),
                     )
-                    OutlinedTextField(
+                    SppgTextField(
                         value = row.lot_number.orEmpty(),
                         onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(lot_number = text) }) },
                         modifier = Modifier.fillMaxWidth(),
@@ -2002,7 +1977,7 @@ private fun OpeningStockRowsInput(
                         value = row.expired_date,
                         onValueChange = { date -> publish(rows.toMutableList().also { it[index] = row.copy(expired_date = date) }) },
                     )
-                    OutlinedTextField(
+                    SppgTextField(
                         value = row.condition_notes.orEmpty(),
                         onValueChange = { text -> publish(rows.toMutableList().also { it[index] = row.copy(condition_notes = text) }) },
                         modifier = Modifier.fillMaxWidth(),
@@ -2013,9 +1988,9 @@ private fun OpeningStockRowsInput(
                 }
             }
         }
-        OutlinedButton(
+        SppgOutlinedButton(
             onClick = { publish(rows + OpeningStockMobileRow()) },
-            modifier = Modifier.fillMaxWidth().height(50.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
             shape = RoundedCornerShape(16.dp),
         ) {
             Icon(Icons.Outlined.Add, contentDescription = null)
@@ -2035,7 +2010,7 @@ private fun OpeningStockDropdown(
 ) {
     var expanded by remember(label) { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
-        OutlinedTextField(
+        SppgTextField(
             value = options[value].orEmpty(),
             onValueChange = {},
             readOnly = true,
@@ -2081,7 +2056,7 @@ private fun OpeningStockSearchableDropdown(
         expanded = expanded,
         onExpandedChange = { expanded = true },
     ) {
-        OutlinedTextField(
+        SppgTextField(
             value = query,
             onValueChange = { text ->
                 query = text
@@ -2202,7 +2177,7 @@ private fun OperationalDatePickerInput(
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        Card(
+        SppgCard(
             onClick = ::openPicker,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -2252,9 +2227,9 @@ private fun PortioningLeftoverChoiceCard(
     val noneAction = actions.firstOrNull { it.key == "set_leftover_none" }
     val presentAction = actions.firstOrNull { it.key == "set_leftover_present" }
 
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2267,14 +2242,14 @@ private fun PortioningLeftoverChoiceCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                OutlinedButton(
+                SppgOutlinedButton(
                     onClick = { noneAction?.let(onAction) },
                     enabled = !isSaving && noneAction != null,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(if (noneSelected) "✓ Tidak ada sisa" else "Tidak ada sisa")
                 }
-                Button(
+                SppgButton(
                     onClick = { presentAction?.let(onAction) },
                     enabled = !isSaving && presentAction != null,
                     modifier = Modifier.weight(1f),
@@ -2311,9 +2286,9 @@ private fun PortioningProgressCard(fields: List<OperationalField>) {
     val actualLarge = value("actual_large_portions")
     val targetMet = actualSmall >= targetSmall && actualLarge >= targetLarge
 
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2343,7 +2318,7 @@ private fun PortioningProgressItem(
     target: Int,
     modifier: Modifier = Modifier,
 ) {
-    Card(
+    SppgCard(
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -2465,9 +2440,9 @@ private fun CleaningOverviewCard(record: OperationalRecord, readiness: CleaningR
         else -> "Pekerjaan sudah selesai. Data ditampilkan sebagai riwayat."
     }
 
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2493,9 +2468,9 @@ private fun CleaningChecklistSectionCard(
     section: OperationalSection,
     onEdit: (OperationalSectionItem) -> Unit,
 ) {
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -2561,9 +2536,9 @@ private fun CleaningWasteCard(
     val reportStatus = record.fields.orEmpty().firstOrNull { it.key == "waste_handover_readiness" }?.value
     val canEdit = record.capabilities?.canUpdate == true && record.state in setOf("in_progress", "ready")
 
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2582,19 +2557,19 @@ private fun CleaningWasteCard(
                     color = if (reportStatus.equals("Siap", ignoreCase = true)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.SemiBold,
                 )
-                Button(
+                SppgButton(
                     onClick = onOpenWasteReport,
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                     shape = RoundedCornerShape(15.dp),
                 ) { Text("Buat / Buka Berita Acara Limbah", fontWeight = FontWeight.Bold) }
                 if (canEdit) {
                     TextButton(onClick = onEdit, modifier = Modifier.fillMaxWidth()) { Text("Ubah kondisi limbah") }
                 }
             } else {
-                OutlinedButton(
+                SppgOutlinedButton(
                     onClick = onEdit,
                     enabled = canEdit,
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                     shape = RoundedCornerShape(15.dp),
                 ) {
                     Text(
@@ -2640,9 +2615,9 @@ private fun CleaningNextStepCard(
         else -> "LANGKAH BERIKUTNYA"
     }
 
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (ready) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         ),
@@ -2668,17 +2643,17 @@ private fun CleaningNextStepCard(
             }
             actions.forEachIndexed { index, action ->
                 if (index == 0) {
-                    Button(
+                    SppgButton(
                         onClick = { onAction(action) },
                         enabled = !isSaving && ready,
-                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
                         shape = RoundedCornerShape(16.dp),
                     ) { Text(action.label, fontWeight = FontWeight.Bold) }
                 } else {
-                    OutlinedButton(
+                    SppgOutlinedButton(
                         onClick = { onAction(action) },
                         enabled = !isSaving,
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                         shape = RoundedCornerShape(16.dp),
                     ) { Text(action.label, fontWeight = FontWeight.SemiBold) }
                 }
@@ -2713,9 +2688,9 @@ private fun CleaningRequirementRow(label: String, ready: Boolean) {
 
 @Composable
 private fun OperationalFieldCard(title: String, fields: List<OperationalField>) {
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -2743,9 +2718,9 @@ private fun OperationalSectionCard(
     onDelete: (OperationalSectionItem) -> Unit,
     onAction: (OperationalSectionItem, OperationalRelationAction) -> Unit,
 ) {
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -2814,7 +2789,7 @@ private fun OperationalSectionCard(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             item.actions.orEmpty().forEach { action ->
-                                OutlinedButton(
+                                SppgOutlinedButton(
                                     onClick = { onAction(item, action) },
                                     modifier = Modifier.fillMaxWidth(),
                                 ) { Text(action.label, fontWeight = FontWeight.SemiBold) }
@@ -2834,25 +2809,24 @@ private fun OperationalSectionCard(
 
 @Composable
 private fun OperationalFieldRow(field: OperationalField) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Text(
             field.label,
-            modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.labelMedium,
         )
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.height(4.dp))
         if (!field.fileUrl.isNullOrBlank()) {
             InAppImageButton(
                 url = field.fileUrl,
                 title = field.label,
                 label = "Lihat foto",
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
             )
         } else {
             Text(
                 field.value,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 fontWeight = FontWeight.Medium,
                 style = MaterialTheme.typography.bodyMedium,
             )

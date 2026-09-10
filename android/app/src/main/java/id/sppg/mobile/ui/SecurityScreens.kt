@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package id.sppg.mobile.ui
 
 import android.app.DatePickerDialog
@@ -9,6 +11,8 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -27,8 +31,6 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -37,13 +39,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -205,12 +204,12 @@ fun SecurityScreen(
         },
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().imePadding(),
             contentPadding = PaddingValues(
                 start = SppgPagePadding,
                 end = SppgPagePadding,
                 top = innerPadding.calculateTopPadding() + 12.dp,
-                bottom = 36.dp,
+                bottom = innerPadding.calculateBottomPadding() + 24.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -246,7 +245,7 @@ fun SecurityScreen(
                 val shift = overview.activeShift
                 if (shift == null) {
                     item {
-                        Card(shape = RoundedCornerShape(22.dp)) {
+                        SppgCard(shape = RoundedCornerShape(16.dp)) {
                             Column(Modifier.padding(20.dp)) {
                                 Text("Belum ada shift aktif", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                                 Spacer(Modifier.height(8.dp))
@@ -266,8 +265,8 @@ fun SecurityScreen(
                     }
                 } else {
                     item {
-                        Card(
-                            shape = RoundedCornerShape(22.dp),
+                        SppgCard(
+                            shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                         ) {
                             Column(Modifier.padding(20.dp)) {
@@ -288,10 +287,10 @@ fun SecurityScreen(
                             Text("Buat laporan situasi", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         }
                         item {
-                            Card(shape = RoundedCornerShape(22.dp)) {
+                            SppgCard(shape = RoundedCornerShape(16.dp)) {
                                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                                     Text("Situasi", fontWeight = FontWeight.Bold)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         listOf("safe" to "Aman", "attention" to "Perhatian", "emergency" to "Darurat").forEach { option ->
                                             FilterChip(
                                                 selected = situation == option.first,
@@ -302,29 +301,29 @@ fun SecurityScreen(
                                     }
                                     SecuritySwitch("Gerbang aman", gateSecure) { gateSecure = it }
                                     SecuritySwitch("Perimeter aman", perimeterSecure) { perimeterSecure = it }
-                                    OutlinedTextField(
+                                    SppgTextField(
                                         value = accessActivity,
                                         onValueChange = { accessActivity = it },
                                         label = { Text("Aktivitas akses") },
                                         modifier = Modifier.fillMaxWidth(),
                                         minLines = 2,
                                     )
-                                    OutlinedTextField(
+                                    SppgTextField(
                                         value = visitorActivity,
                                         onValueChange = { visitorActivity = it },
                                         label = { Text("Aktivitas tamu") },
                                         modifier = Modifier.fillMaxWidth(),
                                         minLines = 2,
                                     )
-                                    OutlinedTextField(
+                                    SppgTextField(
                                         value = notes,
                                         onValueChange = { notes = it },
                                         label = { Text("Catatan") },
                                         modifier = Modifier.fillMaxWidth(),
                                         minLines = 2,
                                     )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        OutlinedButton(
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        SppgOutlinedButton(
                                             onClick = {
                                                 photoError = null
                                                 if (!hasCameraApplication(context)) {
@@ -349,7 +348,7 @@ fun SecurityScreen(
                                             Spacer(Modifier.size(6.dp))
                                             Text("Kamera")
                                         }
-                                        OutlinedButton(
+                                        SppgOutlinedButton(
                                             onClick = {
                                                 photoError = null
                                                 galleryLauncher.launch(
@@ -433,7 +432,7 @@ fun SecurityScreen(
                 if (overview.pendingTasks.isNotEmpty()) {
                     item { Text("Jadwal laporan", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
                     items(overview.pendingTasks, key = { task -> "security-task-${task.id}" }) { task ->
-                        Card(shape = RoundedCornerShape(18.dp)) {
+                        SppgCard(shape = RoundedCornerShape(16.dp)) {
                             Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(task.title, fontWeight = FontWeight.Bold)
@@ -452,7 +451,7 @@ fun SecurityScreen(
 
 @Composable
 private fun SecurityShiftHistoryCard(shift: SecurityShiftSummary) {
-    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+    SppgCard(shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Shift keamanan", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -483,8 +482,8 @@ private fun SecuritySwitch(label: String, checked: Boolean, onCheckedChange: (Bo
 
 @Composable
 private fun SecurityFeedback(message: String, isError: Boolean) {
-    Card(
-        shape = RoundedCornerShape(18.dp),
+    SppgCard(
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
             else MaterialTheme.colorScheme.secondaryContainer,
@@ -496,7 +495,7 @@ private fun SecurityFeedback(message: String, isError: Boolean) {
 
 @Composable
 private fun SecurityReportCard(report: SecurityReportItem) {
-    Card(shape = RoundedCornerShape(18.dp)) {
+    SppgCard(shape = RoundedCornerShape(16.dp)) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Laporan ke-${report.sequenceNumber}", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))

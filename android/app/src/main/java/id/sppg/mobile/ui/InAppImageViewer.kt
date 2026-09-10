@@ -21,7 +21,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,7 +48,7 @@ fun InAppImageButton(
 ) {
     var open by remember(url) { mutableStateOf(false) }
 
-    OutlinedButton(onClick = { open = true }, modifier = modifier) {
+    SppgOutlinedButton(onClick = { open = true }, modifier = modifier) {
         Icon(Icons.Outlined.Image, contentDescription = null)
         Spacer(Modifier.width(6.dp))
         Text(label)
@@ -62,11 +61,11 @@ fun InAppImageButton(
         ) {
             Surface(
                 modifier = Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.90f),
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surface,
             ) {
                 Column(
-                    Modifier.padding(16.dp).verticalScroll(rememberScrollState()),
+                    Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -81,6 +80,7 @@ fun InAppImageButton(
                         }
                     }
 
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                     SubcomposeAsyncImage(
                         model = resolveAppMediaUrl(url),
                         contentDescription = title,
@@ -101,6 +101,7 @@ fun InAppImageButton(
                             }
                         },
                     )
+                    }
                 }
             }
         }

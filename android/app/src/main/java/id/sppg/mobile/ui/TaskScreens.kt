@@ -1,6 +1,10 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package id.sppg.mobile.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -19,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,7 +33,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -93,12 +95,12 @@ fun TaskListScreen(
         },
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().imePadding(),
             contentPadding = PaddingValues(
                 start = SppgPagePadding,
                 end = SppgPagePadding,
                 top = innerPadding.calculateTopPadding() + 12.dp,
-                bottom = 32.dp,
+                bottom = innerPadding.calculateBottomPadding() + 24.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -133,17 +135,16 @@ fun TaskListScreen(
 
             item(key = "notification-title") {
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Riwayat notifikasi", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     if (state.unreadCount > 0) {
-                        Spacer(Modifier.weight(1f))
                         SppgStatusPill("${state.unreadCount} belum dibaca")
                     }
                 }
             }
 
             item(key = "notification-filter") {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf("all" to "Semua", "unread" to "Belum dibaca", "important" to "Penting").forEach { option ->
                         FilterChip(
                             selected = notificationFilter == option.first,
@@ -169,9 +170,9 @@ fun TaskListScreen(
 
 @Composable
 private fun TaskCard(task: MobileTaskItem, onClick: () -> Unit) {
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (task.isOverdue) {
                 MaterialTheme.colorScheme.errorContainer
@@ -199,9 +200,9 @@ private fun TaskCard(task: MobileTaskItem, onClick: () -> Unit) {
 
 @Composable
 private fun NotificationCard(notification: MobileNotificationItem, onClick: () -> Unit) {
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (notification.readAt == null) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -237,25 +238,11 @@ private fun NotificationCard(notification: MobileNotificationItem, onClick: () -
     }
 }
 
-@Composable
-private fun FeedbackCard(title: String, message: String, isError: Boolean) {
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.secondaryContainer,
-        ),
-        shape = RoundedCornerShape(18.dp),
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Text(title, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(5.dp))
-            Text(message)
-        }
-    }
-}
-
 internal fun formatMobileDate(value: String?): String {
     if (value.isNullOrBlank()) return "-"
+    if (value.length == 10) return runCatching {
+        java.time.LocalDate.parse(value).format(DateTimeFormatter.ofPattern("dd-MM-yyyy"))
+    }.getOrDefault(value)
     return runCatching {
         OffsetDateTime.parse(value).format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"))
     }.getOrDefault(value)

@@ -9,12 +9,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -35,20 +33,20 @@ fun WorkHistoryTabs(
             selected = !showHistory,
             onClick = { onShowHistoryChange(false) },
             label = { Text(activeLabel) },
-            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
         )
         FilterChip(
             selected = showHistory,
             onClick = { onShowHistoryChange(true) },
             label = { Text("Riwayat") },
-            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
         )
     }
 }
 
 @Composable
 fun HistoryDateSelector(label: String, onClick: () -> Unit) {
-    OutlinedButton(
+    SppgOutlinedButton(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
         shape = RoundedCornerShape(15.dp),

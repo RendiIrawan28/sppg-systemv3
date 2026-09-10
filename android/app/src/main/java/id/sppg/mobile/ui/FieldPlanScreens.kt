@@ -1,9 +1,14 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package id.sppg.mobile.ui
 
 import android.app.DatePickerDialog
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,11 +37,9 @@ import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restaurant
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -46,13 +49,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,7 +74,6 @@ import id.sppg.mobile.data.remote.FieldPlanDestination
 import id.sppg.mobile.data.remote.UpdateFieldPlanDestinationRequest
 import id.sppg.mobile.data.remote.UpdateFieldPlanRequest
 import id.sppg.mobile.data.remote.UpdateRecipientGroupRequest
-import id.sppg.mobile.ui.theme.Navy
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -144,19 +143,19 @@ fun FieldPlanListScreen(
                 onRetry = onRefresh,
             )
             else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().imePadding(),
                 contentPadding = PaddingValues(
                     start = SppgPagePadding,
                     top = innerPadding.calculateTopPadding() + 12.dp,
                     end = SppgPagePadding,
-                    bottom = 32.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 24.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item {
-                    Card(
+                    SppgCard(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     ) {
                         Row(
@@ -199,7 +198,7 @@ fun FieldPlanListScreen(
                 if (visiblePlans.isEmpty()) {
                     item {
                         if (showHistory) HistoryEmptyState()
-                        else Card(shape = RoundedCornerShape(18.dp)) {
+                        else SppgCard(shape = RoundedCornerShape(16.dp)) {
                             Text(
                                 "Belum ada rencana distribusi aktif atau mendatang",
                                 modifier = Modifier.padding(22.dp),
@@ -214,10 +213,10 @@ fun FieldPlanListScreen(
                 }
                 if (state.currentPage < state.lastPage) {
                     item(key = "field-plan-load-more-${state.currentPage}") {
-                        OutlinedButton(
+                        SppgOutlinedButton(
                             onClick = onLoadMore,
                             enabled = !state.isLoadingMore,
-                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                             shape = RoundedCornerShape(16.dp),
                         ) {
                             if (state.isLoadingMore) {
@@ -238,11 +237,11 @@ fun FieldPlanListScreen(
 
 @Composable
 private fun FieldPlanCard(plan: FieldPlan, onClick: () -> Unit) {
-    Card(
+    SppgCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
@@ -262,7 +261,7 @@ private fun FieldPlanCard(plan: FieldPlan, onClick: () -> Unit) {
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
-                        plan.menuName ?: "Menu belum ditentukan",
+                        plan.menuName ?: "Rencana distribusi",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
@@ -373,7 +372,7 @@ private fun FieldPlanDetailContent(
                 Column {
                     Text("Aktivasi akan menyiapkan rute Distribusi. Pengolahan dan Pemorsian tetap dimulai manual oleh divisi masing-masing. Nama dan urutan rute masih dapat disesuaikan sebelum dipilih driver.")
                     Spacer(Modifier.height(14.dp))
-                    OutlinedTextField(
+                    SppgTextField(
                         value = activationNotes,
                         onValueChange = { activationNotes = it },
                         modifier = Modifier.fillMaxWidth(),
@@ -383,7 +382,7 @@ private fun FieldPlanDetailContent(
                 }
             },
             confirmButton = {
-                Button(
+                SppgButton(
                     onClick = {
                         onActivate(activationNotes)
                         showActivationDialog = false
@@ -405,7 +404,7 @@ private fun FieldPlanDetailContent(
             title = { Text("Hapus draft rencana?") },
             text = { Text("Draft dan seluruh rincian tujuan di dalamnya akan dihapus.") },
             confirmButton = {
-                Button(onClick = { showDeleteDialog = false; onDelete() }, enabled = !state.isSubmitting) {
+                SppgButton(onClick = { showDeleteDialog = false; onDelete() }, enabled = !state.isSubmitting) {
                     Text("Hapus")
                 }
             },
@@ -414,12 +413,12 @@ private fun FieldPlanDetailContent(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().imePadding(),
         contentPadding = PaddingValues(
             start = SppgPagePadding,
             top = padding.calculateTopPadding() + 12.dp,
             end = SppgPagePadding,
-            bottom = 32.dp,
+            bottom = padding.calculateBottomPadding() + 24.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -442,9 +441,9 @@ private fun FieldPlanDetailContent(
             }
         }
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Navy),
-                shape = RoundedCornerShape(24.dp),
+            SppgCard(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Row(
@@ -452,21 +451,21 @@ private fun FieldPlanDetailContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(plan.planNumber, fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(plan.planNumber, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                         StatusBadge(plan.status, plan.statusLabel)
                     }
                     Spacer(Modifier.height(14.dp))
                     Text(
-                        plan.menuName ?: "Menu belum ditentukan",
+                        plan.menuName ?: "Rencana distribusi",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Spacer(Modifier.height(8.dp))
-                    Text(formatDate(plan.distributionDate), color = Color.White.copy(alpha = 0.8f))
+                    Text(formatDate(plan.distributionDate), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (plan.isRapel) {
                         Spacer(Modifier.height(6.dp))
-                        Text("Distribusi rapel", fontWeight = FontWeight.SemiBold, color = Color.White)
+                        Text("Distribusi rapel", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -475,7 +474,7 @@ private fun FieldPlanDetailContent(
             item {
                 SectionCard("Tindakan rencana") {
                     if (plan.canUpdate) {
-                        OutlinedButton(
+                        SppgOutlinedButton(
                             onClick = onEdit,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.isSubmitting,
@@ -483,7 +482,7 @@ private fun FieldPlanDetailContent(
                         Spacer(Modifier.height(10.dp))
                     }
                     if (plan.canReviseRoutes && !plan.canUpdate) {
-                        OutlinedButton(
+                        SppgOutlinedButton(
                             onClick = onEdit,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.isSubmitting,
@@ -491,7 +490,7 @@ private fun FieldPlanDetailContent(
                         Spacer(Modifier.height(10.dp))
                     }
                     if (plan.canRefresh) {
-                        OutlinedButton(
+                        SppgOutlinedButton(
                             onClick = onRefreshBeneficiaries,
                             modifier = Modifier.fillMaxWidth(),
                             enabled = !state.isSubmitting,
@@ -499,7 +498,7 @@ private fun FieldPlanDetailContent(
                         Spacer(Modifier.height(10.dp))
                     }
                     if (plan.canActivate) {
-                        Button(
+                        SppgButton(
                             onClick = {
                                 activationRequested = true
                                 onCheckReadiness()
@@ -555,12 +554,12 @@ private fun FieldPlanDetailContent(
                     Text("PDF", fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(onClick = { onOpenDocument("pdf") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(48.dp)) {
+                        SppgOutlinedButton(onClick = { onOpenDocument("pdf") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                             Icon(Icons.Outlined.PictureAsPdf, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Buka")
                         }
-                        Button(onClick = { onShareDocument("pdf") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(48.dp)) {
+                        SppgButton(onClick = { onShareDocument("pdf") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                             Icon(Icons.Outlined.Share, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Bagikan")
@@ -570,12 +569,12 @@ private fun FieldPlanDetailContent(
                     Text("Excel", fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(onClick = { onOpenDocument("xlsx") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(48.dp)) {
+                        SppgOutlinedButton(onClick = { onOpenDocument("xlsx") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                             Icon(Icons.Outlined.Download, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Buka")
                         }
-                        Button(onClick = { onShareDocument("xlsx") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).height(48.dp)) {
+                        SppgButton(onClick = { onShareDocument("xlsx") }, enabled = !state.isSubmitting, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                             Icon(Icons.Outlined.Share, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Bagikan")
@@ -616,9 +615,9 @@ private fun FieldPlanDetailContent(
 
 @Composable
 private fun DestinationCard(destination: FieldPlanDestination) {
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
@@ -782,12 +781,12 @@ private fun FieldPlanEditForm(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().imePadding(),
         contentPadding = PaddingValues(
             start = SppgPagePadding,
             top = padding.calculateTopPadding() + 12.dp,
             end = SppgPagePadding,
-            bottom = 32.dp,
+            bottom = padding.calculateBottomPadding() + 24.dp,
         ),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -802,7 +801,7 @@ private fun FieldPlanEditForm(
         }
         if (routeOnly) {
             item {
-                Card(
+                SppgCard(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     shape = RoundedCornerShape(15.dp),
                 ) {
@@ -824,7 +823,7 @@ private fun FieldPlanEditForm(
             }
         }
         if (!routeOnly) item {
-            OutlinedTextField(
+            SppgTextField(
                 value = generalNotes,
                 onValueChange = { generalNotes = it },
                 modifier = Modifier.fillMaxWidth(),
@@ -847,7 +846,7 @@ private fun FieldPlanEditForm(
             )
         }
         item {
-            Button(
+            SppgButton(
                 onClick = {
                     val servedDestinations = destinations.filter { destination ->
                         destination.groups.sumOf { it.confirmed.toIntOrNull() ?: 0 } > 0
@@ -855,7 +854,7 @@ private fun FieldPlanEditForm(
                     val missingRoute = servedDestinations.firstOrNull { it.routeName.isBlank() }
                     if (missingRoute != null) {
                         localError = "Rute untuk ${missingRoute.name} wajib dipilih."
-                        return@Button
+                        return@SppgButton
                     }
                     val duplicateOrder = servedDestinations
                         .groupBy { it.routeName.trim() to it.sequenceOrder }
@@ -863,14 +862,14 @@ private fun FieldPlanEditForm(
                         .firstOrNull { it.value.size > 1 }
                     if (duplicateOrder != null) {
                         localError = "Urutan ${duplicateOrder.key.second} pada ${duplicateOrder.key.first} digunakan lebih dari satu tujuan."
-                        return@Button
+                        return@SppgButton
                     }
                     val requestDestinations = destinations.map { destination ->
                         val groups = destination.groups.map { group ->
                             val confirmed = group.confirmed.toIntOrNull()
                             if (!routeOnly && (confirmed == null || confirmed < 0)) {
                                 localError = "Jumlah aktual pada ${group.name} harus berupa angka nol atau lebih."
-                                return@Button
+                                return@SppgButton
                             }
                             UpdateRecipientGroupRequest(
                                 id = group.id,
@@ -885,7 +884,7 @@ private fun FieldPlanEditForm(
                         }
                         if (!routeOnly && changed && destination.changeReason.isBlank()) {
                             localError = "${destination.name}: alasan perubahan jumlah penerima wajib diisi."
-                            return@Button
+                            return@SppgButton
                         }
                         UpdateFieldPlanDestinationRequest(
                             id = destination.id,
@@ -907,7 +906,7 @@ private fun FieldPlanEditForm(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
+                    .heightIn(min = 52.dp),
                 enabled = !isSubmitting && destinations.isNotEmpty(),
                 shape = RoundedCornerShape(14.dp),
             ) {
@@ -940,9 +939,9 @@ private fun DestinationEditCard(
     }
     val isServed = destination.groups.sumOf { it.confirmed.toIntOrNull() ?: 0 } > 0
     val routeFieldsEnabled = enabled && (!routeOnly || isServed)
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
@@ -956,7 +955,7 @@ private fun DestinationEditCard(
                 expanded = routeExpanded,
                 onExpandedChange = { if (routeFieldsEnabled) routeExpanded = !routeExpanded },
             ) {
-                OutlinedTextField(
+                SppgTextField(
                     value = destination.routeName,
                     onValueChange = {},
                     modifier = Modifier
@@ -985,7 +984,7 @@ private fun DestinationEditCard(
                 }
             }
             Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
+            SppgTextField(
                 value = destination.sequenceOrder.toString(),
                 onValueChange = { value ->
                     value.filter(Char::isDigit).toIntOrNull()?.let { sequence ->
@@ -1018,7 +1017,7 @@ private fun DestinationEditCard(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(5.dp))
-                OutlinedTextField(
+                SppgTextField(
                     value = group.confirmed,
                     onValueChange = { value ->
                         val groups = destination.groups.toMutableList().also {
@@ -1036,7 +1035,7 @@ private fun DestinationEditCard(
                     ),
                 )
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
+                SppgTextField(
                     value = group.menuAudience,
                     onValueChange = { value ->
                         val groups = destination.groups.toMutableList().also { it[groupIndex] = group.copy(menuAudience = value) }
@@ -1048,9 +1047,9 @@ private fun DestinationEditCard(
                     enabled = enabled,
                 )
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf("small" to "Porsi kecil", "large" to "Porsi besar").forEach { (value, label) ->
-                        OutlinedButton(
+                        SppgOutlinedButton(
                             onClick = {
                                 val groups = destination.groups.toMutableList().also { it[groupIndex] = group.copy(portionSize = value) }
                                 onDestinationChange(destination.copy(groups = groups))
@@ -1060,7 +1059,7 @@ private fun DestinationEditCard(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
+                SppgTextField(
                     value = group.notes,
                     onValueChange = { value ->
                         val groups = destination.groups.toMutableList().also {
@@ -1076,7 +1075,7 @@ private fun DestinationEditCard(
                 Spacer(Modifier.height(12.dp))
             }
             if (hasChangedCount) {
-                OutlinedTextField(
+                SppgTextField(
                     value = destination.changeReason,
                     onValueChange = { onDestinationChange(destination.copy(changeReason = it)) },
                     modifier = Modifier.fillMaxWidth(),
@@ -1087,7 +1086,7 @@ private fun DestinationEditCard(
                 )
                 Spacer(Modifier.height(10.dp))
             }
-            OutlinedTextField(
+            SppgTextField(
                 value = destination.specialNotes,
                 onValueChange = { onDestinationChange(destination.copy(specialNotes = it)) },
                 modifier = Modifier.fillMaxWidth(),
@@ -1136,7 +1135,7 @@ fun FieldPlanCreateScreen(
             }.orEmpty()
             val selectedOption = optionsForDate.firstOrNull()
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().imePadding(),
                 contentPadding = PaddingValues(SppgPagePadding, padding.calculateTopPadding() + 12.dp, SppgPagePadding, 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -1148,7 +1147,7 @@ fun FieldPlanCreateScreen(
                     Spacer(Modifier.height(6.dp))
                     Text("Penerima dimuat dari periode aktif. Rencana tidak terikat menu.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(
+                    SppgOutlinedButton(
                         onClick = {
                             val initial = selectedDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: LocalDate.now()
                             DatePickerDialog(
@@ -1161,7 +1160,7 @@ fun FieldPlanCreateScreen(
                                 initial.dayOfMonth,
                             ).show()
                         },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                         enabled = !state.isSubmitting,
                     ) {
                         Icon(Icons.Outlined.CalendarMonth, contentDescription = null)
@@ -1194,7 +1193,7 @@ fun FieldPlanCreateScreen(
                 item {
                     Text("3. Catatan rencana", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
+                    SppgTextField(
                         value = notes,
                         onValueChange = { notes = it },
                         modifier = Modifier.fillMaxWidth(),
@@ -1204,14 +1203,14 @@ fun FieldPlanCreateScreen(
                     )
                 }
                 item {
-                    Button(
+                    SppgButton(
                         onClick = {
                             selectedDate?.let {
                                 onCreate(it, selectedOption?.id, notes.trim().ifBlank { null })
                             }
                         },
                         enabled = selectedDate != null && selectedOption?.isAvailable == true && !state.isSubmitting,
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     ) {
                         if (state.isSubmitting) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         else Text("Buat rencana dan muat penerima", fontWeight = FontWeight.Bold)
@@ -1235,12 +1234,12 @@ private fun FieldPlanOptionCard(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick),
         colors = CardDefaults.cardColors(
             containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         ),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
     ) {
         Column(Modifier.padding(16.dp)) {
             Text(option.menuName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -1270,12 +1269,12 @@ private fun ReadinessCard(
     issues: List<String>,
     onActivate: (() -> Unit)?,
 ) {
-    Card(
+    SppgCard(
         colors = CardDefaults.cardColors(
             containerColor = if (ready) MaterialTheme.colorScheme.primaryContainer
             else MaterialTheme.colorScheme.secondaryContainer,
         ),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Text(message, fontWeight = FontWeight.Bold)
@@ -1288,7 +1287,7 @@ private fun ReadinessCard(
             }
             if (onActivate != null) {
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = onActivate, modifier = Modifier.fillMaxWidth()) {
+                SppgButton(onClick = onActivate, modifier = Modifier.fillMaxWidth()) {
                     Text("Aktifkan rencana")
                 }
             }
@@ -1298,7 +1297,7 @@ private fun ReadinessCard(
 
 @Composable
 private fun FeedbackCard(message: String, isError: Boolean, onDismiss: () -> Unit) {
-    Card(
+    SppgCard(
         colors = CardDefaults.cardColors(
             containerColor = if (isError) MaterialTheme.colorScheme.errorContainer
             else MaterialTheme.colorScheme.primaryContainer,
@@ -1323,7 +1322,7 @@ private fun FeedbackCard(message: String, isError: Boolean, onDismiss: () -> Uni
 
 @Composable
 private fun SummaryCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Card(
+    SppgCard(
         modifier = modifier,
         shape = RoundedCornerShape(17.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -1342,9 +1341,9 @@ private fun SummaryCard(label: String, value: String, modifier: Modifier = Modif
 
 @Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    Card(
+    SppgCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
