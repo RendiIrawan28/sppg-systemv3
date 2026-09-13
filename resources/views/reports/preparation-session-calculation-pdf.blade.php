@@ -27,13 +27,14 @@
         .items .unit { width: 11%; }
         .items .quality { width: 9.5%; }
         .items .notes { width: 15.5%; }
+        .items .session-row td { height: 19px; background: #eef3f8; font-size: 8px; font-weight: bold; }
         .center { text-align: center; }
         .right { text-align: right; }
         .checkmark { text-align: center; font-size: 14px; font-weight: bold; }
-        .signature { margin: 27px 0 0 42px; width: 190px; font-size: 10px; }
+        .signature { margin: 27px 0 0 42px; width: 70%; font-size: 10px; }
         .signature-title { font-weight: bold; }
         .signature-space { height: 53px; }
-        .signature-name { white-space: nowrap; }
+        .signature-name { line-height: 1.5; }
         .documentation-title { margin: 18px 0 7px; font-size: 11px; font-weight: bold; }
         .photo-grid { table-layout: fixed; }
         .photo-card { width: 33.33%; height: 145px; border: .7px solid #111; padding: 5px; text-align: center; vertical-align: top; }
@@ -43,9 +44,12 @@
 </head>
 <body>
     @php
-        $unit = $session->sppgUnit;
-        $itemCount = $session->items->count();
-        $fillerRows = max(0, 22 - $itemCount);
+        $unit = $sessions->first()?->sppgUnit;
+        $isMultiSession = $sessions->count() > 1;
+        $itemCount = $sessions->sum(fn ($session) => $session->items->count());
+        $fillerRows = max(0, 22 - $itemCount - ($isMultiSession ? $sessions->count() : 0));
+        $rowNumber = 0;
+        $petugasNames = $sessions->pluck('petugas.name')->filter()->unique()->values();
     @endphp
 
     <div class="letterhead">
@@ -65,7 +69,7 @@
     </div>
 
     <div class="title">BERITA ACARA PERHITUNGAN TIM PERSIAPAN</div>
-    <p class="date">Hari, Tanggal&nbsp;&nbsp;&nbsp;: {{ $session->preparation_date?->translatedFormat('l, d F Y') }}</p>
+    <p class="date">Hari, Tanggal&nbsp;&nbsp;&nbsp;: {{ $reportDate?->translatedFormat('l, d F Y') }}</p>
 
     <table class="items">
         <thead>
@@ -81,24 +85,32 @@
             </tr>
         </thead>
         <tbody>
-            @foreach ($session->items as $item)
-                @php
-                    $received = (float) ($item->received_quantity ?? $item->received_weight_kg);
-                    $condition = strtolower((string) $item->condition_status);
-                    $isGood = in_array($condition, ['good', 'accepted'], true);
-                    $isDamaged = in_array($condition, ['damaged', 'rejected'], true);
-                    $isModerate = in_array($condition, ['moderate', 'medium'], true);
-                @endphp
-                <tr>
-                    <td class="center">{{ $loop->iteration }}</td>
-                    <td>{{ $item->ingredient_name_snapshot }}</td>
-                    <td class="center">{{ number_format($received, 3, ',', '.') }}</td>
-                    <td class="center">{{ $item->unit_snapshot }}</td>
-                    <td class="checkmark">{{ $isGood ? '✓' : '' }}</td>
-                    <td class="checkmark">{{ $isDamaged ? '✓' : '' }}</td>
-                    <td class="checkmark">{{ $isModerate ? '✓' : '' }}</td>
-                    <td>{{ $item->notes ?: '-' }}</td>
-                </tr>
+            @foreach ($sessions as $session)
+                @if ($isMultiSession)
+                    <tr class="session-row">
+                        <td colspan="8">{{ $session->session_number }} · {{ $session->purpose_reference ?: 'Persiapan' }} · Petugas: {{ $session->petugas?->name ?: '-' }}</td>
+                    </tr>
+                @endif
+                @foreach ($session->items as $item)
+                    @php
+                        $rowNumber++;
+                        $received = (float) ($item->received_quantity ?? $item->received_weight_kg);
+                        $condition = strtolower((string) $item->condition_status);
+                        $isGood = in_array($condition, ['good', 'accepted'], true);
+                        $isDamaged = in_array($condition, ['damaged', 'rejected'], true);
+                        $isModerate = in_array($condition, ['fair', 'moderate', 'medium'], true);
+                    @endphp
+                    <tr>
+                        <td class="center">{{ $rowNumber }}</td>
+                        <td>{{ $item->ingredient_name_snapshot }}</td>
+                        <td class="center">{{ number_format($received, 3, ',', '.') }}</td>
+                        <td class="center">{{ $item->unit_snapshot }}</td>
+                        <td class="checkmark">{{ $isGood ? '✓' : '' }}</td>
+                        <td class="checkmark">{{ $isDamaged ? '✓' : '' }}</td>
+                        <td class="checkmark">{{ $isModerate ? '✓' : '' }}</td>
+                        <td>{{ $item->notes ?: '-' }}</td>
+                    </tr>
+                @endforeach
             @endforeach
             @for ($row = 0; $row < $fillerRows; $row++)
                 <tr>
@@ -109,15 +121,18 @@
     </table>
 
     @php
-        $documentedItems = $session->items->filter(fn ($item) => filled($item->resultDocumentation?->photo_path))->values();
+        $documentedItems = $sessions->flatMap(fn ($session) => $session->items
+            ->filter(fn ($item) => filled($item->resultDocumentation?->photo_path))
+            ->map(fn ($item) => ['item' => $item, 'session' => $session]))->values();
     @endphp
     @if($documentedItems->isNotEmpty())
         <div class="documentation-title">DOKUMENTASI HASIL PERSIAPAN PER BAHAN</div>
         <table class="photo-grid">
             @foreach($documentedItems->chunk(3) as $photos)
                 <tr>
-                    @foreach($photos as $item)
+                    @foreach($photos as $photo)
                         @php
+                            $item = $photo['item'];
                             $photoFile = storage_path('app/public/'.$item->resultDocumentation->photo_path);
                             $photoSource = is_file($photoFile)
                                 ? 'data:'.(mime_content_type($photoFile) ?: 'image/jpeg').';base64,'.base64_encode(file_get_contents($photoFile))
@@ -131,6 +146,7 @@
                             @endif
                             <div class="photo-caption">
                                 <strong>{{ $item->ingredient_name_snapshot }}</strong><br>
+                                @if($isMultiSession){{ $photo['session']->session_number }}<br>@endif
                                 Hasil siap: {{ number_format((float) $item->processed_quantity, 3, ',', '.') }} {{ $item->unit_snapshot }}
                             </div>
                         </td>
@@ -146,7 +162,7 @@
     <div class="signature">
         <div class="signature-title">Dihitung Oleh</div>
         <div class="signature-space"></div>
-        <div class="signature-name">( {{ $session->petugas?->name ?: '.................................' }} )</div>
+        <div class="signature-name">( {{ $petugasNames->isNotEmpty() ? $petugasNames->implode(', ') : '.................................' }} )</div>
     </div>
 </body>
 </html>

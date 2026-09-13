@@ -1156,7 +1156,7 @@ private fun OperationalDetailContent(
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("EKSPOR LAPORAN", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     val primaryDocumentLabel = when (module) {
-                        "persiapan" -> "Berita Acara Perhitungan Persiapan"
+                        "persiapan" -> "Berita Acara Perhitungan Persiapan Harian"
                         "pengolahan" -> "Monitoring Produksi Harian"
                         "distribusi" -> "Laporan Seluruh Rute Distribusi"
                         "pencucian" -> "Laporan Harian Pencucian"

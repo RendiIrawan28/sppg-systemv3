@@ -37,11 +37,12 @@
                         @endif
                         @if($canExport && $selected->status === \App\Enums\OperationalReportStatus::Verified)
                             <div class="mt-4 flex flex-wrap gap-2">
-                                <a href="{{ route('preparation.sessions.calculation-pdf', $selected) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50">Unduh Laporan Perhitungan</a>
+                                <a href="{{ route('preparation.sessions.calculation-pdf', $selected) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50">Unduh Laporan Perhitungan Harian</a>
                                 @if($selected->wasteHandoverReport)
                                     <a href="{{ route('v3.waste-handovers.pdf', $selected->wasteHandoverReport) }}" target="_blank" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50">Unduh Berita Acara Limbah</a>
                                 @endif
                             </div>
+                            <p class="mt-2 text-[11px] text-slate-500">PDF menggabungkan seluruh pekerjaan pada tanggal Persiapan yang sama setelah semuanya selesai dan disetujui Kepala SPPG.</p>
                         @elseif($canExport && $selected->state === 'completed')
                             <p class="mt-3 text-xs font-semibold text-slate-500">Ekspor laporan tersedia setelah disetujui Kepala SPPG.</p>
                         @endif
