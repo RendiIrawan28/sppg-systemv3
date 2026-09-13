@@ -41,6 +41,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
@@ -176,21 +178,28 @@ fun SppgStatCard(
     modifier: Modifier = Modifier,
     supportingText: String? = null,
 ) {
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val displayAccent = if (darkTheme) lerp(accent, Color.White, 0.30f) else accent
+    val cardColor = lerp(
+        MaterialTheme.colorScheme.surface,
+        displayAccent,
+        if (darkTheme) 0.10f else 0.055f,
+    )
     SppgCard(
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.085f)),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.12f)),
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        border = BorderStroke(1.dp, displayAccent.copy(alpha = if (darkTheme) 0.22f else 0.12f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(Modifier.padding(14.dp)) {
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .background(accent.copy(alpha = 0.13f), RoundedCornerShape(11.dp)),
+                    .background(displayAccent.copy(alpha = if (darkTheme) 0.18f else 0.13f), RoundedCornerShape(11.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
+                Icon(icon, contentDescription = null, tint = displayAccent, modifier = Modifier.size(20.dp))
             }
             Spacer(Modifier.size(10.dp))
             Text(
@@ -211,7 +220,7 @@ fun SppgStatCard(
                 Text(
                     supportingText,
                     style = MaterialTheme.typography.labelSmall,
-                    color = accent,
+                    color = displayAccent,
                     modifier = Modifier.padding(top = 3.dp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -326,11 +335,18 @@ fun SppgInfoBanner(
     modifier: Modifier = Modifier,
     accent: Color = MaterialTheme.colorScheme.primary,
 ) {
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val displayAccent = if (darkTheme) lerp(accent, Color.White, 0.18f) else accent
+    val containerColor = lerp(
+        MaterialTheme.colorScheme.surface,
+        displayAccent,
+        if (darkTheme) 0.08f else 0.045f,
+    )
     SppgCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.07f)),
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.10f)),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        border = BorderStroke(1.dp, displayAccent.copy(alpha = if (darkTheme) 0.20f else 0.10f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
@@ -340,10 +356,10 @@ fun SppgInfoBanner(
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .background(accent.copy(alpha = 0.12f), CircleShape),
+                    .background(displayAccent.copy(alpha = if (darkTheme) 0.18f else 0.12f), CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(19.dp))
+                Icon(icon, contentDescription = null, tint = displayAccent, modifier = Modifier.size(19.dp))
             }
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)) {

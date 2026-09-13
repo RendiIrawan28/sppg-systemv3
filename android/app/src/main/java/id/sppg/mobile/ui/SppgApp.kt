@@ -13,6 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -82,6 +84,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -166,12 +169,21 @@ fun SppgApp(
 ) {
     val state by authViewModel.uiState.collectAsStateWithLifecycle()
     var splashMinimumElapsed by remember { mutableStateOf(false) }
+    var logoutRequested by remember { mutableStateOf(false) }
+
+    // Feedback logout harus muncul sejak tombol ditekan, termasuk selama
+    // proses unregister token notifikasi yang terjadi sebelum AuthViewModel.logout().
+    LaunchedEffect(state.session?.token) {
+        if (state.session != null) {
+            logoutRequested = false
+        }
+    }
 
     // Pertahankan splash minimal 1,8 detik agar branding SPPG/BGN terlihat
     // dengan baik. Jika proses pemuatan sesi lebih lama, splash otomatis
     // tetap tampil sampai proses tersebut selesai.
     LaunchedEffect(Unit) {
-        delay(1_800L)
+        delay(2_000L)
         splashMinimumElapsed = true
     }
 
@@ -186,10 +198,15 @@ fun SppgApp(
             )
             else -> AuthenticatedContent(
                 session = requireNotNull(state.session),
-                isLoggingOut = state.isSubmitting,
+                isLoggingOut = state.isSubmitting || logoutRequested,
                 noticeMessage = state.noticeMessage,
                 onDismissNotice = authViewModel::dismissNotice,
-                onLogout = { notificationViewModel.unregisterDevice(authViewModel::logout) },
+                onLogout = {
+                    if (!logoutRequested) {
+                        logoutRequested = true
+                        notificationViewModel.unregisterDevice(authViewModel::logout)
+                    }
+                },
                 fieldPlanViewModel = fieldPlanViewModel,
                 operationalViewModel = operationalViewModel,
                 notificationViewModel = notificationViewModel,
@@ -285,7 +302,13 @@ private fun AuthenticatedContent(
 
     BackHandler(enabled = screen != AppScreen.Dashboard) { navigateBack() }
 
-    when (val current = screen) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+            .windowInsetsPadding(WindowInsets.statusBars),
+    ) {
+        when (val current = screen) {
         AppScreen.Dashboard -> DashboardScreen(
             session = session,
             isLoggingOut = isLoggingOut,
@@ -628,6 +651,69 @@ private fun AuthenticatedContent(
             },
         )
     }
+
+        LogoutLoadingOverlay(visible = isLoggingOut)
+    }
+}
+
+@Composable
+private fun LogoutLoadingOverlay(visible: Boolean) {
+    val overlayAlpha by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 180),
+        label = "logoutOverlayAlpha",
+    )
+    val cardScale by animateFloatAsState(
+        targetValue = if (visible) 1f else 0.92f,
+        animationSpec = tween(durationMillis = 220),
+        label = "logoutCardScale",
+    )
+
+    if (visible || overlayAlpha > 0.01f) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = overlayAlpha }
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.50f))
+                .clickable(enabled = visible) {},
+            contentAlignment = Alignment.Center,
+        ) {
+            SppgCard(
+                modifier = Modifier
+                    .padding(horizontal = 36.dp)
+                    .graphicsLayer {
+                        scaleX = cardScale
+                        scaleY = cardScale
+                    },
+                shape = RoundedCornerShape(22.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 30.dp, vertical = 26.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(38.dp),
+                        strokeWidth = 3.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = "Keluar dari akun…",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        text = "Sedang menutup sesi Anda.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -660,7 +746,7 @@ private fun LoadingScreen() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.White),
+            .background(MaterialTheme.colorScheme.background),
     ) {
         // Ornamen gelombang bawah mengikuti bahasa visual aplikasi.
         Box(
@@ -708,12 +794,10 @@ private fun LoadingScreen() {
 
             Spacer(Modifier.height(20.dp))
 
-            // Gunakan warna tetap pada splash agar kontras tetap tinggi ketika
-            // perangkat menggunakan Dark Mode. Background splash selalu putih,
-            // jadi jangan mengambil onSurface/onSurfaceVariant dari dark color scheme.
-            val splashNavy = Color(0xFF0B2D4F)
-            val splashBlue = Color(0xFF0878D1)
-            val splashMuted = Color(0xFF536B82)
+            // Warna splash mengikuti theme agar tetap kontras di Light dan Dark Mode.
+            val splashNavy = MaterialTheme.colorScheme.onBackground
+            val splashBlue = MaterialTheme.colorScheme.primary
+            val splashMuted = MaterialTheme.colorScheme.onSurfaceVariant
 
             Column(
                 modifier = Modifier.alpha(textAlpha),
@@ -986,55 +1070,64 @@ private fun DashboardScreen(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Image(
-                            painter = painterResource(R.drawable.sppg_avatar_staff_male),
-                            contentDescription = "Avatar pengguna",
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape),
-                            contentScale = ContentScale.Crop,
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(70.dp)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = SppgPagePadding),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.sppg_avatar_staff_male),
+                    contentDescription = "Avatar pengguna",
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop,
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Halo, ${session.userName}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                    Text(
+                        session.roleLabel,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                    )
+                }
+                Box {
+                    IconButton(onClick = onOpenTasks, modifier = Modifier.size(42.dp)) {
+                        Icon(
+                            Icons.Outlined.Notifications,
+                            contentDescription = "Notifikasi",
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.primary,
                         )
-                        Spacer(Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                "Halo, ${session.userName}",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                            )
-                            Text(
-                                session.roleLabel,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                            )
-                        }
                     }
-                },
-                actions = {
-                    Box {
-                        IconButton(onClick = onOpenTasks) {
-                            Icon(Icons.Outlined.Notifications, contentDescription = "Notifikasi")
-                        }
-                        if (unreadNotificationCount > 0) {
-                            Box(
-                                Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = 9.dp, end = 9.dp)
-                                    .size(9.dp)
-                                    .background(MaterialTheme.colorScheme.secondary, CircleShape),
-                            )
-                        }
+                    if (unreadNotificationCount > 0) {
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 5.dp, end = 5.dp)
+                                .size(8.dp)
+                                .background(MaterialTheme.colorScheme.secondary, CircleShape),
+                        )
                     }
-                },
-                colors = sppgTopAppBarColors(),
-            )
+                }
+            }
         },
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+            NavigationBar(
+                modifier = Modifier.navigationBarsPadding(),
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 0.dp,
+            ) {
                 listOf(
                     Triple(DashboardTab.Home, "Beranda", Icons.Outlined.Home),
                     Triple(DashboardTab.Modules, "Menu", Icons.Outlined.GridView),
@@ -1042,15 +1135,34 @@ private fun DashboardScreen(
                     Triple(DashboardTab.Reports, "Laporan", Icons.Outlined.Assessment),
                     Triple(DashboardTab.Account, "Profil", Icons.Outlined.Person),
                 ).forEach { (tab, label, icon) ->
+                    val selected = selectedTab == tab
                     NavigationBarItem(
-                        selected = selectedTab == tab,
+                        selected = selected,
                         onClick = { selectedTab = tab },
-                        icon = { Icon(icon, contentDescription = null) },
+                        icon = {
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 44.dp, height = 30.dp)
+                                    .background(
+                                        if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                        RoundedCornerShape(999.dp),
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(21.dp),
+                                )
+                            }
+                        },
                         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
                             selectedTextColor = MaterialTheme.colorScheme.primary,
-                            indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            indicatorColor = Color.Transparent,
                         ),
                     )
                 }
@@ -1061,9 +1173,9 @@ private fun DashboardScreen(
             modifier = Modifier.fillMaxSize().imePadding(),
             contentPadding = PaddingValues(
                 start = SppgPagePadding,
-                top = innerPadding.calculateTopPadding() + 14.dp,
+                top = innerPadding.calculateTopPadding() + 12.dp,
                 end = SppgPagePadding,
-                bottom = innerPadding.calculateBottomPadding() + 24.dp,
+                bottom = innerPadding.calculateBottomPadding() + 48.dp,
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -1094,7 +1206,9 @@ private fun DashboardScreen(
                             Image(
                                 painter = painterResource(R.drawable.sppg_banner_hero),
                                 contentDescription = "Makanan bergizi untuk masa depan generasi Indonesia",
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(18.dp)),
                                 contentScale = ContentScale.FillWidth,
                             )
                         }
@@ -1285,11 +1399,14 @@ private fun DashboardScreen(
 @Composable
 private fun DashboardTodayMenuCard(summary: MobileDailySummary?) {
     val menus = summary?.menuNames.orEmpty().filter { it.isNotBlank() }
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val menuAccent = if (darkTheme) Color(0xFFFFC46B) else Color(0xFFD47A00)
+    val successAccent = if (darkTheme) Color(0xFF72D9A3) else Color(0xFF176B43)
     SppgCard(
         shape = RoundedCornerShape(18.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -1306,31 +1423,31 @@ private fun DashboardTodayMenuCard(summary: MobileDailySummary?) {
                 Box(
                     modifier = Modifier
                         .background(
-                            Color(0xFFFFA62B).copy(alpha = 0.12f),
+                            menuAccent.copy(alpha = if (darkTheme) 0.18f else 0.12f),
                             RoundedCornerShape(999.dp),
                         )
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
                 ) {
                     Text(
                         if (menus.isEmpty()) "Belum tersedia" else "${menus.size} menu",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFFD47A00),
+                        color = menuAccent,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(9.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Image(
                     painter = painterResource(R.drawable.sppg_menu_sample),
                     contentDescription = "Ilustrasi menu hari ini",
                     modifier = Modifier
-                        .size(92.dp)
+                        .size(78.dp)
                         .clip(RoundedCornerShape(14.dp)),
                     contentScale = ContentScale.Crop,
                 )
-                Spacer(Modifier.width(13.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (menus.isEmpty()) {
                         Text(
                             "Menu operasional hari ini belum dikirim oleh server.",
@@ -1344,7 +1461,7 @@ private fun DashboardTodayMenuCard(summary: MobileDailySummary?) {
                                     modifier = Modifier
                                         .padding(top = 7.dp)
                                         .size(6.dp)
-                                        .background(Color(0xFF22B573), CircleShape),
+                                        .background(successAccent, CircleShape),
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
@@ -1359,12 +1476,12 @@ private fun DashboardTodayMenuCard(summary: MobileDailySummary?) {
                 }
             }
             if ((summary?.portions ?: 0) > 0 || (summary?.destinations ?: 0) > 0) {
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(9.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if ((summary?.portions ?: 0) > 0) {
                         SppgStatusPill(
                             label = "${summary?.portions ?: 0} porsi",
-                            colorOverride = Color(0xFF176B43),
+                            colorOverride = successAccent,
                         )
                     }
                     if ((summary?.destinations ?: 0) > 0) {
@@ -1801,11 +1918,19 @@ private fun DashboardAccount(
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error),
             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
         ) {
-            Icon(
-                Icons.AutoMirrored.Outlined.Logout,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.error,
-            )
+            if (isLoggingOut) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            } else {
+                Icon(
+                    Icons.AutoMirrored.Outlined.Logout,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
             Spacer(Modifier.width(8.dp))
             Text(
                 if (isLoggingOut) "Keluar…" else "Keluar",

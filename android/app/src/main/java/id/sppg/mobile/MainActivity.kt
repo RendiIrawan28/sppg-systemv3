@@ -1,8 +1,10 @@
 package id.sppg.mobile
 
 import android.content.Intent
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -17,7 +19,21 @@ import id.sppg.mobile.ui.SppgApp
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+
+        // Android modern tetap memakai edge-to-edge. SystemBarStyle.auto akan
+        // memilih ikon status/navigation bar gelap pada Light Mode dan ikon
+        // terang pada Dark Mode mengikuti konfigurasi perangkat.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.auto(
+                lightScrim = Color.TRANSPARENT,
+                darkScrim = Color.TRANSPARENT,
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                lightScrim = Color.TRANSPARENT,
+                darkScrim = Color.TRANSPARENT,
+            ),
+        )
+
         NotificationNavigationStore.publish(intent)
         val container = (application as SppgApplication).container
 

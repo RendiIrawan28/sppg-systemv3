@@ -1,11 +1,12 @@
 package id.sppg.mobile.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -13,7 +14,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.shape.RoundedCornerShape
 
 val Navy = Color(0xFF081D3A)
 val NavyMedium = Color(0xFF0F63C9)
@@ -28,7 +28,7 @@ val AmberSoft = Color(0xFFFFF5E6)
 val Ink = Color(0xFF10233D)
 val Slate = Color(0xFF6B7A90)
 val Canvas = Color(0xFFF7F9FC)
-val Night = Color(0xFF061326)
+val Night = Color(0xFF071421)
 
 private val LightColors = lightColorScheme(
     primary = BlueAction,
@@ -39,10 +39,10 @@ private val LightColors = lightColorScheme(
     onSecondary = Color(0xFF402600),
     secondaryContainer = AmberSoft,
     onSecondaryContainer = Color(0xFF4C2B00),
-    tertiary = BlueAction,
+    tertiary = Color(0xFF22B573),
     onTertiary = Color.White,
-    tertiaryContainer = NavySoft,
-    onTertiaryContainer = Navy,
+    tertiaryContainer = Color(0xFFE5F8EF),
+    onTertiaryContainer = Color(0xFF0D5135),
     background = Canvas,
     onBackground = Ink,
     surface = Color.White,
@@ -50,34 +50,45 @@ private val LightColors = lightColorScheme(
     surfaceVariant = Color(0xFFEAF0F7),
     onSurfaceVariant = Slate,
     outline = Color(0xFFB7C4D5),
-    outlineVariant = Color(0xFFE6EBF2),
-    error = Color(0xFFF05252),
+    outlineVariant = Color(0xFFE0E7F0),
+    error = Color(0xFFD93C4A),
+    onError = Color.White,
     errorContainer = Color(0xFFFDECEC),
+    onErrorContainer = Color(0xFF7D1520),
 )
 
+/**
+ * Dark palette SPPG.
+ *
+ * Tidak memakai hitam murni. Navy gelap dipakai agar identitas visual BGN/SPPG
+ * tetap terasa, dengan surface bertingkat supaya card tidak menyatu dengan
+ * background. Accent dibuat lebih terang agar tetap jelas pada layar gelap.
+ */
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF8BC3FF),
-    onPrimary = Color(0xFF002F5F),
-    primaryContainer = Color(0xFF123B68),
-    onPrimaryContainer = Color(0xFFD4E6FF),
-    secondary = Color(0xFFFFB95F),
-    onSecondary = Color(0xFF442B00),
-    secondaryContainer = Color(0xFF624000),
-    onSecondaryContainer = Color(0xFFFFDDB0),
-    tertiary = Color(0xFF8FCBFF),
-    onTertiary = Color(0xFF003452),
-    tertiaryContainer = Color(0xFF153E62),
-    onTertiaryContainer = Color(0xFFD4EAFF),
-    background = Color(0xFF07182B),
-    onBackground = Color(0xFFE2EAF5),
-    surface = Color(0xFF10243D),
-    onSurface = Color(0xFFE2EAF5),
-    surfaceVariant = Color(0xFF1A324F),
-    onSurfaceVariant = Color(0xFFC0CDDD),
-    outline = Color(0xFF8C9DB2),
-    outlineVariant = Color(0xFF3B526C),
-    error = Color(0xFFFFB4AB),
-    errorContainer = Color(0xFF93000A),
+    primary = Color(0xFF67B3FF),
+    onPrimary = Color(0xFF002B50),
+    primaryContainer = Color(0xFF123D65),
+    onPrimaryContainer = Color(0xFFD5EAFE),
+    secondary = Color(0xFFFFC46B),
+    onSecondary = Color(0xFF452B00),
+    secondaryContainer = Color(0xFF543A0E),
+    onSecondaryContainer = Color(0xFFFFE2AF),
+    tertiary = Color(0xFF67D8A1),
+    onTertiary = Color(0xFF003823),
+    tertiaryContainer = Color(0xFF174D39),
+    onTertiaryContainer = Color(0xFFC2F4D8),
+    background = Night,
+    onBackground = Color(0xFFF0F5FA),
+    surface = Color(0xFF0D2033),
+    onSurface = Color(0xFFF2F6FA),
+    surfaceVariant = Color(0xFF142B42),
+    onSurfaceVariant = Color(0xFFC9D4DF),
+    outline = Color(0xFF60758A),
+    outlineVariant = Color(0xFF294158),
+    error = Color(0xFFFF8A91),
+    onError = Color(0xFF5F0010),
+    errorContainer = Color(0xFF5D1B27),
+    onErrorContainer = Color(0xFFFFD9DC),
 )
 
 private val SppgTypography = Typography(

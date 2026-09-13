@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="sppg_window_background">#071421</color>
+    <color name="sppg_system_bar_background">#0D2033</color>
+</resources>

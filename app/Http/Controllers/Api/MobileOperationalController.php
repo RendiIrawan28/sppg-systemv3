@@ -92,15 +92,15 @@ class MobileOperationalController extends Controller
     ): JsonResponse {
         $today = now()->toDateString();
         $definitions = $registry->forUser($request->user());
+        $compact = $request->boolean('compact', false);
 
         if (isset($definitions['kebersihan'])) {
             $cleaningSchedule->ensureForDate($systemUnit->id(), $today, $request->user());
         }
 
         $modules = collect($definitions)
-            ->map(function (array $definition, string $slug) use ($request, $registry, $systemUnit, $today): array {
+            ->map(function (array $definition, string $slug) use ($request, $registry, $systemUnit, $today, $compact): array {
                 $model = $definition['model'];
-                $emptyRecord = new $model;
 
                 $query = $model::query()->where('sppg_unit_id', $systemUnit->id());
                 $this->applyDefinitionScope($query, $definition);
@@ -113,7 +113,7 @@ class MobileOperationalController extends Controller
                 }
                 $stockCardCount = $slug === 'gudang-stok' ? $this->foodStockCards((int) $systemUnit->id())->count() : null;
 
-                return [
+                $module = [
                     'slug' => $slug,
                     'label' => $definition['label'],
                     'description' => $definition['description'],
@@ -122,13 +122,21 @@ class MobileOperationalController extends Controller
                     'today_count' => $stockCardCount ?? $currentWorkQuery->count(),
                     'can_create' => ($definition['allow_create'] ?? true)
                         && $request->user()->can($definition['permission'].'.create'),
-                    'form_fields' => $this->formFields(
+                ];
+
+                // Dashboard mobile hanya membutuhkan metadata modul dan ringkasan.
+                // Penyusunan form_fields dapat melibatkan banyak option/relation query,
+                // jadi lewati pekerjaan tersebut ketika client meminta mode compact.
+                if (! $compact) {
+                    $module['form_fields'] = $this->formFields(
                         $definition,
-                        $emptyRecord,
+                        new $model,
                         $registry,
                         (int) $systemUnit->id(),
-                    ),
-                ];
+                    );
+                }
+
+                return $module;
             })->values();
 
         $plans = FieldDistributionPlan::query()

@@ -100,6 +100,7 @@ interface MobileApi {
     @GET("operational-modules")
     suspend fun operationalModules(
         @Header("Authorization") authorization: String,
+        @Query("compact") compact: Boolean = false,
     ): Response<OperationalModulesResponse>
 
     @GET("operational-modules/{module}/records")
@@ -486,7 +487,7 @@ data class OperationalModule(
     @SerializedName("record_count") val recordCount: Int,
     @SerializedName("today_count") val todayCount: Int = 0,
     @SerializedName("can_create") val canCreate: Boolean,
-    @SerializedName("form_fields") val formFields: List<OperationalFormField>?,
+    @SerializedName("form_fields") val formFields: List<OperationalFormField>? = null,
 )
 
 data class OperationalRecordsResponse(

@@ -241,7 +241,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         if (_uiState.value.isLoading) return
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null, successMessage = null) }
-            repository.getModules()
+            repository.getModules(compact = false)
                 .onSuccess { workspace ->
                     val fields = workspace.modules.firstOrNull { it.slug == module }?.formFields.orEmpty()
                     _uiState.update { state ->

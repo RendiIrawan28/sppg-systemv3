@@ -34,8 +34,8 @@ class OperationalRepository(
     private val errorHandler: ApiErrorHandler,
     private val context: Context,
 ) {
-    suspend fun getModules(): Result<OperationalWorkspace> = safeApiCall(errorHandler) {
-        val response = api.operationalModules(authorization())
+    suspend fun getModules(compact: Boolean = true): Result<OperationalWorkspace> = safeApiCall(errorHandler) {
+        val response = api.operationalModules(authorization(), compact = compact)
         if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
         val body = response.body() ?: throw IOException("Ruang kerja tidak tersedia.")
         OperationalWorkspace(body.data, body.dailySummary)
