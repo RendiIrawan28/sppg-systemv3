@@ -18,13 +18,10 @@ class ProcessingWorkflow
     public function start(ProcessingBatch $batch, User $actor): ProcessingBatch
     {
         abort_unless($actor->can('processing.update'), 403);
-        $batch->loadMissing('fieldDistributionPlan');
-        $serviceDate = $batch->service_date ?: $batch->fieldDistributionPlan?->distribution_date ?: $batch->production_date;
-        try {
-            app(MenuServiceCalendarService::class)->assertOperationalDate((int) $batch->sppg_unit_id, $serviceDate, 'Pengolahan untuk pelayanan');
-        } catch (\DomainException $exception) {
-            throw ValidationException::withMessages(['service_date' => $exception->getMessage()]);
-        }
+
+        // Hari libur pelayanan hanya membatasi perencanaan dan distribusi layanan.
+        // Pengolahan tetap dapat dijalankan pada tanggal tersebut untuk simulasi,
+        // pelatihan, atau pekerjaan internal tanpa harus mengubah kalender layanan.
 
         return DB::transaction(function () use ($batch, $actor): ProcessingBatch {
             $batch = $this->lockedBatch($batch);

@@ -251,3 +251,28 @@ it('allows processing on a holiday when its target service date is operational',
 
     expect($batch->refresh()->state->value)->toBe('in_progress');
 });
+
+it('allows manual processing on a service holiday for training or internal work', function (): void {
+    $unit = SppgUnit::query()->create([
+        'code' => 'SPPG-SIMULASI', 'name' => 'SPPG Simulasi', 'slug' => 'sppg-simulasi', 'is_active' => true,
+    ]);
+    $actor = User::query()->create([
+        'name' => 'Petugas Simulasi', 'email' => 'simulasi-pengolahan@example.test', 'password' => 'password',
+        'is_active' => true, 'is_super_admin' => true,
+    ]);
+    $batch = ProcessingBatch::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'production_date' => '2026-08-23',
+        'service_date' => '2026-08-23',
+        'menu_name_snapshot' => 'Produksi Simulasi',
+        'product_name' => 'Produksi Simulasi',
+        'target_output_quantity' => 0,
+        'target_output_unit' => 'porsi',
+        'state' => 'planned',
+        'status' => 'draft',
+    ]);
+
+    app(ProcessingWorkflow::class)->start($batch, $actor);
+
+    expect($batch->refresh()->state->value)->toBe('in_progress');
+});
