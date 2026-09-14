@@ -8,6 +8,7 @@ use App\Http\Controllers\V3\EntryController;
 use App\Http\Controllers\V3\LogoutController;
 use App\Http\Controllers\WasteHandoverPdfController;
 use App\Http\Middleware\SetV3UnitContext;
+use App\Livewire\V3\Administration\ModuleDataReset;
 use App\Livewire\V3\Administration\TestDataCleanup;
 use App\Livewire\V3\Attendance\Index as AttendanceIndex;
 use App\Livewire\V3\Attendance\WorkSchedules;
@@ -126,6 +127,7 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/keamanan/insiden/{incident}', SecurityIncidentForm::class)->name('security.incidents.show');
             Route::get('/notifikasi/kirim', NotificationBroadcast::class)->name('notifications.broadcast');
             Route::get('/administrasi/pembersihan-data-uji', TestDataCleanup::class)->name('administration.test-data-cleanup');
+            Route::get('/administrasi/reset-data-modul', ModuleDataReset::class)->name('administration.module-data-reset');
             Route::get('/presensi-relawan', AttendanceIndex::class)->name('attendance.index');
             Route::get('/presensi-relawan/jam-kerja', WorkSchedules::class)->name('attendance.work-schedules');
             Route::get('/presensi-relawan/pdf', [AttendanceReportController::class, 'pdf'])->name('attendance.pdf');
