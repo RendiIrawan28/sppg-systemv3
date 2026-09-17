@@ -25,6 +25,91 @@ class WarehouseWithdrawalService
 {
     public function __construct(private readonly InventoryUnitService $units) {}
 
+    /** @return Collection<int, InventoryLot> */
+    public function availableFoodLots(int $unitId, int $warehouseId): Collection
+    {
+        $lots = InventoryLot::query()
+            ->with('ingredient')
+            ->where('sppg_unit_id', $unitId)
+            ->where('warehouse_id', $warehouseId)
+            ->whereNotNull('ingredient_id')
+            ->where('status', InventoryLot::AVAILABLE)
+            ->where('balance_quantity', '>', 0)
+            ->where(fn ($query) => $query->whereNull('expired_date')->orWhereDate('expired_date', '>=', today()))
+            ->orderByRaw('expired_date IS NULL')
+            ->orderBy('expired_date')
+            ->orderBy('id')
+            ->get();
+
+        $reserved = DB::table('warehouse_withdrawal_items')
+            ->join('warehouse_withdrawals', 'warehouse_withdrawals.id', '=', 'warehouse_withdrawal_items.warehouse_withdrawal_id')
+            ->where('warehouse_withdrawals.sppg_unit_id', $unitId)
+            ->whereIn('warehouse_withdrawals.status', [WarehouseWithdrawal::WAITING, WarehouseWithdrawal::REVISION])
+            ->whereIn('warehouse_withdrawal_items.inventory_lot_id', $lots->pluck('id'))
+            ->select('warehouse_withdrawal_items.inventory_lot_id', DB::raw('SUM(warehouse_withdrawal_items.requested_quantity) reserved_quantity'))
+            ->groupBy('warehouse_withdrawal_items.inventory_lot_id')
+            ->pluck('reserved_quantity', 'inventory_lot_id');
+
+        return $lots->map(function (InventoryLot $lot) use ($reserved): InventoryLot {
+            $lot->setAttribute('available_quantity', max(0, (float) $lot->balance_quantity - (float) ($reserved[$lot->id] ?? 0)));
+
+            return $lot;
+        })->filter(fn (InventoryLot $lot): bool => (float) $lot->available_quantity > 0.0001)->values();
+    }
+
+    /** @return array<int, array{lot: InventoryLot, quantity: float}> */
+    public function suggestFoodLots(int $unitId, int $warehouseId, int $ingredientId, float $quantity): array
+    {
+        if ($quantity <= 0) {
+            throw ValidationException::withMessages(['requestedQuantity' => 'Jumlah yang dibutuhkan harus lebih dari nol.']);
+        }
+
+        $remaining = $quantity;
+        $suggestions = [];
+        foreach ($this->availableFoodLots($unitId, $warehouseId) as $lot) {
+            if ((int) $lot->ingredient_id !== $ingredientId) {
+                continue;
+            }
+            $taken = min($remaining, (float) $lot->available_quantity);
+            if ($taken <= 0.0001) {
+                continue;
+            }
+            $suggestions[] = ['lot' => $lot, 'quantity' => $taken];
+            $remaining -= $taken;
+            if ($remaining <= 0.0001) {
+                break;
+            }
+        }
+
+        if ($remaining > 0.0001) {
+            throw ValidationException::withMessages(['requestedQuantity' => 'Stok tersedia tidak mencukupi. Kurangi jumlah yang diminta atau pilih bahan lain.']);
+        }
+
+        return $suggestions;
+    }
+
+    /** @param array<int, array{inventory_lot_id: int|string, quantity: float|int|string}> $rows */
+    public function validateFoodSelection(int $unitId, int $warehouseId, array $rows, ?int $withdrawalId = null): void
+    {
+        $requestedByLot = collect($rows)->mapWithKeys(fn (array $row): array => [(int) $row['inventory_lot_id'] => (float) $row['quantity']]);
+        if ($requestedByLot->count() !== count($rows)) {
+            throw ValidationException::withMessages(['items' => 'Lot yang sama cukup dicatat satu kali.']);
+        }
+        $lots = InventoryLot::query()
+            ->where('sppg_unit_id', $unitId)
+            ->where('warehouse_id', $warehouseId)
+            ->whereNotNull('ingredient_id')
+            ->whereIn('id', $requestedByLot->keys())
+            ->get();
+        if ($lots->count() !== count($rows)) {
+            throw ValidationException::withMessages(['items' => 'Salah satu lot tidak tersedia di Gudang Pangan. Pilih ulang lotnya.']);
+        }
+        foreach ($lots as $lot) {
+            $this->assertLotCanBeWithdrawn($lot, (float) $requestedByLot->get($lot->id), $this->availableQuantity($lot, $withdrawalId));
+        }
+        $this->assertFefoAllocation($unitId, $lots, $requestedByLot, $withdrawalId);
+    }
+
     public function createMobileDraft(
         int $unitId,
         string $divisionCode,
@@ -218,6 +303,15 @@ class WarehouseWithdrawalService
             if (in_array($lot->storage_type, ['freezer', 'chiller'], true) && $pickupTemperature === null) {
                 throw ValidationException::withMessages(['fields.pickup_temperature_celsius' => 'Suhu pengambilan wajib diisi untuk barang freezer/chiller.']);
             }
+
+            $requestedByLot = $withdrawal->items()->pluck('requested_quantity', 'inventory_lot_id')
+                ->mapWithKeys(fn ($requested, $lotId): array => [(int) $lotId => (float) $requested]);
+            $requestedByLot->put($lot->id, $quantity);
+            $selectedLots = InventoryLot::query()
+                ->where('sppg_unit_id', $withdrawal->sppg_unit_id)
+                ->whereIn('id', $requestedByLot->keys())
+                ->get();
+            $this->assertFefoAllocation((int) $withdrawal->sppg_unit_id, $selectedLots, $requestedByLot, $withdrawal->getKey());
 
             return $withdrawal->items()->create([
                 'ingredient_id' => $lot->ingredient_id,
@@ -741,13 +835,15 @@ class WarehouseWithdrawalService
                 if ($requested <= 0 && $requestedByLot->keys()->intersect(
                     $availableLots->skipUntil(fn (InventoryLot $candidate): bool => $candidate->is($lot))->skip(1)->pluck('id'),
                 )->isNotEmpty()) {
-                    throw ValidationException::withMessages(['items' => "Gunakan lot {$lot->lot_number} terlebih dahulu sesuai FEFO/FIFO."]);
+                    $expiry = $lot->expired_date?->format('d/m/Y');
+                    $priority = $expiry ? " (kedaluwarsa {$expiry})" : '';
+                    throw ValidationException::withMessages(['items' => "Ambil lot {$lot->lot_number}{$priority} lebih dulu. Tersedia {$this->availableQuantity($lot, $excludeWithdrawalId)} {$lot->unit_snapshot}."]);
                 }
                 if ($requested > 0 && $requested + 0.0001 < $this->availableQuantity($lot, $excludeWithdrawalId)
                     && $requestedByLot->keys()->intersect(
                         $availableLots->skipUntil(fn (InventoryLot $candidate): bool => $candidate->is($lot))->skip(1)->pluck('id'),
                     )->isNotEmpty()) {
-                    throw ValidationException::withMessages(['items' => "Habiskan lot {$lot->lot_number} sebelum mengambil lot berikutnya."]);
+                    throw ValidationException::withMessages(['items' => "Ambil seluruh sisa lot {$lot->lot_number} ({$this->availableQuantity($lot, $excludeWithdrawalId)} {$lot->unit_snapshot}) sebelum lot berikutnya."]);
                 }
             }
         }

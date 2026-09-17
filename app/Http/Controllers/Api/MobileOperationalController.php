@@ -1142,13 +1142,25 @@ class MobileOperationalController extends Controller
                 'fields.notes' => ['nullable', 'string', 'max:2000'],
                 'files.photo_path' => ['required', 'string', 'max:7500000'],
             ]);
+            $service = app(WarehouseWithdrawalService::class);
+            if ($module !== 'pengambilan-non-pangan') {
+                $rows = $parent->items()->get(['inventory_lot_id', 'requested_quantity'])
+                    ->map(fn ($item): array => [
+                        'inventory_lot_id' => $item->inventory_lot_id,
+                        'quantity' => $item->requested_quantity,
+                    ])->all();
+                $rows[] = [
+                    'inventory_lot_id' => $input['fields']['inventory_lot_id'],
+                    'quantity' => $input['fields']['requested_quantity'],
+                ];
+                $service->validateFoodSelection((int) $systemUnit->id(), (int) $parent->warehouse_id, $rows, $parent->id);
+            }
             $photoPath = $this->storeEncodedImage(
                 (string) data_get($input, 'files.photo_path'),
                 "mobile/{$module}/items",
                 'files.photo_path',
             );
             try {
-                $service = app(WarehouseWithdrawalService::class);
                 $createdItem = $module === 'pengambilan-non-pangan'
                     ? $service->addNonFoodItem(
                         $parent,
@@ -3330,6 +3342,44 @@ class MobileOperationalController extends Controller
                 $unitId,
                 true,
             );
+            if (str_starts_with($module, 'pengambilan-gudang-') && $key === 'items') {
+                $selected = $models->keyBy(fn (Model $item) => (int) $item->inventory_lot_id);
+                $availableLots = app(WarehouseWithdrawalService::class)
+                    ->availableFoodLots($unitId, (int) $parent->warehouse_id);
+                $priority = [];
+                $blockedBy = [];
+                foreach ($availableLots->groupBy('ingredient_id') as $ingredientId => $ingredientLots) {
+                    foreach ($ingredientLots as $lot) {
+                        $taken = (float) ($selected->get($lot->id)?->requested_quantity ?? 0);
+                        if ($taken > 0 && $taken + 0.0001 < (float) $lot->available_quantity) {
+                            $blockedBy[$ingredientId] = $lot->lot_number ?: 'tanpa batch';
+                            break;
+                        }
+                        if (! $selected->has($lot->id)) {
+                            $priority[$lot->id] = true;
+                            break;
+                        }
+                    }
+                }
+                $lotOptions = $availableLots->reject(fn (InventoryLot $lot): bool => $selected->has($lot->id))
+                    ->mapWithKeys(fn (InventoryLot $lot): array => [(string) $lot->id => sprintf(
+                        '%s%s · lot %s · tersedia %s %s · %s · %s',
+                        isset($blockedBy[$lot->ingredient_id]) ? 'HABISKAN LOT '.$blockedBy[$lot->ingredient_id].' DULU — ' : (isset($priority[$lot->id]) ? 'AMBIL LEBIH DULU — ' : ''),
+                        $lot->ingredient?->name ?: 'Bahan',
+                        $lot->lot_number ?: 'tanpa batch',
+                        rtrim(rtrim(number_format((float) $lot->available_quantity, 4, '.', ''), '0'), '.'),
+                        $lot->unit_snapshot,
+                        $lot->expired_date?->format('d/m/Y') ?: 'tanpa tanggal kedaluwarsa',
+                        $lot->location_name ?: $lot->storage_type,
+                    )])->all();
+                $emptyFormFields = collect($emptyFormFields)->map(function (array $field) use ($lotOptions): array {
+                    if ($field['key'] === 'inventory_lot_id') {
+                        $field['options'] = $lotOptions;
+                    }
+
+                    return $field;
+                })->values()->all();
+            }
             if (in_array($module, ['gudang', 'gudang-non-pangan'], true) && $key === 'itemPhotos') {
                 $receiptItemOptions = $parent->items
                     ->mapWithKeys(fn (Model $item): array => [

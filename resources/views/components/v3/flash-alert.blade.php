@@ -9,13 +9,11 @@
         ['type' => 'error', 'message' => session('error')],
     ])->filter(fn (array $alert): bool => filled($alert['message']));
 
-    if ($includeErrors && $errors->any()) {
-        $alerts->push([
-            'type' => 'error',
-            'message' => $errors->first(),
-        ]);
-    }
 @endphp
+
+@if($includeErrors && $errors->any())
+    <span hidden aria-hidden="true" data-sppg-validation-errors data-errors="{{ json_encode($errors->getMessages(), JSON_UNESCAPED_UNICODE) }}"></span>
+@endif
 
 @foreach ($alerts->unique(fn (array $alert): string => $alert['type'].'|'.$alert['message']) as $alert)
     <span

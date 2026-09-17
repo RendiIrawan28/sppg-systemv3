@@ -35,6 +35,7 @@ use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseWithdrawal;
 use App\Models\WasteHandoverReport;
+use App\Services\WarehouseWithdrawalService;
 use App\Support\V3\OperationalModuleRegistry;
 use Illuminate\Support\Facades\DB;
 
@@ -561,6 +562,25 @@ class MobileWorkspaceRegistry
                 ->all();
         }
 
+        if ($source === 'food_withdrawal_lots_available') {
+            $warehouse = Warehouse::forUnit($unitId, Warehouse::TYPE_FOOD);
+            $lots = app(WarehouseWithdrawalService::class)->availableFoodLots($unitId, $warehouse->id);
+            $priorityIds = $lots->groupBy('ingredient_id')->map(fn ($group) => $group->first()->id)->values()->all();
+
+            return $lots->mapWithKeys(fn (InventoryLot $lot): array => [
+                (string) $lot->id => sprintf(
+                    '%s%s · lot %s · tersedia %s %s · %s · %s',
+                    in_array($lot->id, $priorityIds, true) ? 'AMBIL LEBIH DULU — ' : '',
+                    $lot->ingredient?->name ?: 'Bahan',
+                    $lot->lot_number ?: 'tanpa batch',
+                    rtrim(rtrim(number_format((float) $lot->available_quantity, 4, '.', ''), '0'), '.'),
+                    $lot->unit_snapshot,
+                    $lot->expired_date?->format('d/m/Y') ?: 'tanpa tanggal kedaluwarsa',
+                    $lot->location_name ?: $lot->storage_type,
+                ),
+            ])->all();
+        }
+
         if ($source === 'inventory_lots_available') {
             return InventoryLot::query()
                 ->with('ingredient')
@@ -805,7 +825,7 @@ class MobileWorkspaceRegistry
 
         return [
             'label' => $label,
-            'description' => 'Catat bahan yang diambil. Barang langsung tersedia di divisi, lalu Gudang memeriksa jenis dan jumlah untuk mengurangi stok.',
+            'description' => 'Ambil lot bertanda AMBIL LEBIH DULU. Cocokkan nomor lot pada kemasan. Jika lot rusak atau tidak ditemukan, laporkan ke Gudang sebelum memilih lot lain. Barang langsung tersedia di divisi; Gudang memeriksa jenis dan jumlah untuk mengurangi stok.',
             'model' => WarehouseWithdrawal::class,
             'permission' => $permission,
             'number' => 'withdrawal_number',
@@ -828,7 +848,7 @@ class MobileWorkspaceRegistry
             ],
             'relations' => [
                 'items' => $this->relation('Bahan yang diambil', [
-                    $this->field('inventory_lot_id', 'Lot bahan', 'select', true, 'inventory_lots_available'),
+                    $this->field('inventory_lot_id', 'Lot bahan (pilih AMBIL LEBIH DULU)', 'select', true, 'food_withdrawal_lots_available'),
                     [...$this->field('ingredient_name_snapshot', 'Bahan'), 'editable' => false],
                     [...$this->field('lot_number_snapshot', 'Nomor lot'), 'editable' => false],
                     [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],

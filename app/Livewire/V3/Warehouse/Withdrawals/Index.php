@@ -36,6 +36,10 @@ class Index extends Component
 
     public array $rows = [];
 
+    public string $ingredientId = '';
+
+    public string $requestedQuantity = '';
+
     public array $actualQuantities = [];
 
     public string $decisionNotes = '';
@@ -56,7 +60,7 @@ class Index extends Component
         if (! in_array($this->warehouseType, [Warehouse::TYPE_FOOD, Warehouse::TYPE_NON_FOOD], true)) {
             $this->warehouseType = Warehouse::TYPE_FOOD;
         }
-        $this->reset('referenceId', 'purposeReference', 'notes');
+        $this->reset('referenceId', 'purposeReference', 'notes', 'ingredientId', 'requestedQuantity');
         $this->rows = [];
         $this->addRow();
         $this->resetPage();
@@ -71,6 +75,34 @@ class Index extends Component
     {
         unset($this->rows[$index]);
         $this->rows = array_values($this->rows);
+    }
+
+    public function suggestRows(WarehouseWithdrawalService $service): void
+    {
+        abort_unless($this->canTake() && $this->warehouseType === Warehouse::TYPE_FOOD, 403);
+        $data = $this->validate([
+            'ingredientId' => ['required', 'integer', 'exists:ingredients,id'],
+            'requestedQuantity' => ['required', 'numeric', 'gt:0'],
+        ], [], ['ingredientId' => 'Bahan', 'requestedQuantity' => 'Jumlah dibutuhkan']);
+
+        $unit = $this->currentUnit();
+        $warehouse = Warehouse::forUnit($unit->id, Warehouse::TYPE_FOOD);
+        $suggestions = $service->suggestFoodLots($unit->id, $warehouse->id, (int) $data['ingredientId'], (float) $data['requestedQuantity']);
+        $existing = collect($this->rows)->pluck('inventory_lot_id')->filter()->map(fn ($id): int => (int) $id);
+        if ($existing->intersect(collect($suggestions)->pluck('lot.id'))->isNotEmpty()) {
+            throw ValidationException::withMessages(['ingredientId' => 'Bahan ini sudah ada di daftar. Hapus barisnya dahulu jika ingin mengubah jumlah.']);
+        }
+
+        $this->rows = array_values(array_filter($this->rows, fn (array $row): bool => filled($row['inventory_lot_id'] ?? null) || filled($row['quantity'] ?? null) || filled($row['photo'] ?? null)));
+        foreach ($suggestions as $suggestion) {
+            $this->rows[] = [
+                'inventory_lot_id' => (string) $suggestion['lot']->id,
+                'quantity' => (string) round($suggestion['quantity'], 4),
+                'pickup_temperature_celsius' => '',
+                'photo' => null,
+            ];
+        }
+        $this->reset('ingredientId', 'requestedQuantity');
     }
 
     public function submit(WarehouseWithdrawalService $service): void
@@ -88,6 +120,10 @@ class Index extends Component
             'rows.*.photo' => ['required', 'image', 'max:5120'],
         ]);
         $division = $this->divisionCode();
+        if (! $isNonFood) {
+            $warehouse = Warehouse::forUnit($unit->id, Warehouse::TYPE_FOOD);
+            $service->validateFoodSelection($unit->id, $warehouse->id, $data['rows']);
+        }
         $storedPaths = [];
         try {
             foreach ($data['rows'] as $index => $row) {
@@ -116,7 +152,7 @@ class Index extends Component
             Storage::disk('public')->delete($storedPaths);
             throw $exception;
         }
-        $this->reset('referenceId', 'purposeReference', 'notes');
+        $this->reset('referenceId', 'purposeReference', 'notes', 'ingredientId', 'requestedQuantity');
         $this->rows = [];
         $this->addRow();
         session()->flash('v3.status', 'Pengambilan tercatat. Barang langsung tersedia di divisi dan menunggu pengecekan Gudang untuk pengurangan stok.');
@@ -157,21 +193,31 @@ class Index extends Component
         $unit = $this->currentUnit();
         $isNonFood = $this->warehouseType === Warehouse::TYPE_NON_FOOD;
         $warehouse = Warehouse::forUnit($unit->id, $this->warehouseType);
-        $lots = InventoryLot::with(['ingredient', 'nonFoodItem'])->where('sppg_unit_id', $unit->id)->where('warehouse_id', $warehouse->id)->where('status', InventoryLot::AVAILABLE)
-            ->where('balance_quantity', '>', 0)->where(fn ($q) => $q->whereNull('expired_date')->orWhereDate('expired_date', '>=', today()))
-            ->orderByRaw('expired_date IS NULL')->orderBy('expired_date')->get();
-        $reserved = DB::table('warehouse_withdrawal_items')
-            ->join('warehouse_withdrawals', 'warehouse_withdrawals.id', '=', 'warehouse_withdrawal_items.warehouse_withdrawal_id')
-            ->where('warehouse_withdrawals.sppg_unit_id', $unit->id)
-            ->where('warehouse_withdrawals.status', WarehouseWithdrawal::WAITING)
-            ->select('warehouse_withdrawal_items.inventory_lot_id', DB::raw('SUM(warehouse_withdrawal_items.requested_quantity) reserved_quantity'))
-            ->groupBy('warehouse_withdrawal_items.inventory_lot_id')
-            ->pluck('reserved_quantity', 'inventory_lot_id');
-        foreach ($lots as $lot) {
-            $lot->setAttribute('reserved_quantity', (float) ($reserved[$lot->id] ?? 0));
-            $lot->setAttribute('available_quantity', max(0, (float) $lot->balance_quantity - (float) $lot->reserved_quantity));
+        if ($isNonFood) {
+            $lots = InventoryLot::with(['ingredient', 'nonFoodItem'])
+                ->where('sppg_unit_id', $unit->id)
+                ->where('warehouse_id', $warehouse->id)
+                ->where('status', InventoryLot::AVAILABLE)
+                ->where('balance_quantity', '>', 0)
+                ->where(fn ($query) => $query->whereNull('expired_date')->orWhereDate('expired_date', '>=', today()))
+                ->orderByRaw('expired_date IS NULL')
+                ->orderBy('expired_date')
+                ->orderBy('id')
+                ->get();
+            $reserved = DB::table('warehouse_withdrawal_items')
+                ->join('warehouse_withdrawals', 'warehouse_withdrawals.id', '=', 'warehouse_withdrawal_items.warehouse_withdrawal_id')
+                ->where('warehouse_withdrawals.sppg_unit_id', $unit->id)
+                ->whereIn('warehouse_withdrawals.status', [WarehouseWithdrawal::WAITING, WarehouseWithdrawal::REVISION])
+                ->select('warehouse_withdrawal_items.inventory_lot_id', DB::raw('SUM(warehouse_withdrawal_items.requested_quantity) reserved_quantity'))
+                ->groupBy('warehouse_withdrawal_items.inventory_lot_id')
+                ->pluck('reserved_quantity', 'inventory_lot_id');
+            foreach ($lots as $lot) {
+                $lot->setAttribute('available_quantity', max(0, (float) $lot->balance_quantity - (float) ($reserved[$lot->id] ?? 0)));
+            }
+            $lots = $lots->filter(fn (InventoryLot $lot): bool => (float) $lot->available_quantity > 0.0001)->values();
+        } else {
+            $lots = app(WarehouseWithdrawalService::class)->availableFoodLots($unit->id, $warehouse->id);
         }
-        $lots = $lots->filter(fn (InventoryLot $lot): bool => (float) $lot->available_quantity > 0.0001)->values();
         $records = WarehouseWithdrawal::with(['items', 'taker', 'verifier'])->where('sppg_unit_id', $unit->id)
             ->where(function ($query) use ($warehouse, $isNonFood): void {
                 $query->where('warehouse_id', $warehouse->id);
@@ -195,6 +241,7 @@ class Index extends Component
 
         return view('livewire.v3.warehouse.withdrawals.index', [
             ...$this->shellData($unit), 'lots' => $lots, 'records' => $records, 'canTake' => $this->canTake(),
+            'priorityLotIds' => $isNonFood ? [] : $lots->groupBy('ingredient_id')->map(fn ($group) => $group->first()->id)->values()->all(),
             'references' => $this->references(),
             'canVerify' => $this->canVerify(),
             'pendingOtherDates' => WarehouseWithdrawal::query()

@@ -1387,6 +1387,17 @@ fun OperationalRecordEditScreen(
                     }
                 }
             }
+            if (state.errorMessage != null) {
+                item {
+                    SppgCard(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                        Column(Modifier.padding(16.dp)) {
+                            Text("Periksa isian berikut", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
+                            Spacer(Modifier.height(4.dp))
+                            Text(userFriendlyUiMessage(state.errorMessage), color = MaterialTheme.colorScheme.onErrorContainer)
+                        }
+                    }
+                }
+            }
             items(fields.filter { it.editable }, key = { it.key }) { field ->
                 OperationalFormInput(
                     field = field,
@@ -1396,15 +1407,6 @@ fun OperationalRecordEditScreen(
                     watermarkProfile = watermarkProfile,
                     onSelectFile = { onFileSelected(field.key, it) },
                 )
-            }
-            if (state.errorMessage != null) {
-                item {
-                    Text(
-                        userFriendlyUiMessage(state.errorMessage),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
             }
             item {
                 SppgButton(

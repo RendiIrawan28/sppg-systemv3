@@ -42,21 +42,44 @@
                         @error('referenceId') <span class="text-xs text-rose-600">{{ $message }}</span> @enderror
                     </label>@else<label class="mt-4 block"><span class="text-xs font-semibold text-slate-700">Keperluan pengambilan *</span><input wire:model="purposeReference" class="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" placeholder="Contoh: kebutuhan pencucian ompreng"></label>@endif
 
+                    @if($warehouseType === 'food')
+                        <div class="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-3">
+                            <p class="text-sm font-bold text-slate-900">Bantu pilih lot bahan</p>
+                            <p class="mt-1 text-xs text-slate-600">Pilih bahan dan jumlah. Sistem membagi pengambilan ke lot yang harus diambil lebih dulu. Cocokkan nomor lot pada kemasan, lalu lampirkan foto setiap lot. Jika lot rusak atau tidak ditemukan, laporkan ke Gudang sebelum memilih lot lain.</p>
+                            <div class="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px]">
+                                <label class="text-xs font-semibold text-slate-700">Bahan
+                                    <select wire:model="ingredientId" class="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm">
+                                        <option value="">Pilih bahan</option>
+                                        @foreach($lots->unique('ingredient_id')->sortBy(fn($lot) => $lot->ingredient?->name) as $lot)
+                                            <option value="{{ $lot->ingredient_id }}">{{ $lot->ingredient?->name }}</option>
+                                        @endforeach
+                                    </select>
+                                </label>
+                                <label class="text-xs font-semibold text-slate-700">Jumlah
+                                    <input wire:model="requestedQuantity" type="number" min="0.0001" step="0.0001" class="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm" placeholder="Contoh: 5">
+                                </label>
+                            </div>
+                            @error('ingredientId') <p class="mt-1 text-xs text-rose-700">{{ $message }}</p> @enderror
+                            @error('requestedQuantity') <p class="mt-1 text-xs text-rose-700">{{ $message }}</p> @enderror
+                            <button type="button" wire:click="suggestRows" class="mt-3 rounded-lg bg-cyan-700 px-3 py-2 text-xs font-bold text-white">Tampilkan lot yang harus diambil</button>
+                        </div>
+                    @endif
+
                     <div class="mt-4 space-y-3">
                         @foreach ($rows as $i => $row)
                             <div class="rounded-xl border border-slate-200 bg-slate-50 p-3" wire:key="row-{{ $i }}">
                                 <select wire:model="rows.{{ $i }}.inventory_lot_id" class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
-                                    <option value="">Pilih lot sesuai FEFO/FIFO</option>
+                                    <option value="">{{ $warehouseType === 'food' ? 'Pilih lot bahan' : 'Pilih lot barang' }}</option>
                                     @foreach ($lots as $lot)
                                         <option value="{{ $lot->id }}">
-                                            {{ $lot->ingredient?->name ?? $lot->nonFoodItem?->name ?? 'Barang' }} — {{ $lot->lot_number ?: 'tanpa batch' }} — tersedia {{ number_format((float) $lot->available_quantity, 3, ',', '.') }} {{ $lot->unit_snapshot }} — {{ ucfirst($lot->storage_type) }}
+                                            @if($warehouseType === 'food' && in_array($lot->id, $priorityLotIds, true))AMBIL LEBIH DULU — @endif{{ $lot->ingredient?->name ?? $lot->nonFoodItem?->name ?? 'Barang' }} — lot {{ $lot->lot_number ?: 'tanpa batch' }} — tersedia {{ number_format((float) $lot->available_quantity, 3, ',', '.') }} {{ $lot->unit_snapshot }}@if($warehouseType === 'food') — {{ $lot->expired_date?->format('d/m/Y') ?? 'tanpa tanggal kedaluwarsa' }}@endif — {{ $lot->location_name ?: ucfirst($lot->storage_type) }}
                                         </option>
                                     @endforeach
                                 </select>
                                 @error("rows.$i.inventory_lot_id") <span class="text-xs text-rose-600">{{ $message }}</span> @enderror
 
                                 <div class="mt-2 grid gap-2 sm:grid-cols-2">
-                                    <input wire:model="rows.{{ $i }}.quantity" type="number" step="0.001" min="0.001" class="h-10 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Jumlah diambil">
+                                    <input wire:model="rows.{{ $i }}.quantity" type="number" step="0.0001" min="0.0001" class="h-10 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Jumlah diambil">
                                     @if($warehouseType === 'food')<input wire:model="rows.{{ $i }}.pickup_temperature_celsius" type="number" step="0.1" class="h-10 rounded-xl border border-slate-200 px-3 text-sm" placeholder="Suhu °C jika dingin/beku">@endif
                                 </div>
                                 @error("rows.$i.quantity") <span class="text-xs text-rose-600">{{ $message }}</span> @enderror
