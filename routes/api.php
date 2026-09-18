@@ -30,8 +30,6 @@ Route::prefix('mobile')->group(function (): void {
         Route::delete('/device-tokens/{installationId}', [MobileDeviceTokenController::class, 'destroy']);
         Route::get('/tasks', [MobileTaskController::class, 'index']);
         Route::get('/notifications', [MobileNotificationController::class, 'index']);
-        Route::get('/notifications/status', [MobileNotificationController::class, 'status']);
-        Route::post('/notifications/test', [MobileNotificationController::class, 'test']);
         Route::post('/notifications/read-all', [MobileNotificationController::class, 'readAll']);
         Route::post('/notifications/{notification}/read', [MobileNotificationController::class, 'read']);
         Route::get('/security/overview', [MobileSecurityController::class, 'overview']);

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\OperationalReportStatus;
 use App\Enums\UserRole;
 use App\Models\PortioningSession;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -36,8 +37,11 @@ class PortioningSessionPdfController extends Controller
             'session' => $portioningSession,
         ])->setPaper('a4', 'landscape');
 
-        return $pdf->download(
-            str_replace('/', '-', $portioningSession->session_number).'-form-pengawasan-pengemasan.pdf',
-        );
+        return $pdf->download(FileNaming::report(
+            'form-pengawasan-pengemasan',
+            null,
+            $portioningSession->portioning_date,
+            'pdf',
+        ));
     }
 }

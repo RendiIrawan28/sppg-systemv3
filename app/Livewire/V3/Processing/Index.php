@@ -5,16 +5,17 @@ namespace App\Livewire\V3\Processing;
 use App\Enums\OperationalReportStatus;
 use App\Enums\ProcessingBatchState;
 use App\Enums\ProcessingTemperatureCheckpoint;
-use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Livewire\V3\Concerns\FiltersByWorkDate;
-use App\Models\ProcessingMaterialStock;
+use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Models\PreparationOutputWithdrawal;
 use App\Models\ProcessingBatch;
-use App\Models\ProcessingDocumentation;
+use App\Models\ProcessingMaterialStock;
+use App\Services\PreparationOutputService;
+use App\Services\ProcessingMaterialStockService;
+use App\Services\ProcessingPortioningHandoverService;
 use App\Services\ProcessingReturnService;
 use App\Services\ProcessingWorkflow;
-use App\Services\ProcessingPortioningHandoverService;
-use App\Services\PreparationOutputService;
-use App\Models\PreparationOutputWithdrawal;
+use App\Support\FileNaming;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -25,13 +26,15 @@ use Throwable;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell, FiltersByWorkDate;
+    use FiltersByWorkDate, InteractsWithV3Shell;
     use WithFileUploads;
 
     public ?int $selectedId = null;
 
     public string $newProductionDate = '';
+
     public string $newProductName = '';
+
     /** @var array<int, string|float|int> */
     public array $materialConsumptions = [];
 
@@ -241,7 +244,7 @@ class Index extends Component
                     'updated_by' => auth()->id(),
                 ]);
 
-                app(\App\Services\ProcessingMaterialStockService::class)
+                app(ProcessingMaterialStockService::class)
                     ->syncBatchUsages($batch, $this->materialConsumptions, auth()->user());
 
                 $keptTemperatures = [];
@@ -252,9 +255,14 @@ class Index extends Component
                     $newTemperaturePhoto = $this->temperaturePhotos[$index] ?? null;
                     $temperaturePhotoPath = $product['temperature_photo_path'] ?? null;
                     if ($newTemperaturePhoto instanceof TemporaryUploadedFile) {
-                        $temperaturePhotoPath = $newTemperaturePhoto->store(
+                        $temperaturePhotoPath = FileNaming::upload(
+                            $newTemperaturePhoto,
                             'processing/temperature/'.now()->format('Y/m/d'),
-                            'public',
+                            'pengolahan',
+                            'suhu',
+                            $product['product_name'] ?: $batch->product_name ?: $batch->menu_name_snapshot,
+                            $batch->production_date,
+                            $index + 1,
                         );
                         $newPaths[] = $temperaturePhotoPath;
                         if ($oldTemperature?->photo_path && $oldTemperature->photo_path !== $temperaturePhotoPath) {
@@ -302,9 +310,14 @@ class Index extends Component
                     $outputPhotoPath = $documentationData['photo_path'] ?? null;
 
                     if ($newOutputPhoto instanceof TemporaryUploadedFile) {
-                        $outputPhotoPath = $newOutputPhoto->store(
+                        $outputPhotoPath = FileNaming::upload(
+                            $newOutputPhoto,
                             'processing/finished-output/'.now()->format('Y/m/d'),
-                            'public',
+                            'pengolahan',
+                            'hasil',
+                            $batch->product_name ?: $batch->menu_name_snapshot,
+                            $batch->production_date,
+                            $index + 1,
                         );
                         $newPaths[] = $outputPhotoPath;
                         if ($oldOutputDocumentation?->photo_path

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\WasteHandoverReport;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -19,6 +20,11 @@ class WasteHandoverPdfController extends Controller
             'report' => $wasteHandoverReport,
         ])->setPaper('a4', 'portrait');
 
-        return $pdf->download(str_replace('/', '-', $wasteHandoverReport->report_number).'.pdf');
+        return $pdf->download(FileNaming::report(
+            'berita-acara-serah-terima-limbah',
+            $wasteHandoverReport->division_type->value,
+            $wasteHandoverReport->report_date,
+            'pdf',
+        ));
     }
 }

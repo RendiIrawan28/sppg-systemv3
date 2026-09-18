@@ -7,7 +7,9 @@ use App\Models\StockReceipt;
 use App\Models\StockReceiptItemPhoto;
 use App\Models\Warehouse;
 use App\Services\StockReceiptService;
+use App\Support\FileNaming;
 use App\Support\V3\OperationsPresentation;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
@@ -133,16 +135,21 @@ class Show extends Component
             }
             app(StockReceiptService::class)->updateInspection($item, $row);
 
-            foreach (data_get($data, 'itemDocumentations.'.$item->id, []) as $photo) {
-                $path = $photo->store(
-                    'stock-receipts/'.$receipt->receipt_date?->format('Y/m/d').'/items/'.$item->id,
-                    'public',
+            foreach (data_get($data, 'itemDocumentations.'.$item->id, []) as $photoIndex => $photo) {
+                $path = FileNaming::upload(
+                    $photo,
+                    'stock-receipts/'.Carbon::parse($data['receiptDate'])->format('Y/m/d').'/items/'.$item->id,
+                    'gudang',
+                    $receipt->warehouse?->type === Warehouse::TYPE_NON_FOOD ? 'penerimaan-non-pangan' : 'penerimaan',
+                    $item->ingredient_name_snapshot,
+                    $data['receiptDate'],
+                    $photoIndex + 1,
                 );
                 $item->photos()->create([
                     'stock_receipt_id' => $receipt->getKey(),
                     'item_name_snapshot' => $item->ingredient_name_snapshot,
                     'photo_path' => $path,
-                    'original_name' => $photo->getClientOriginalName(),
+                    'original_name' => basename($path),
                     'uploaded_by' => auth()->id(),
                 ]);
             }

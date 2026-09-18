@@ -10,6 +10,7 @@ use App\Models\MobileDeviceToken;
 use App\Models\SecurityShift;
 use App\Services\Mobile\FcmHttpV1Client;
 use App\Services\SecurityMonitoringService;
+use App\Support\FileNaming;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -98,7 +99,15 @@ class Index extends Component
                 throw ValidationException::withMessages(['shift' => 'Tidak ada shift keamanan aktif.']);
             }
 
-            $path = $this->reportPhoto?->store('v3/security/reports', 'public');
+            $path = $this->reportPhoto ? FileNaming::upload(
+                $this->reportPhoto,
+                'v3/security/reports',
+                'keamanan',
+                'laporan',
+                $shift->officer_name_snapshot,
+                $shift->started_at,
+                (int) ($shift->next_report_sequence ?? ($shift->reports()->count() + 1)),
+            ) : null;
             try {
                 app(SecurityMonitoringService::class)->submitReport($shift, auth()->user(), [
                     'situation' => $this->situation,

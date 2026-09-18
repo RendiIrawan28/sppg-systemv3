@@ -227,18 +227,6 @@ interface MobileApi {
         @Header("Authorization") authorization: String,
     ): Response<MobileNotificationsResponse>
 
-    @GET("notifications/status")
-    suspend fun notificationStatus(
-        @Header("Authorization") authorization: String,
-        @Query("installation_id") installationId: String,
-    ): Response<PushNotificationStatusResponse>
-
-    @POST("notifications/test")
-    suspend fun sendTestNotification(
-        @Header("Authorization") authorization: String,
-        @Body request: TestNotificationRequest,
-    ): Response<TestNotificationResponse>
-
     @POST("notifications/{id}/read")
     suspend fun readNotification(
         @Header("Authorization") authorization: String,
@@ -665,36 +653,6 @@ data class MobileNotificationItem(
     @SerializedName("error_message") val errorMessage: String?,
     @SerializedName("created_at") val createdAt: String?,
     @SerializedName("read_at") val readAt: String?,
-)
-
-data class TestNotificationRequest(
-    @SerializedName("installation_id") val installationId: String,
-)
-
-data class PushNotificationStatusResponse(val data: PushNotificationStatus)
-
-data class PushNotificationStatus(
-    @SerializedName("firebase_configured") val firebaseConfigured: Boolean,
-    @SerializedName("firebase_message") val firebaseMessage: String,
-    @SerializedName("device_registered") val deviceRegistered: Boolean,
-    @SerializedName("device_active") val deviceActive: Boolean,
-    @SerializedName("device_name") val deviceName: String?,
-    @SerializedName("app_version") val appVersion: String?,
-    @SerializedName("registered_at") val registeredAt: String?,
-    @SerializedName("last_seen_at") val lastSeenAt: String?,
-    @SerializedName("server_time") val serverTime: String?,
-)
-
-data class TestNotificationResponse(
-    val message: String,
-    val data: TestNotificationResult,
-)
-
-data class TestNotificationResult(
-    @SerializedName("notification_id") val notificationId: Long,
-    @SerializedName("delivery_status") val deliveryStatus: String,
-    @SerializedName("error_message") val errorMessage: String?,
-    @SerializedName("sent_at") val sentAt: String?,
 )
 
 data class SecurityOverviewResponse(val data: SecurityOverview)

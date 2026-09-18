@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\SecurityShift;
+use App\Support\FileNaming;
 use App\Support\V3\SecurityShiftAccess;
 use App\Support\V3\UnitContext;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -21,7 +22,7 @@ class SecurityShiftReportController extends Controller
 
         return Pdf::loadView('reports.security-shift-report-pdf', compact('unit', 'shift'))
             ->setPaper('a4', 'landscape')
-            ->stream("laporan-keamanan-{$shift->uuid}.pdf");
+            ->stream(FileNaming::report('laporan-keamanan', $shift->officer_name_snapshot, $shift->started_at, 'pdf'));
     }
 
     public function xlsx(Request $request, SecurityShift $shift, UnitContext $context): StreamedResponse
@@ -69,7 +70,7 @@ class SecurityShiftReportController extends Controller
 
         return response()->streamDownload(function () use ($sheet): void {
             (new Xlsx($sheet->getParent()))->save('php://output');
-        }, "laporan-keamanan-{$shift->uuid}.xlsx", ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+        }, FileNaming::report('laporan-keamanan', $shift->officer_name_snapshot, $shift->started_at, 'xlsx'), ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
     }
 
     /** @return array{0: mixed, 1: SecurityShift} */

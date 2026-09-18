@@ -2,11 +2,12 @@
 
 namespace App\Livewire\V3\ContainerCollections;
 
-use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Livewire\V3\Concerns\FiltersByWorkDate;
+use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\ContainerCollectionRun;
 use App\Models\ContainerCollectionTask;
 use App\Services\ContainerCollectionWorkflow;
+use App\Support\FileNaming;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
@@ -14,17 +15,22 @@ use Livewire\WithFileUploads;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell;
     use FiltersByWorkDate;
+    use InteractsWithV3Shell;
     use WithFileUploads;
 
     public string $kernetName = '';
+
     public string $vehicleName = '';
+
     public string $vehiclePlate = '';
+
     public string $runNotes = '';
 
     public array $partialQuantities = [];
+
     public array $partialNotes = [];
+
     public array $collectionPhotos = [];
 
     public ?int $selectedRunId = null;
@@ -216,9 +222,17 @@ class Index extends Component
     private function storePhoto(int $taskId): ?string
     {
         $upload = $this->collectionPhotos[$taskId] ?? null;
+        $task = $upload ? $this->task($taskId) : null;
 
         return $upload
-            ? $upload->store('distribution/container-collections/'.today()->format('Y/m/d'), 'public')
+            ? FileNaming::upload(
+                $upload,
+                'distribution/container-collections/'.$task->delivery_date->format('Y/m/d'),
+                'distribusi',
+                'ompreng',
+                $task->destination_name,
+                $task->delivery_date,
+            )
             : null;
     }
 }

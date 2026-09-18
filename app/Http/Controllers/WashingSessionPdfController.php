@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\OperationalReportStatus;
 use App\Models\WashingSession;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -47,6 +48,6 @@ class WashingSessionPdfController extends Controller
             'sessions' => $sessions,
         ])
             ->setPaper('a4', 'landscape')
-            ->download('Laporan-Harian-Pencucian-'.$date.'.pdf');
+            ->download(FileNaming::report('laporan-harian-pencucian', null, $washingSession->washing_date, 'pdf'));
     }
 }

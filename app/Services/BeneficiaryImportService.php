@@ -1446,28 +1446,6 @@ class BeneficiaryImportService
         };
     }
 
-    private function normalizeBoolean(
-        mixed $value
-    ): bool {
-        if (is_bool($value)) {
-            return $value;
-        }
-
-        return in_array(
-            Str::lower(
-                trim((string) $value)
-            ),
-            [
-                '1',
-                'ya',
-                'yes',
-                'true',
-                'aktif',
-            ],
-            true
-        );
-    }
-
     private function nullableString(
         mixed $value
     ): ?string {

@@ -9,8 +9,8 @@ use App\Models\NutritionRequirementPlan;
 use App\Services\MenuCycleExportService;
 use App\Services\MenuServiceCalendarService;
 use App\Services\NutritionAccessService;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
-use Carbon\Carbon;
 use Illuminate\Http\Response;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -97,11 +97,6 @@ class NutritionExportController extends Controller
             ?? $cycle->end_date
             ?? $cycle->start_date;
 
-        $periodLabel = $this->menuCyclePeriodLabel(
-            $firstDate,
-            $lastDate
-        );
-
         /*
          * Nama unit.
          *
@@ -121,11 +116,13 @@ class NutritionExportController extends Controller
             $unitName = 'SPPG '.$unitName;
         }
 
-        $filename = sprintf(
-            'SIKLUS MENU %s_%s.pdf',
-            $periodLabel,
-            strtoupper($unitName)
-        );
+        $filename = implode('-', [
+            'siklus-menu',
+            FileNaming::date($firstDate),
+            'sd',
+            FileNaming::date($lastDate),
+            FileNaming::part($unitName),
+        ]).'.pdf';
 
         $exportData = app(MenuCycleExportService::class)->prepare($cycle);
 
@@ -164,11 +161,7 @@ class NutritionExportController extends Controller
             compact('plan')
         )
             ->setPaper('a4', 'landscape')
-            ->download(
-                $this->safeFilename(
-                    "kebutuhan-bahan-{$plan->plan_number}.pdf"
-                )
-            );
+            ->download(FileNaming::report('kebutuhan-bahan', $plan->menu?->name, $plan->requirement_date, 'pdf'));
     }
 
     public function requirementExcel(
@@ -360,9 +353,7 @@ class NutritionExportController extends Controller
 
         return $this->xlsxResponse(
             $spreadsheet,
-            $this->safeFilename(
-                "kebutuhan-bahan-{$plan->plan_number}.xlsx"
-            )
+            FileNaming::report('kebutuhan-bahan', $plan->menu?->name, $plan->requirement_date, 'xlsx')
         );
     }
 
@@ -386,15 +377,7 @@ class NutritionExportController extends Controller
             compact('evaluation')
         )
             ->setPaper('a4', 'portrait')
-            ->download(
-                $this->safeFilename(
-                    'evaluasi-menu-'
-                    .$evaluation->evaluation_date?->format(
-                        'Ymd'
-                    )
-                    ."-{$evaluation->id}.pdf"
-                )
-            );
+            ->download(FileNaming::report('evaluasi-menu', $evaluation->menu?->name, $evaluation->evaluation_date, 'pdf'));
     }
 
     public function dailyReportPdf(
@@ -418,11 +401,7 @@ class NutritionExportController extends Controller
             compact('report')
         )
             ->setPaper('a4', 'landscape')
-            ->download(
-                $this->safeFilename(
-                    "laporan-gizi-{$report->report_number}.pdf"
-                )
-            );
+            ->download(FileNaming::report('laporan-gizi-harian', $report->menu?->name, $report->report_date, 'pdf'));
     }
 
     public function dailyReportExcel(
@@ -582,88 +561,7 @@ class NutritionExportController extends Controller
 
         return $this->xlsxResponse(
             $spreadsheet,
-            $this->safeFilename(
-                "laporan-gizi-{$report->report_number}.xlsx"
-            )
-        );
-    }
-
-    /**
-     * Format periode nama file Siklus Menu.
-     */
-    private function menuCyclePeriodLabel(
-        mixed $startDate,
-        mixed $endDate
-    ): string {
-        if (! $startDate || ! $endDate) {
-            return now()->format('d-m-Y');
-        }
-
-        $start = Carbon::parse($startDate);
-        $end = Carbon::parse($endDate);
-
-        /*
-         * Disesuaikan dengan contoh filename:
-         * AGUST, SEPT, OKT, dan seterusnya.
-         */
-        $months = [
-            1 => 'JAN',
-            2 => 'FEB',
-            3 => 'MAR',
-            4 => 'APR',
-            5 => 'MEI',
-            6 => 'JUN',
-            7 => 'JUL',
-            8 => 'AGUST',
-            9 => 'SEPT',
-            10 => 'OKT',
-            11 => 'NOV',
-            12 => 'DES',
-        ];
-
-        /*
-         * Contoh:
-         * 18-21 AGUST 2026
-         */
-        if (
-            $start->month === $end->month
-            && $start->year === $end->year
-        ) {
-            return sprintf(
-                '%d-%d %s %d',
-                $start->day,
-                $end->day,
-                $months[$start->month],
-                $start->year
-            );
-        }
-
-        /*
-         * Contoh:
-         * 30 AGUST-4 SEPT 2026
-         */
-        if ($start->year === $end->year) {
-            return sprintf(
-                '%d %s-%d %s %d',
-                $start->day,
-                $months[$start->month],
-                $end->day,
-                $months[$end->month],
-                $start->year
-            );
-        }
-
-        /*
-         * Jika melewati tahun.
-         */
-        return sprintf(
-            '%d %s %d-%d %s %d',
-            $start->day,
-            $months[$start->month],
-            $start->year,
-            $end->day,
-            $months[$end->month],
-            $end->year
+            FileNaming::report('laporan-gizi-harian', $report->menu?->name, $report->report_date, 'xlsx')
         );
     }
 
@@ -710,16 +608,4 @@ class NutritionExportController extends Controller
         );
     }
 
-    /**
-     * Tetap dipakai export lain.
-     */
-    private function safeFilename(
-        string $filename
-    ): string {
-        return preg_replace(
-            '/[^A-Za-z0-9._-]+/',
-            '-',
-            $filename
-        ) ?: 'export';
-    }
 }

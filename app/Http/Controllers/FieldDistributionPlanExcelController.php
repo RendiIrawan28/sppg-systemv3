@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\FieldDistributionPlan;
+use App\Support\FileNaming;
 use Illuminate\Http\Request;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
@@ -88,9 +89,6 @@ class FieldDistributionPlanExcelController extends Controller
 
     private function filename(FieldDistributionPlan $plan): string
     {
-        return sprintf(
-            'rencana-distribusi-%s.xlsx',
-            str_replace(['/', '\\'], '-', (string) $plan->plan_number)
-        );
+        return FileNaming::report('rencana-distribusi', null, $plan->distribution_date, 'xlsx');
     }
 }

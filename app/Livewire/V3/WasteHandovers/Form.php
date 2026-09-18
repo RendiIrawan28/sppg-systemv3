@@ -11,14 +11,15 @@ use App\Models\WashingSession;
 use App\Models\WasteHandoverReport;
 use App\Services\OperationalReportApprovalService;
 use App\Services\WasteHandoverWorkflow;
+use App\Support\FileNaming;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Throwable;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
+use Throwable;
 
 class Form extends Component
 {
@@ -26,9 +27,13 @@ class Form extends Component
     use WithFileUploads;
 
     public ?int $reportId = null;
+
     public array $data = [];
+
     public array $items = [];
+
     public array $uploads = [];
+
     public string $workflowNotes = '';
 
     public function mount(?int $report = null): void
@@ -38,6 +43,7 @@ class Form extends Component
             $record = $this->record();
             abort_unless($this->canForDivision($record->division_type, 'view'), 403);
             $this->fillRecord($record);
+
             return;
         }
 
@@ -62,6 +68,7 @@ class Form extends Component
                 abort_unless($this->canForDivision($existing->division_type, 'view'), 403);
                 $this->reportId = $existing->getKey();
                 $this->fillRecord($existing->load('items'));
+
                 return;
             }
         }
@@ -153,7 +160,7 @@ class Form extends Component
 
         try {
             DB::transaction(function () use ($validated, $actor, $unit, &$newPaths, &$pathsToDelete): void {
-                $record = $this->reportId ? $this->record() : new WasteHandoverReport();
+                $record = $this->reportId ? $this->record() : new WasteHandoverReport;
                 abort_unless(! $record->exists || $record->isEditable(), 403);
 
                 if ($record->exists && (
@@ -187,7 +194,15 @@ class Form extends Component
                     $upload = $this->uploads[$index]['photo'] ?? null;
 
                     if ($upload instanceof TemporaryUploadedFile) {
-                        $photoPath = $upload->store('v3/waste-handovers/'.now()->format('Y/m'), 'public');
+                        $photoPath = FileNaming::upload(
+                            $upload,
+                            'v3/waste-handovers/'.now()->format('Y/m'),
+                            'limbah',
+                            (string) $validated['data']['division_type'],
+                            (string) $row['waste_type'],
+                            $validated['data']['report_date'],
+                            $index + 1,
+                        );
                         $newPaths[] = $photoPath;
                         if ($oldPath && $oldPath !== $photoPath) {
                             $pathsToDelete[] = $oldPath;
@@ -259,7 +274,9 @@ class Form extends Component
         $record = $this->record();
         abort_unless($record->isEditable() && $this->canForDivision($record->division_type, 'delete'), 403);
         foreach ($record->items as $item) {
-            if ($item->photo_path) Storage::disk('public')->delete($item->photo_path);
+            if ($item->photo_path) {
+                Storage::disk('public')->delete($item->photo_path);
+            }
         }
         $this->unlinkSource($record);
         $record->histories()->delete();

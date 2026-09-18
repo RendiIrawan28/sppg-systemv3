@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Enums\OperationalReportStatus;
 use App\Enums\ProcessingBatchState;
 use App\Models\ProcessingBatch;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -31,10 +32,7 @@ class ProcessingBatchPdfController extends Controller
         $this->assertDailyReportReady($batches);
 
         $reportDate = $processingBatch->production_date;
-        $filename = sprintf(
-            'Laporan Monitoring Produksi %s.pdf',
-            $reportDate?->format('d-m-Y') ?? now()->format('d-m-Y'),
-        );
+        $filename = FileNaming::report('laporan-monitoring-produksi', null, $reportDate, 'pdf');
 
         return Pdf::loadView('reports.processing-monitoring-production-pdf', [
             'anchorBatch' => $processingBatch,
@@ -61,10 +59,7 @@ class ProcessingBatchPdfController extends Controller
             ->values();
 
         $reportDate = $processingBatch->production_date;
-        $filename = sprintf(
-            'Pemantauan Suhu Pengolahan Penyajian %s.pdf',
-            $reportDate?->format('d-m-Y') ?? now()->format('d-m-Y'),
-        );
+        $filename = FileNaming::report('pemantauan-suhu-pengolahan', null, $reportDate, 'pdf');
 
         return Pdf::loadView('reports.processing-temperature-monitoring-pdf', [
             'anchorBatch' => $processingBatch,

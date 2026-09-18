@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\OperationalReportStatus;
 use App\Models\PreparationSession;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -21,6 +22,6 @@ class PreparationSessionWastePdfController extends Controller
             'session' => $session,
         ])
             ->setPaper('letter', 'portrait')
-            ->download('Berita-Acara-Limbah-'.str_replace('/', '-', $session->session_number).'.pdf');
+            ->download(FileNaming::report('berita-acara-limbah-persiapan', null, $session->preparation_date, 'pdf'));
     }
 }

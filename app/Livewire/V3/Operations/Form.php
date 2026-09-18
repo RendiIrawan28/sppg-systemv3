@@ -5,6 +5,7 @@ namespace App\Livewire\V3\Operations;
 use App\Enums\DistributionRunState;
 use App\Enums\DistributionStopStatus;
 use App\Enums\OperationalReportStatus;
+use App\Enums\WashingSessionState;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\DistributionRun;
 use App\Models\User;
@@ -13,6 +14,7 @@ use App\Services\DistributionWorkflow;
 use App\Services\OperationalReportApprovalService;
 use App\Services\V3\OperationalRecordInitializer;
 use App\Services\WashingWorkflow;
+use App\Support\FileNaming;
 use App\Support\V3\OperationalModuleRegistry;
 use BackedEnum;
 use DateTimeInterface;
@@ -106,7 +108,7 @@ class Form extends Component
         abort_unless(
             $this->module === 'pencucian'
             && $this->allowed('washing.update')
-            && $this->record()->state === \App\Enums\WashingSessionState::Washing,
+            && $this->record()->state === WashingSessionState::Washing,
             403,
         );
 
@@ -521,7 +523,21 @@ class Form extends Component
                         }
                         $upload = $this->uploads[$name][$index][$field['name']] ?? null;
                         if ($upload instanceof TemporaryUploadedFile) {
-                            $values[$field['name']] = $upload->store("v3/operations/{$this->module}/{$name}", 'public');
+                            [$fileModule, $fileType, $fileObject, $fileDate] = $this->fileContext(
+                                $record,
+                                $name,
+                                $row,
+                                $field['name'],
+                            );
+                            $values[$field['name']] = FileNaming::upload(
+                                $upload,
+                                "v3/operations/{$this->module}/{$name}",
+                                $fileModule,
+                                $fileType,
+                                $fileObject,
+                                $fileDate,
+                                $index + 1,
+                            );
                         }
                     }
                     $id = isset($row['_id']) && $row['_id'] ? (int) $row['_id'] : null;
@@ -669,7 +685,16 @@ class Form extends Component
         $upload = $this->uploads['stops'][$index]['handover_photo_path'] ?? null;
 
         if ($upload instanceof TemporaryUploadedFile) {
-            $photoPath = $upload->store('v3/operations/distribusi/stops', 'public');
+            $record = $this->record();
+            $photoPath = FileNaming::upload(
+                $upload,
+                'v3/operations/distribusi/stops',
+                'distribusi',
+                'serah-terima',
+                (string) ($row['destination_name'] ?? 'tujuan'),
+                $record->distribution_date,
+                $index + 1,
+            );
         }
 
         return [
@@ -688,6 +713,20 @@ class Form extends Component
         $definition = $this->definition();
 
         return $definition['model']::query()->where('sppg_unit_id', $this->currentUnit()->getKey())->findOrFail($this->recordId);
+    }
+
+    /** @return array{string, string, string, mixed} */
+    private function fileContext(Model $record, string $relation, array $row, string $field): array
+    {
+        return match ([$this->module, $relation]) {
+            ['distribusi', 'stops'] => ['distribusi', 'serah-terima', (string) ($row['destination_name'] ?? 'tujuan'), $record->distribution_date],
+            ['distribusi', 'incidents'] => ['distribusi', 'insiden', (string) ($row['category'] ?? 'kejadian'), $record->distribution_date],
+            ['pencucian', 'wasteRecords'] => ['pencucian', 'limbah', (string) ($row['waste_type'] ?? 'sisa-makanan'), $record->washing_date],
+            ['pencucian', 'documentations'] => ['pencucian', 'hasil', (string) ($record->session_number ?? 'sesi'), $record->washing_date],
+            ['kebersihan', 'documentations'] => ['kebersihan', (string) ($row['phase'] ?? 'hasil'), (string) ($record->cleaningArea?->name ?? 'area'), $record->scheduled_date],
+            ['kebersihan', 'findings'] => ['kebersihan', 'temuan', (string) ($record->cleaningArea?->name ?? 'area'), $record->scheduled_date],
+            default => [$this->module, $relation.'-'.$field, (string) ($record->getAttribute($this->definition()['number']) ?? 'dokumen'), $record->getAttribute($this->definition()['date'])],
+        };
     }
 
     private function definition(): array

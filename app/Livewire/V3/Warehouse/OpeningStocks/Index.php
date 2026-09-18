@@ -2,27 +2,28 @@
 
 namespace App\Livewire\V3\Warehouse\OpeningStocks;
 
-use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Livewire\V3\Concerns\FiltersByWorkDate;
+use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\Ingredient;
 use App\Models\MeasurementUnit;
 use App\Models\NonFoodItem;
 use App\Models\OpeningStock;
 use App\Models\Warehouse;
 use App\Services\OpeningStockService;
+use App\Support\FileNaming;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
-use Livewire\Component;
 use Livewire\Attributes\Url;
+use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
 use Throwable;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell;
     use FiltersByWorkDate;
+    use InteractsWithV3Shell;
     use WithFileUploads;
 
     #[Url(as: 'gudang', history: true)]
@@ -123,7 +124,14 @@ class Index extends Component
         ]);
 
         $this->validateRows($data['rows']);
-        $path = $this->photo?->store('v3/warehouse/opening-stocks', 'public');
+        $path = $this->photo ? FileNaming::upload(
+            $this->photo,
+            'v3/warehouse/opening-stocks',
+            'gudang',
+            'stok-awal',
+            $this->warehouseType === Warehouse::TYPE_NON_FOOD ? 'non-pangan' : 'pangan',
+            $data['openingDate'],
+        ) : null;
 
         try {
             $opening = $service->createForWarehouse(

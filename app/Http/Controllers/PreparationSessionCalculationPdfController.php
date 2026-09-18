@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\OperationalReportStatus;
 use App\Models\PreparationSession;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
@@ -31,7 +32,7 @@ class PreparationSessionCalculationPdfController extends Controller
             'reportDate' => $session->preparation_date,
         ])
             ->setPaper('a4', 'portrait')
-            ->download('Berita-Acara-Perhitungan-Persiapan-'.$session->preparation_date->format('d-m-Y').'.pdf');
+            ->download(FileNaming::report('laporan-perhitungan-persiapan', null, $session->preparation_date, 'pdf'));
     }
 
     /** @param Collection<int, PreparationSession> $sessions */

@@ -87,51 +87,6 @@ class MobilePushService
         );
     }
 
-    public function sendTestNotification(
-        User $user,
-        ?int $unitId,
-        string $installationId,
-    ): MobileNotification {
-        $notification = MobileNotification::query()->create([
-            'sppg_unit_id' => $unitId,
-            'user_id' => $user->getKey(),
-            'mobile_task_id' => null,
-            'notification_type' => 'fcm_test',
-            'title' => 'Notifikasi SPPG berhasil terhubung',
-            'body' => 'Perangkat ini sudah dapat menerima notifikasi dari server Laravel.',
-            'channel' => 'sppg_tasks',
-            'screen' => 'notifications',
-            'payload' => [
-                'installation_id' => $installationId,
-                'tested_at' => now()->toIso8601String(),
-            ],
-            'delivery_status' => 'pending',
-            'dedupe_key' => hash('sha256', 'fcm-test:'.Str::uuid()),
-        ]);
-
-        $tokens = MobileDeviceToken::query()
-            ->where('user_id', $user->getKey())
-            ->where('installation_id', $installationId)
-            ->active()
-            ->get();
-
-        return $this->deliver(
-            notification: $notification,
-            tokens: $tokens,
-            title: $notification->title,
-            body: $notification->body,
-            data: [
-                'notification_id' => (string) $notification->getKey(),
-                'type' => 'fcm_test',
-                'title' => $notification->title,
-                'body' => $notification->body,
-                'channel' => $notification->channel,
-                'screen' => 'notifications',
-            ],
-            channel: $notification->channel,
-        );
-    }
-
     /**
      * @return array{batch_id: string, recipients: int, sent: int, no_device: int, failed: int}
      */

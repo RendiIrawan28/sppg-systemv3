@@ -9,12 +9,12 @@ use App\Models\SecurityReport;
 use App\Models\SecurityShift;
 use App\Services\Mobile\MobileTaskService;
 use App\Services\SecurityMonitoringService;
+use App\Support\FileNaming;
 use App\Support\V3\SystemUnit;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Throwable;
@@ -109,7 +109,12 @@ class MobileSecurityController extends Controller
             'notes' => ['nullable', 'string', 'max:5000'],
             'photo' => ['required', 'string', 'max:7500000'],
         ]);
-        $path = $this->storeEncodedImage($data['photo']);
+        $path = $this->storeEncodedImage(
+            $data['photo'],
+            $shift->officer_name_snapshot,
+            $shift->started_at,
+            (int) ($shift->next_report_sequence ?? ($shift->reports()->count() + 1)),
+        );
 
         try {
             $report = app(SecurityMonitoringService::class)->submitReport(
@@ -200,7 +205,7 @@ class MobileSecurityController extends Controller
         ];
     }
 
-    private function storeEncodedImage(string $encoded): string
+    private function storeEncodedImage(string $encoded, ?string $officerName, mixed $date, int $sequence): string
     {
         if (! preg_match('/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/s', $encoded, $matches)) {
             throw ValidationException::withMessages(['photo' => 'Format foto tidak didukung.']);
@@ -214,7 +219,15 @@ class MobileSecurityController extends Controller
             'image/webp' => 'webp',
             default => 'jpg',
         };
-        $path = 'mobile/keamanan/reports/'.Str::uuid().'.'.$extension;
+        $path = FileNaming::encodedImagePath(
+            'mobile/keamanan/reports',
+            'keamanan',
+            'laporan',
+            $officerName,
+            $date,
+            $extension,
+            $sequence,
+        );
         Storage::disk('public')->put($path, $contents);
 
         return $path;

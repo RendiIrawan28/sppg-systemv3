@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Division;
 use App\Services\AttendanceReportData;
+use App\Support\FileNaming;
 use App\Support\V3\UnitContext;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
@@ -28,7 +29,7 @@ class AttendanceReportController extends Controller
         $pdf->render();
         $pdf->getDomPDF()->getCanvas()->page_text(720, 575, 'Halaman {PAGE_NUM}/{PAGE_COUNT}', null, 7, [0.3, 0.3, 0.3]);
 
-        return $pdf->stream("rekap-presensi-{$data['from']}-{$data['to']}.pdf");
+        return $pdf->stream(FileNaming::report('rekap-presensi', $data['divisionLabel'] ?? null, $data['from'], 'pdf', $data['to']));
     }
 
     public function xlsx(Request $request, UnitContext $context): StreamedResponse
@@ -55,7 +56,7 @@ class AttendanceReportController extends Controller
         return response()->streamDownload(function () use ($workbook): void {
             (new Xlsx($workbook))->save('php://output');
             $workbook->disconnectWorksheets();
-        }, "rekap-presensi-{$data['from']}-{$data['to']}.xlsx", ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+        }, FileNaming::report('rekap-presensi', $data['divisionLabel'] ?? null, $data['from'], 'xlsx', $data['to']), ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
     }
 
     private function fillSheet(Worksheet $sheet, array $data, Collection $sessions, bool $includeDivision, string $divisionName = 'Semua Divisi'): void

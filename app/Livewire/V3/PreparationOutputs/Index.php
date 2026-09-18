@@ -5,22 +5,23 @@ namespace App\Livewire\V3\PreparationOutputs;
 use App\Enums\PortioningSessionState;
 use App\Enums\ProcessingBatchState;
 use App\Enums\UserRole;
-use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Livewire\V3\Concerns\FiltersByWorkDate;
+use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\PortioningSession;
 use App\Models\PreparationOutput;
 use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
 use App\Models\ProcessingBatch;
 use App\Services\PreparationOutputService;
+use App\Support\FileNaming;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell;
     use FiltersByWorkDate;
+    use InteractsWithV3Shell;
     use WithFileUploads;
 
     public ?int $sessionId = null;
@@ -106,7 +107,14 @@ class Index extends Component
             ->findOrFail($data['sessionId']);
         $item = $session->items()->findOrFail($data['itemId']);
         $photoPath = $this->outputPhoto
-            ? $this->outputPhoto->store('preparation/outputs/'.today()->format('Y/m/d'), 'public')
+            ? FileNaming::upload(
+                $this->outputPhoto,
+                'preparation/outputs/'.$session->preparation_date->format('Y/m/d'),
+                'persiapan',
+                'output',
+                $data['outputName'],
+                $session->preparation_date,
+            )
             : null;
 
         try {

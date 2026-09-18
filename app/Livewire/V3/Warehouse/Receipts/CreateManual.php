@@ -8,6 +8,7 @@ use App\Models\NonFoodItem;
 use App\Models\Supplier;
 use App\Models\Warehouse;
 use App\Services\StockReceiptService;
+use App\Support\FileNaming;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
@@ -132,17 +133,22 @@ class CreateManual extends Component
                 );
 
                 foreach ($receipt->items->values() as $index => $item) {
-                    foreach ($data['rows'][$index]['photos'] as $photo) {
-                        $path = $photo->store(
+                    foreach ($data['rows'][$index]['photos'] as $photoIndex => $photo) {
+                        $path = FileNaming::upload(
+                            $photo,
                             'stock-receipts/'.$receipt->receipt_date->format('Y/m/d').'/items/'.$item->getKey(),
-                            'public',
+                            'gudang',
+                            $this->warehouseType === Warehouse::TYPE_NON_FOOD ? 'penerimaan-non-pangan' : 'penerimaan',
+                            $item->ingredient_name_snapshot,
+                            $receipt->receipt_date,
+                            $photoIndex + 1,
                         );
                         $storedPaths[] = $path;
                         $item->photos()->create([
                             'stock_receipt_id' => $receipt->getKey(),
                             'item_name_snapshot' => $item->ingredient_name_snapshot,
                             'photo_path' => $path,
-                            'original_name' => $photo->getClientOriginalName(),
+                            'original_name' => basename($path),
                             'uploaded_by' => auth()->id(),
                         ]);
                     }

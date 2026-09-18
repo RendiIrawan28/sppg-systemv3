@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\DistributionRun;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -35,11 +36,12 @@ class DistributionRunPdfController extends Controller
             'plan' => $plan,
         ])->setPaper('a4', 'landscape');
 
-        $reference = $plan?->plan_number ?: $primaryRun->run_number;
-
-        return $pdf->download(
-            'LAPORAN-DISTRIBUSI-SELURUH-RUTE-'.str_replace('/', '-', $reference).'.pdf'
-        );
+        return $pdf->download(FileNaming::report(
+            'laporan-distribusi-seluruh-rute',
+            null,
+            $primaryRun->distribution_date,
+            'pdf',
+        ));
     }
 
     /**

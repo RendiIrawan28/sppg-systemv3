@@ -5,17 +5,18 @@ namespace App\Livewire\V3\Portioning;
 use App\Enums\OperationalReportStatus;
 use App\Enums\PortioningSessionState;
 use App\Enums\UserRole;
-use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Livewire\V3\Concerns\FiltersByWorkDate;
+use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\FieldDistributionPlan;
 use App\Models\PortioningRouteRecord;
 use App\Models\PortioningSession;
+use App\Models\PreparationOutputWithdrawal;
+use App\Models\ProcessingBatch;
 use App\Services\FieldOperationalPlanGenerator;
 use App\Services\PortioningWorkflow;
-use App\Services\ProcessingPortioningHandoverService;
-use App\Models\ProcessingBatch;
-use App\Models\PreparationOutputWithdrawal;
 use App\Services\PreparationOutputService;
+use App\Services\ProcessingPortioningHandoverService;
+use App\Support\FileNaming;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -26,7 +27,7 @@ use Throwable;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell, FiltersByWorkDate;
+    use FiltersByWorkDate, InteractsWithV3Shell;
     use WithFileUploads;
 
     public ?int $selectedId = null;
@@ -268,8 +269,15 @@ class Index extends Component
                 $path = $existing?->photo_path;
                 $originalName = $existing?->photo_original_name;
                 if ($this->routePhoto instanceof TemporaryUploadedFile) {
-                    $originalName = $this->routePhoto->getClientOriginalName();
-                    $path = $this->routePhoto->store('portioning/routes/'.now()->format('Y/m/d'), 'public');
+                    $path = FileNaming::upload(
+                        $this->routePhoto,
+                        'portioning/routes/'.$session->portioning_date->format('Y/m/d'),
+                        'pemorsian',
+                        'rute',
+                        $routeName,
+                        $session->portioning_date,
+                    );
+                    $originalName = basename($path);
                     $newPath = $path;
                     if ($existing?->photo_path && $existing->photo_path !== $path) {
                         $oldPath = $existing->photo_path;
@@ -598,8 +606,16 @@ class Index extends Component
                     $originalName = $data['photo_original_name'] ?? $existing?->photo_original_name;
                     $upload = $this->leftoverPhotos[$index] ?? null;
                     if ($upload instanceof TemporaryUploadedFile) {
-                        $originalName = $upload->getClientOriginalName();
-                        $path = $upload->store('portioning/leftovers/'.now()->format('Y/m/d'), 'public');
+                        $path = FileNaming::upload(
+                            $upload,
+                            'portioning/leftovers/'.$session->portioning_date->format('Y/m/d'),
+                            'pemorsian',
+                            'sisa',
+                            (string) $data['food_type'],
+                            $session->portioning_date,
+                            $index + 1,
+                        );
+                        $originalName = basename($path);
                         $newPaths[] = $path;
                         if ($existing?->photo_path && $existing->photo_path !== $path) {
                             $oldPaths[] = $existing->photo_path;

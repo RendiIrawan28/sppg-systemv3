@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\DistributionIncidentStatus;
 use App\Enums\FieldIncidentStatus;
-use App\Enums\OperationalReportStatus;
 use App\Enums\NutritionRecordStatus;
+use App\Enums\OperationalReportStatus;
 use App\Http\Controllers\Controller;
 use App\Models\CleaningSession;
 use App\Models\ContainerCollectionRun;
@@ -55,6 +55,7 @@ use App\Services\WarehouseWithdrawalService;
 use App\Services\WashingWorkflow;
 use App\Services\WasteHandoverWorkflow;
 use App\Support\DivisionRole;
+use App\Support\FileNaming;
 use App\Support\Mobile\MobileOperationalRecordTransformer;
 use App\Support\Mobile\MobileStockCardPresenter;
 use App\Support\Mobile\MobileWorkspaceRegistry;
@@ -70,7 +71,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -452,6 +452,10 @@ class MobileOperationalController extends Controller
                         (string) data_get($input, 'files.photo_path'),
                         'v3/warehouse/opening-stocks',
                         'files.photo_path',
+                        'gudang',
+                        'stok-awal',
+                        $nonFood ? 'non-pangan' : 'pangan',
+                        $input['fields']['opening_date'],
                     );
                     try {
                         return app(OpeningStockService::class)->createForWarehouse(
@@ -691,6 +695,10 @@ class MobileOperationalController extends Controller
                             (string) data_get($input, 'files.photo_path'),
                             'mobile/hasil-persiapan/records',
                             'files.photo_path',
+                            'persiapan',
+                            'output',
+                            $sourceItem->ingredient_name_snapshot,
+                            $session->preparation_date,
                         );
                     }
                     try {
@@ -900,6 +908,10 @@ class MobileOperationalController extends Controller
                 (string) $files['photo_path'],
                 "mobile/{$module}/actions",
                 'files.photo_path',
+                $module,
+                'tindakan',
+                (string) ($item->getAttribute('name') ?: $item->getAttribute('code') ?: $item->getKey()),
+                $item->getAttribute('work_date') ?: $item->getAttribute('created_at'),
             );
         }
 
@@ -990,6 +1002,11 @@ class MobileOperationalController extends Controller
                 (string) data_get($input, 'files.photo_path'),
                 'mobile/stock-receipts/items/'.$receiptItem->getKey(),
                 'files.photo_path',
+                'gudang',
+                $module === 'gudang-non-pangan' ? 'penerimaan-non-pangan' : 'penerimaan',
+                $receiptItem->ingredient_name_snapshot,
+                $parent->receipt_date,
+                $parent->itemPhotos()->where('stock_receipt_item_id', $receiptItem->getKey())->count() + 1,
             );
             try {
                 $photo = $parent->itemPhotos()->create([
@@ -1025,6 +1042,10 @@ class MobileOperationalController extends Controller
                     (string) data_get($input, 'files.photo_path'),
                     'mobile/persiapan/returns',
                     'files.photo_path',
+                    'persiapan',
+                    'retur',
+                    $sourceItem->ingredient_name_snapshot,
+                    $parent->preparation_date,
                 );
             }
             try {
@@ -1063,6 +1084,10 @@ class MobileOperationalController extends Controller
                     (string) data_get($input, 'files.photo_path'),
                     'mobile/pengolahan/returns',
                     'files.photo_path',
+                    'pengolahan',
+                    'retur',
+                    $usage->material_name,
+                    $parent->production_date,
                 )
                 : null;
             try {
@@ -1159,6 +1184,11 @@ class MobileOperationalController extends Controller
                 (string) data_get($input, 'files.photo_path'),
                 "mobile/{$module}/items",
                 'files.photo_path',
+                'pengambilan',
+                str_replace('pengambilan-', '', $module),
+                InventoryLot::with('ingredient')->find((int) $input['fields']['inventory_lot_id'])?->ingredient?->name,
+                $parent->withdrawal_date,
+                $parent->items()->count() + 1,
             );
             try {
                 $createdItem = $module === 'pengambilan-non-pangan'
@@ -1205,6 +1235,10 @@ class MobileOperationalController extends Controller
                 (string) data_get($input, 'files.photo_path'),
                 'mobile/persiapan/result-documentation',
                 'files.photo_path',
+                'persiapan',
+                'hasil',
+                $parent->session_number,
+                $parent->preparation_date,
             );
             $oldPhotoPath = $parent->resultDocumentation?->photo_path;
             try {
@@ -1238,7 +1272,7 @@ class MobileOperationalController extends Controller
             $item = $relationObject instanceof HasOne
                 ? $relationObject->updateOrCreate([], $values)
                 : $relationObject->create($values);
-            $this->storeRelationFiles($request, $module, $relation, $item, $relationDefinition);
+            $this->storeRelationFiles($request, $module, $relation, $item, $relationDefinition, $parent);
             $this->recalculateParent($parent);
 
             return $item->refresh();
@@ -1345,6 +1379,10 @@ class MobileOperationalController extends Controller
                     (string) $request->input('files.handover_photo_path'),
                     'mobile/distribusi/stops',
                     'files.handover_photo_path',
+                    'distribusi',
+                    'serah-terima',
+                    $child->destination_name,
+                    $parent->distribution_date,
                 );
                 $values['handover_photo_path'] = $newPhoto;
             }
@@ -1376,7 +1414,7 @@ class MobileOperationalController extends Controller
             $values = $this->validatedRelationValues($request, $relationDefinition, $child);
             $child->fill($this->applyRelationDefaults($module, $relation, $values, $request, $parent, $child));
             $child->save();
-            $this->storeRelationFiles($request, $module, $relation, $child, $relationDefinition);
+            $this->storeRelationFiles($request, $module, $relation, $child, $relationDefinition, $parent);
             $this->recalculateParent($parent);
         });
 
@@ -1550,6 +1588,10 @@ class MobileOperationalController extends Controller
                 (string) $files['handover_photo_path'],
                 'mobile/distribusi/stops',
                 'files.handover_photo_path',
+                'distribusi',
+                'serah-terima',
+                $child->destination_name,
+                $parent->distribution_date,
             );
         }
 
@@ -1653,7 +1695,7 @@ class MobileOperationalController extends Controller
         $query->where(function (Builder $query) use ($actor): void {
             $query->where('state', 'planned')
                 ->orWhere('petugas_id', $actor->getKey());
-            });
+        });
     }
 
     private function assertDistributionRecordAccess(string $module, Model $item, $actor): void
@@ -3091,6 +3133,7 @@ class MobileOperationalController extends Controller
         string $relation,
         Model $item,
         array $relationDefinition,
+        ?Model $parent = null,
     ): void {
         foreach ($relationDefinition['fields'] as $field) {
             if (($field['type'] ?? null) !== 'file') {
@@ -3112,7 +3155,21 @@ class MobileOperationalController extends Controller
                 'image/webp' => 'webp',
                 default => 'jpg',
             };
-            $path = "mobile/{$module}/{$relation}/".Str::uuid().'.'.$extension;
+            [$fileModule, $fileType, $fileObject, $fileDate] = $this->mobileFileContext(
+                $module,
+                $relation,
+                $item,
+                (string) $field['name'],
+                $parent,
+            );
+            $path = FileNaming::encodedImagePath(
+                "mobile/{$module}/{$relation}",
+                $fileModule,
+                $fileType,
+                $fileObject,
+                $fileDate,
+                $extension,
+            );
             Storage::disk('public')->put($path, $contents);
             if ($module === 'persiapan' && $relation === 'items' && $field['name'] === 'result_photo_path') {
                 $oldPath = $item->resultDocumentation?->photo_path;
@@ -3154,6 +3211,7 @@ class MobileOperationalController extends Controller
                 (string) $encoded,
                 "mobile/{$module}/records",
                 'files.'.$field['name'],
+                ...$this->mobileFileContext($module, 'records', $item, (string) $field['name']),
             );
             if ($module === 'lapangan-insiden' && $field['name'] === 'evidence_photo') {
                 $existingPaths = is_array($item->evidence_paths ?? null)
@@ -3275,6 +3333,11 @@ class MobileOperationalController extends Controller
             (string) $request->input('files.photo_path'),
             'mobile/keamanan/reports',
             'files.photo_path',
+            'keamanan',
+            'laporan',
+            $shift->officer_name_snapshot,
+            $shift->started_at,
+            (int) ($shift->next_report_sequence ?? ($shift->reports()->count() + 1)),
         );
         try {
             $report = app(SecurityMonitoringService::class)->submitReport(
@@ -3293,8 +3356,16 @@ class MobileOperationalController extends Controller
         ], 201);
     }
 
-    private function storeEncodedImage(string $encoded, string $directory, string $errorKey = 'files.photo_path'): string
-    {
+    private function storeEncodedImage(
+        string $encoded,
+        string $directory,
+        string $errorKey = 'files.photo_path',
+        string $module = 'sppg',
+        string $type = 'dokumentasi',
+        ?string $object = null,
+        mixed $date = null,
+        int $sequence = 1,
+    ): string {
         if (! preg_match('/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/s', $encoded, $matches)) {
             throw ValidationException::withMessages([$errorKey => 'Format foto tidak didukung.']);
         }
@@ -3307,10 +3378,73 @@ class MobileOperationalController extends Controller
             'image/webp' => 'webp',
             default => 'jpg',
         };
-        $path = trim($directory, '/').'/'.Str::uuid().'.'.$extension;
+        $path = FileNaming::encodedImagePath(
+            $directory,
+            $module,
+            $type,
+            $object,
+            $date,
+            $extension,
+            $sequence,
+        );
         Storage::disk('public')->put($path, $contents);
 
         return $path;
+    }
+
+    /** @return array{0:string,1:string,2:?string,3:mixed} */
+    private function mobileFileContext(
+        string $module,
+        string $relation,
+        Model $item,
+        string $field,
+        ?Model $parent = null,
+    ): array {
+        $value = fn (string ...$keys): mixed => collect($keys)
+            ->map(fn (string $key): mixed => $item->getAttribute($key) ?: $parent?->getAttribute($key))
+            ->first(fn (mixed $candidate): bool => filled($candidate));
+
+        return match (true) {
+            $module === 'persiapan' && $relation === 'items' => [
+                'persiapan', 'hasil', $value('ingredient_name_snapshot', 'name'), $value('preparation_date', 'created_at'),
+            ],
+            $module === 'pengolahan' && $relation === 'temperatureLogs' => [
+                'pengolahan', 'suhu', $value('product_name', 'menu_name_snapshot'), $value('production_date', 'checked_at', 'created_at'),
+            ],
+            $module === 'pengolahan' && $relation === 'documentations' => [
+                'pengolahan', 'hasil', $value('caption', 'product_name'), $value('production_date', 'captured_at', 'created_at'),
+            ],
+            $module === 'pemorsian' && $relation === 'routeRecords' => [
+                'pemorsian', 'rute', $value('route_name', 'name'), $value('portioning_date', 'completed_at', 'created_at'),
+            ],
+            $module === 'pemorsian' && $relation === 'leftoverRecords' => [
+                'pemorsian', 'sisa', $value('food_type', 'name'), $value('portioning_date', 'checked_at', 'created_at'),
+            ],
+            $module === 'distribusi' && $relation === 'stops' => [
+                'distribusi', 'serah-terima', $value('destination_name_snapshot', 'destination_name', 'route_name'), $value('distribution_date', 'delivered_at', 'created_at'),
+            ],
+            $module === 'distribusi' && $relation === 'incidents' => [
+                'distribusi', 'insiden', $value('category', 'title'), $value('distribution_date', 'occurred_at', 'created_at'),
+            ],
+            $module === 'pencucian' && $relation === 'wasteRecords' => [
+                'pencucian', 'limbah', $value('waste_type', 'name'), $value('washing_date', 'created_at'),
+            ],
+            $module === 'pencucian' && $relation === 'documentations' => [
+                'pencucian', 'hasil', $value('caption', 'phase'), $value('washing_date', 'captured_at', 'created_at'),
+            ],
+            $module === 'kebersihan' && $relation === 'documentations' => [
+                'kebersihan', (string) ($value('phase') ?: 'hasil'), $value('caption', 'area_name_snapshot'), $value('scheduled_date', 'captured_at', 'created_at'),
+            ],
+            $module === 'kebersihan' && $relation === 'findings' => [
+                'kebersihan', 'temuan', $value('title', 'description'), $value('scheduled_date', 'found_at', 'created_at'),
+            ],
+            $module === 'lapangan-insiden' => [
+                'insiden', (string) ($value('division_code', 'category') ?: 'lapangan'), $value('title'), $value('incident_date', 'occurred_at', 'created_at'),
+            ],
+            default => [
+                $module, str_replace('_path', '', $field), (string) ($value('name', 'title', 'caption', 'code', 'uuid') ?: $item->getKey()), $value('work_date', 'report_date', 'created_at'),
+            ],
+        };
     }
 
     /** @param iterable<int,array<string,mixed>> $sections */

@@ -18,7 +18,6 @@ use App\Models\MeasurementUnit;
 use App\Models\NonFoodItem;
 use App\Models\OpeningStock;
 use App\Models\PortioningSession;
-use App\Models\PreparationOutput;
 use App\Models\PreparationReturn;
 use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
@@ -1277,84 +1276,6 @@ class MobileWorkspaceRegistry
             ],
             'relations' => [],
         ];
-    }
-
-    /** @return array<string, mixed> */
-    private function preparationOutputDefinition(string $viewer): array
-    {
-        $permission = match ($viewer) {
-            'processing' => 'processing',
-            'portioning' => 'portioning',
-            default => 'preparation',
-        };
-        $whereIn = match ($viewer) {
-            'processing' => ['processing', 'both'],
-            'portioning' => ['portioning', 'both'],
-            default => [],
-        };
-
-        $fields = [
-            [...$this->field('output_name', 'Nama hasil'), 'editable' => false],
-            [...$this->field('source_ingredient_name_snapshot', 'Bahan asal'), 'editable' => false],
-            $this->field('quantity', 'Jumlah awal', 'number', $viewer === 'preparation'),
-            [...$this->field('available_quantity', 'Jumlah tersedia', 'number'), 'editable' => false],
-            [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
-            $this->field('target_division', 'Tujuan penggunaan', 'select', $viewer === 'preparation', [
-                'processing' => 'Pengolahan',
-                'portioning' => 'Pemorsian',
-                'both' => 'Pengolahan dan Pemorsian',
-            ]),
-            $this->field('storage_location', 'Lokasi setelah Persiapan', 'select', false, [
-                'langsung_digunakan' => 'Langsung digunakan',
-                'area_persiapan' => 'Area Persiapan',
-                'chiller' => 'Chiller',
-                'freezer' => 'Freezer',
-            ]),
-            [...$this->field('stored_at', 'Waktu disimpan', 'datetime'), 'editable' => false],
-            $this->field('expires_at', 'Batas penggunaan', 'datetime'),
-            [...$this->field('state', 'Status'), 'editable' => false],
-            $this->field('photo_path', 'Dokumentasi', 'file'),
-            $this->field('notes', 'Catatan'),
-        ];
-
-        if ($viewer === 'preparation') {
-            array_unshift(
-                $fields,
-                [...$this->field('preparation_session_item_id', 'Pilih hasil bahan Persiapan', 'select', true, 'preparation_session_items'), 'create_only' => true],
-            );
-        }
-
-        $definition = [
-            'label' => 'Hasil Persiapan',
-            'description' => 'Bahan siap pakai yang disimpan sementara untuk Pengolahan atau Pemorsian.',
-            'model' => PreparationOutput::class,
-            'permission' => $permission,
-            'number' => 'output_name',
-            'date' => 'stored_at',
-            'allow_create' => $viewer === 'preparation',
-            'allow_update' => $viewer === 'preparation',
-            'allow_delete' => false,
-            'viewer' => $viewer,
-            'fields' => $fields,
-            'relations' => [
-                'withdrawals' => $this->relation('Riwayat pengambilan', [
-                    $this->field('destination_division', 'Divisi pengambil'),
-                    $this->field('requested_quantity', 'Jumlah diminta', 'number'),
-                    $this->field('verified_quantity', 'Jumlah aktual', 'number'),
-                    $this->field('unit_snapshot', 'Satuan'),
-                    $this->field('status', 'Status'),
-                    $this->field('taken_at', 'Waktu diambil', 'datetime'),
-                    $this->field('notes', 'Catatan pengambil'),
-                    $this->field('review_notes', 'Catatan verifikasi'),
-                ]),
-            ],
-        ];
-
-        if ($whereIn !== []) {
-            $definition['where_in'] = ['target_division' => $whereIn];
-        }
-
-        return $definition;
     }
 
     /** @return array<string, mixed> */

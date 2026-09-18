@@ -7,6 +7,7 @@ use App\Enums\FieldIncidentStatus;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\FieldIncident;
 use App\Models\User;
+use App\Support\FileNaming;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -144,8 +145,16 @@ class Form extends Component
             'resolution' => ['nullable', 'string', 'max:5000'], 'newEvidence.*' => ['image', 'max:5120'],
         ]);
         $paths = $this->evidencePaths;
-        foreach ($this->newEvidence as $upload) {
-            $paths[] = $upload->store('v3/field-incidents', 'public');
+        foreach ($this->newEvidence as $index => $upload) {
+            $paths[] = FileNaming::upload(
+                $upload,
+                'v3/field-incidents',
+                'insiden',
+                $data['divisionCode'],
+                $data['title'],
+                $data['incidentDate'],
+                $index + 1,
+            );
         }
         $incident = $this->incidentId ? $this->incident() : new FieldIncident;
         $responsible = filled($data['responsibleUserId']) ? User::query()->find($data['responsibleUserId']) : null;

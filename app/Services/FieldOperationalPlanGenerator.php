@@ -396,14 +396,6 @@ class FieldOperationalPlanGenerator
         return $runs->values();
     }
 
-    private function earliestDepartureAt(FieldDistributionPlan $plan): ?Carbon
-    {
-        return $this->earliestDepartureAtForDestinations(
-            $plan,
-            $plan->destinations->filter(fn ($destination): bool => (int) $destination->total_portions > 0),
-        );
-    }
-
     private function earliestDepartureAtForDestinations(FieldDistributionPlan $plan, Collection $destinations): ?Carbon
     {
         return $destinations

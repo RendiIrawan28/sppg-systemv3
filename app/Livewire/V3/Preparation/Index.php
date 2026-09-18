@@ -3,24 +3,25 @@
 namespace App\Livewire\V3\Preparation;
 
 use App\Enums\OperationalReportStatus;
-use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Livewire\V3\Concerns\FiltersByWorkDate;
+use App\Livewire\V3\Concerns\InteractsWithV3Shell;
+use App\Models\PortioningSession;
 use App\Models\PreparationSession;
 use App\Models\ProcessingBatch;
-use App\Models\PortioningSession;
-use App\Services\PreparationReturnService;
 use App\Services\PreparationOutputService;
+use App\Services\PreparationReturnService;
 use App\Services\PreparationSessionService;
 use App\Services\PreparationWasteReportSyncService;
+use App\Support\FileNaming;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
-use Livewire\WithFileUploads;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Livewire\WithFileUploads;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell, FiltersByWorkDate, WithFileUploads;
+    use FiltersByWorkDate, InteractsWithV3Shell, WithFileUploads;
 
     public ?int $selectedId = null;
 
@@ -35,7 +36,9 @@ class Index extends Component
     public array $returnQuantities = [];
 
     public array $returnReasons = [];
+
     public array $handoverTargets = [];
+
     public array $handoverQuantities = [];
 
     public function mount(): void
@@ -63,8 +66,7 @@ class Index extends Component
     public function save(
         PreparationOutputService $outputs,
         PreparationWasteReportSyncService $wasteReports,
-    ): void
-    {
+    ): void {
         abort_unless($this->allowed('preparation.update'), 403);
         $session = $this->record($this->selectedId);
         abort_unless($session->state === 'in_progress', 422);
@@ -96,10 +98,19 @@ class Index extends Component
                 ]);
                 $upload = $this->itemPhotos[$item->id] ?? null;
                 if ($upload instanceof TemporaryUploadedFile) {
-                    $path = $upload->store('preparation/items/'.today()->format('Y/m/d'), 'public');
+                    $path = FileNaming::upload(
+                        $upload,
+                        'preparation/items/'.$session->preparation_date->format('Y/m/d'),
+                        'persiapan',
+                        'hasil',
+                        $item->ingredient_name_snapshot,
+                        $session->preparation_date,
+                    );
                     $newPaths[] = $path;
                     $existing = $item->resultDocumentation;
-                    if ($existing?->photo_path) $oldPaths[] = $existing->photo_path;
+                    if ($existing?->photo_path) {
+                        $oldPaths[] = $existing->photo_path;
+                    }
                     $item->resultDocumentation()->updateOrCreate([], [
                         'preparation_session_id' => $session->id,
                         'photo_path' => $path,

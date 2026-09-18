@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\BeneficiaryPeriod;
 use App\Models\BeneficiaryPeriodMember;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Response;
 use Illuminate\Support\Collection;
@@ -420,6 +421,6 @@ class BeneficiaryPeriodExportController extends Controller
     {
         $number = $period->document_number ?: $period->code;
 
-        return 'master-penerima-bgn-'.str_replace(['/', '\\', ' '], '-', strtolower($number)).'.'.$extension;
+        return FileNaming::report('master-penerima-manfaat', $number, $period->start_date, $extension, $period->end_date);
     }
 }

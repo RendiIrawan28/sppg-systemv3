@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\FieldDailyReport;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Response;
 
@@ -21,10 +22,7 @@ class FieldDailyReportPdfController extends Controller
             'approver',
         ]);
 
-        $filename = sprintf(
-            'laporan-harian-aslap-%s.pdf',
-            $fieldDailyReport->report_date?->format('Y-m-d')
-        );
+        $filename = FileNaming::report('laporan-harian-aslap', null, $fieldDailyReport->report_date, 'pdf');
 
         return Pdf::loadView('reports.field-daily-report-pdf', [
             'report' => $fieldDailyReport,

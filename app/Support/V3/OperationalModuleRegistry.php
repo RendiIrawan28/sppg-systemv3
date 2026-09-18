@@ -379,41 +379,4 @@ final class OperationalModuleRegistry
         return compact('label', 'fields');
     }
 
-    /** @return array<string, mixed> */
-    private function documentationRelation(): array
-    {
-        return $this->relation('Dokumentasi', [
-            $this->field('phase', 'Tahap', 'select', true, ['before' => 'Sebelum', 'process' => 'Proses', 'after' => 'Sesudah', 'handover' => 'Serah-terima', 'other' => 'Lainnya']),
-            $this->field('photo_path', 'Foto', 'file', true), $this->field('caption', 'Keterangan'),
-            $this->field('captured_at', 'Waktu foto', 'datetime'), $this->field('sort_order', 'Urutan', 'number'),
-        ]);
-    }
-
-    /** @return array<string, mixed> */
-    private function chemicalRelation(bool $withDilution): array
-    {
-        $fields = [
-            $this->field('chemical_name', 'Nama bahan', 'text', true), $this->field('quantity', 'Jumlah', 'number', true),
-            $this->field('unit', 'Satuan', 'text', true), $this->field('purpose', 'Kegunaan'),
-        ];
-        if ($withDilution) {
-            $fields[] = $this->field('dilution_ratio', 'Rasio pengenceran');
-        }
-
-        return $this->relation('Bahan pembersih dan sanitizer', [...$fields,
-            $this->field('batch_number', 'Nomor batch'), $this->field('expiry_date', 'Kedaluwarsa', 'date'),
-            $this->field('used_at', 'Waktu penggunaan', 'datetime'), $this->field('notes', 'Catatan', 'textarea'),
-        ]);
-    }
-
-    /** @return array<string, mixed> */
-    private function wasteRelation(): array
-    {
-        return $this->relation('Catatan limbah', [
-            $this->field('waste_type', 'Jenis limbah', 'text', true), $this->field('quantity', 'Jumlah', 'number', true),
-            $this->field('unit', 'Satuan', 'text', true), $this->field('disposal_method', 'Metode penanganan'),
-            $this->field('handed_over_to', 'Diserahkan kepada'), $this->field('photo_path', 'Foto', 'file'),
-            $this->field('notes', 'Catatan', 'textarea'),
-        ]);
-    }
 }

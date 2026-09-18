@@ -250,16 +250,6 @@ class FieldDistributionPlanWorkflow
         });
     }
 
-    private function transition(
-        FieldDistributionPlan $plan,
-        FieldDistributionPlanStatus $to,
-        User $actor,
-        ?string $notes,
-        array $attributes = [],
-    ): void {
-        DB::transaction(fn () => $this->transitionInsideTransaction($plan, $to, $actor, $notes, $attributes));
-    }
-
     private function transitionInsideTransaction(
         FieldDistributionPlan $plan,
         FieldDistributionPlanStatus $to,

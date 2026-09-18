@@ -5,6 +5,7 @@ namespace App\Livewire\V3\MasterData;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\Allergen;
 use App\Models\NutritionComponent;
+use App\Support\FileNaming;
 use App\Support\V3\MasterDataRegistry;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
@@ -216,7 +217,14 @@ class Catalog extends Component
                 $oldPhoto = $record->photo_path ?? null;
 
                 if ($config['special'] === 'ingredient' && $this->ingredientPhoto) {
-                    $payload['photo_path'] = $this->ingredientPhoto->store('ingredients', 'public');
+                    $payload['photo_path'] = FileNaming::upload(
+                        $this->ingredientPhoto,
+                        'ingredients',
+                        'master',
+                        'bahan',
+                        (string) ($payload['name'] ?? $this->form['name'] ?? 'bahan'),
+                        today(),
+                    );
                 }
                 $record->fill($payload)->save();
 

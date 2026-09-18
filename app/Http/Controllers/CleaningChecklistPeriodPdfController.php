@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\CleaningArea;
 use App\Models\CleaningSession;
 use App\Support\CleaningChecklistTemplate;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -44,11 +45,12 @@ class CleaningChecklistPeriodPdfController extends Controller
             'periodLabel' => $start->translatedFormat('d F').' - '.$end->translatedFormat('d F Y'),
         ])->setPaper('a4', 'landscape');
 
-        return $pdf->download(sprintf(
-            'Checklist-%s-%s-%s.pdf',
-            str($cleaningArea->name)->slug(),
-            $start->format('Ymd'),
-            $end->format('Ymd'),
+        return $pdf->download(FileNaming::report(
+            'checklist-kebersihan',
+            $cleaningArea->name,
+            $start,
+            'pdf',
+            $end,
         ));
     }
 }

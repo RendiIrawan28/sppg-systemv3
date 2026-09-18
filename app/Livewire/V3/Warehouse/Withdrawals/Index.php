@@ -12,6 +12,7 @@ use App\Models\Warehouse;
 use App\Models\WarehouseWithdrawal;
 use App\Services\WarehouseWithdrawalService;
 use App\Support\DivisionRole;
+use App\Support\FileNaming;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -126,8 +127,24 @@ class Index extends Component
         }
         $storedPaths = [];
         try {
+            $photoLots = InventoryLot::with(['ingredient', 'nonFoodItem'])
+                ->whereIn('id', collect($data['rows'])->pluck('inventory_lot_id'))
+                ->get()->keyBy('id');
             foreach ($data['rows'] as $index => $row) {
-                $path = $row['photo']->store('warehouse-withdrawals/'.today()->format('Y/m/d'), 'public');
+                $lot = $photoLots->get((int) $row['inventory_lot_id']);
+                $object = implode('-lot-', array_filter([
+                    $lot?->ingredient?->name ?? $lot?->nonFoodItem?->name ?? 'barang',
+                    $lot?->lot_number,
+                ]));
+                $path = FileNaming::upload(
+                    $row['photo'],
+                    'warehouse-withdrawals/'.today()->format('Y/m/d'),
+                    'pengambilan',
+                    (string) $division.'-'.($isNonFood ? 'non-pangan' : 'pangan'),
+                    $object,
+                    $this->selectedWorkDate(),
+                    $index + 1,
+                );
                 $storedPaths[] = $path;
                 $data['rows'][$index]['photo_path'] = $path;
                 unset($data['rows'][$index]['photo']);

@@ -6,6 +6,7 @@ use App\Enums\FieldIncidentSeverity;
 use App\Enums\FieldIncidentStatus;
 use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\FieldIncident;
+use App\Support\FileNaming;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -133,7 +134,14 @@ class IncidentForm extends Component
             'photo' => [$this->existingPhoto ? 'nullable' : 'required', 'image', 'max:5120'],
         ]);
 
-        $newPath = $this->photo?->store('v3/security/incidents', 'public');
+        $newPath = $this->photo ? FileNaming::upload(
+            $this->photo,
+            'v3/security/incidents',
+            'keamanan',
+            'insiden',
+            $data['title'],
+            $data['occurredAt'],
+        ) : null;
         $incident = $this->incidentId ? $this->incident() : new FieldIncident;
         $oldPath = $this->existingPhoto;
 

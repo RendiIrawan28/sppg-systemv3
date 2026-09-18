@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\FieldDistributionPlan;
+use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -25,10 +26,7 @@ class FieldDistributionPlanPdfController extends Controller
             'approver',
         ]);
 
-        $filename = sprintf(
-            'Rencana Distribusi Tanggal %s.pdf',
-            $fieldDistributionPlan->distribution_date?->format('d-m-Y')
-        );
+        $filename = FileNaming::report('rencana-distribusi', null, $fieldDistributionPlan->distribution_date, 'pdf');
 
         return Pdf::loadView(
             'reports.field-distribution-plan-pdf',

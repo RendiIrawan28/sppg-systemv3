@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Warehouse;
 use App\Services\WarehouseStockCardService;
+use App\Support\FileNaming;
 use App\Support\V3\OperationsPresentation;
 use App\Support\V3\SystemUnit;
 use Illuminate\Http\Request;
@@ -43,6 +44,6 @@ class WarehouseStockCardExportController extends Controller
                 }
             }
             fclose($file);
-        }, $ingredientId ? 'mutasi-kartu-stok.csv' : 'rekap-kartu-stok.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+        }, FileNaming::report($ingredientId ? 'mutasi-kartu-stok' : 'rekap-kartu-stok', $ingredientId ? $balances->first()?->ingredient_name_snapshot : null, today(), 'csv'), ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 }

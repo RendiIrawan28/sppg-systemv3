@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ProcurementRequest;
+use App\Support\FileNaming;
 use App\Support\V3\OperationsPresentation;
 use Barryvdh\DomPDF\Facade\Pdf;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -142,8 +143,6 @@ class ProcurementRequestExportController extends Controller
 
     private function filename(ProcurementRequest $procurement, string $extension): string
     {
-        $number = str_replace(['/', '\\'], '-', (string) $procurement->request_number);
-
-        return "pengadaan-bahan-{$number}.{$extension}";
+        return FileNaming::report('pengadaan-bahan', $procurement->request_number, $procurement->request_date, $extension);
     }
 }

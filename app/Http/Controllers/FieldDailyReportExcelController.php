@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\FieldDailyReport;
+use App\Support\FileNaming;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Border;
@@ -16,7 +17,7 @@ class FieldDailyReportExcelController extends Controller
         $this->authorizeSystemRecord($fieldDailyReport, 'field_daily_reports.export');
 
         $fieldDailyReport->load(['sppgUnit', 'plan', 'divisions', 'incidents']);
-        $spreadsheet = new Spreadsheet();
+        $spreadsheet = new Spreadsheet;
 
         $summary = $spreadsheet->getActiveSheet();
         $summary->setTitle('Ringkasan');
@@ -82,7 +83,7 @@ class FieldDailyReportExcelController extends Controller
             $row++;
         }
         $divisions->getStyle('A1:H1')->getFont()->setBold(true);
-        $divisions->getStyle("A1:H".max(1, $row - 1))->getBorders()->getAllBorders()
+        $divisions->getStyle('A1:H'.max(1, $row - 1))->getBorders()->getAllBorders()
             ->setBorderStyle(Border::BORDER_THIN);
         foreach (range('A', 'H') as $column) {
             $divisions->getColumnDimension($column)->setAutoSize(true);
@@ -107,7 +108,7 @@ class FieldDailyReportExcelController extends Controller
             $row++;
         }
         $incidents->getStyle('A1:G1')->getFont()->setBold(true);
-        $incidents->getStyle("A1:G".max(1, $row - 1))->getBorders()->getAllBorders()
+        $incidents->getStyle('A1:G'.max(1, $row - 1))->getBorders()->getAllBorders()
             ->setBorderStyle(Border::BORDER_THIN);
         foreach (range('A', 'G') as $column) {
             $incidents->getColumnDimension($column)->setAutoSize(true);
@@ -117,10 +118,7 @@ class FieldDailyReportExcelController extends Controller
         $temporaryFile = tempnam(sys_get_temp_dir(), 'field-report-');
         (new Xlsx($spreadsheet))->save($temporaryFile);
 
-        $filename = sprintf(
-            'laporan-harian-aslap-%s.xlsx',
-            $fieldDailyReport->report_date?->format('Y-m-d')
-        );
+        $filename = FileNaming::report('laporan-harian-aslap', null, $fieldDailyReport->report_date, 'xlsx');
 
         return response()->download($temporaryFile, $filename)->deleteFileAfterSend(true);
     }
