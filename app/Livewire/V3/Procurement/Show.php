@@ -220,7 +220,7 @@ class Show extends Component
         $this->runAction(function () use ($service): string {
             $service->markOrdered($this->request());
 
-            return 'Pemesanan oleh Gudang berhasil dicatat.';
+            return 'Pemesanan dicatat. Buat penerimaan dari pengadaan ini saat barang tiba di Gudang.';
         });
     }
 
@@ -233,8 +233,12 @@ class Show extends Component
             if ($receipts->count() === 1) {
                 $this->redirectRoute('v3.warehouse.receipts.show', ['receipt' => $receipts->first()], navigate: true);
             } else {
-                session()->flash('v3.status', "{$receipts->count()} dokumen penerimaan dibuat berdasarkan supplier.");
-                $this->redirectRoute('v3.warehouse.receipts.index', navigate: true);
+                session()->flash('v3.status', "{$receipts->count()} dokumen penerimaan tersedia berdasarkan supplier.");
+                $this->redirectRoute('v3.warehouse.receipts.index', [
+                    'gudang' => $this->request()->procurement_type ?: Warehouse::TYPE_FOOD,
+                    'tanggal' => $receipts->first()->receipt_date->toDateString(),
+                    'pengadaan' => $this->request()->getKey(),
+                ], navigate: true);
             }
 
             return 'Dokumen penerimaan per supplier siap diisi.';

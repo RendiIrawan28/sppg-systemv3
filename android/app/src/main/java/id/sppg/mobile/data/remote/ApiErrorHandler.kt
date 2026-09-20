@@ -67,6 +67,8 @@ class ApiErrorHandler(
         val field = parts.lastOrNull().orEmpty()
         val name = mapOf(
             "supplier_id" to "Supplier", "ingredient_id" to "Bahan", "non_food_item_id" to "Barang non-pangan",
+            "source_type" to "Sumber penerimaan", "procurement_request_id" to "Pengadaan",
+            "receipt_date" to "Tanggal penerimaan",
             "inventory_lot_id" to "Barang dan lot", "photo" to "Foto", "photo_path" to "Foto",
             "quantity" to "Jumlah", "actual_quantity" to "Jumlah fisik aktual",
             "received_quantity" to "Jumlah diterima", "accepted_quantity" to "Jumlah baik",

@@ -20,6 +20,7 @@ use App\Models\PreparationOutputWithdrawal;
 use App\Models\PreparationReturn;
 use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
+use App\Models\ProcurementRequest;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingReturn;
 use App\Models\StockAdjustment;
@@ -41,6 +42,7 @@ use App\Services\PortioningWorkflow;
 use App\Services\PreparationOutputService;
 use App\Services\PreparationReturnService;
 use App\Services\PreparationSessionService;
+use App\Services\PreparationUnitConversionService;
 use App\Services\PreparationWasteReportSyncService;
 use App\Services\ProcessingMaterialStockService;
 use App\Services\ProcessingPortioningHandoverService;
@@ -475,6 +477,42 @@ class MobileOperationalController extends Controller
 
                 if (in_array($module, ['gudang', 'gudang-non-pangan'], true)) {
                     $nonFood = $module === 'gudang-non-pangan';
+                    $warehouse = Warehouse::forUnit(
+                        $unitId,
+                        $nonFood ? Warehouse::TYPE_NON_FOOD : Warehouse::TYPE_FOOD,
+                    );
+                    $source = $request->input('fields.source_type', 'manual');
+                    validator(['source_type' => $source], [
+                        'source_type' => ['required', Rule::in(['manual', 'procurement'])],
+                    ], [], ['source_type' => 'sumber penerimaan'])->validate();
+
+                    if ($source === 'procurement') {
+                        $input = $request->validate([
+                            'fields' => ['present', 'array'],
+                            'fields.procurement_request_id' => ['required', Rule::exists('procurement_requests', 'id')->where(fn ($query) => $query
+                                ->where('sppg_unit_id', $unitId)
+                                ->where('warehouse_id', $warehouse->getKey())
+                                ->where('status', ProcurementRequest::STATUS_ORDERED))],
+                            'fields.receipt_date' => ['required', 'date', 'before_or_equal:today'],
+                            'fields.notes' => ['nullable', 'string', 'max:3000'],
+                        ], [
+                            'fields.procurement_request_id.required' => 'Pilih pengadaan yang sudah dipesan.',
+                            'fields.procurement_request_id.exists' => 'Pengadaan tidak tersedia untuk Gudang ini atau belum dipesan.',
+                            'fields.receipt_date.before_or_equal' => 'Tanggal penerimaan tidak boleh melebihi hari ini.',
+                        ])['fields'];
+                        $procurement = ProcurementRequest::query()
+                            ->where('sppg_unit_id', $unitId)
+                            ->where('warehouse_id', $warehouse->getKey())
+                            ->findOrFail($input['procurement_request_id']);
+
+                        return app(StockReceiptService::class)
+                            ->createGroupedFromProcurementRequest(
+                                $procurement,
+                                $input['receipt_date'],
+                                $input['notes'] ?? null,
+                            )->firstOrFail();
+                    }
+
                     $input = $request->validate([
                         'fields' => ['present', 'array'],
                         'fields.receipt_date' => ['required', 'date', 'before_or_equal:today'],
@@ -507,11 +545,6 @@ class MobileOperationalController extends Controller
                             ]);
                         }
                     }
-                    $warehouse = Warehouse::forUnit(
-                        $unitId,
-                        $nonFood ? Warehouse::TYPE_NON_FOOD : Warehouse::TYPE_FOOD,
-                    );
-
                     return app(StockReceiptService::class)->createManual(
                         $unitId,
                         $warehouse->getKey(),
@@ -709,7 +742,7 @@ class MobileOperationalController extends Controller
                             [
                                 ...$input['fields'],
                                 'output_name' => $sourceItem->ingredient_name_snapshot,
-                                'unit_snapshot' => $sourceItem->unit_snapshot,
+                                'unit_snapshot' => $sourceItem->processed_unit_snapshot ?: $sourceItem->unit_snapshot,
                                 'stored_at' => now(),
                                 'photo_path' => $photoPath,
                             ],
@@ -1415,6 +1448,9 @@ class MobileOperationalController extends Controller
             $child->fill($this->applyRelationDefaults($module, $relation, $values, $request, $parent, $child));
             $child->save();
             $this->storeRelationFiles($request, $module, $relation, $child, $relationDefinition, $parent);
+            if ($module === 'persiapan' && $relation === 'items' && $child instanceof PreparationSessionItem) {
+                app(PreparationUnitConversionService::class)->normalizeItem($child);
+            }
             $this->recalculateParent($parent);
         });
 

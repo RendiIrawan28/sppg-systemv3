@@ -183,6 +183,10 @@ class OpeningWarehouseStockSeeder extends Seeder
                     'is_active' => true,
                 ]);
 
+                if ((float) ($ingredient->grams_per_unit ?? 0) <= 0 && (float) ($item['grams_per_unit'] ?? 0) > 0) {
+                    $ingredient->grams_per_unit = (float) $item['grams_per_unit'];
+                }
+
                 if (blank($ingredient->category)) {
                     $ingredient->category = 'other';
                 }
@@ -203,6 +207,7 @@ class OpeningWarehouseStockSeeder extends Seeder
                     'loss_factor' => 1,
                     'rounding_mode' => 'up',
                     'nutrition_reference_grams' => 100,
+                    'grams_per_unit' => (float) ($item['grams_per_unit'] ?? 0) > 0 ? (float) $item['grams_per_unit'] : null,
                     'description' => $this->sourceDescription($item),
                     'is_active' => true,
                 ]);
@@ -466,7 +471,7 @@ class OpeningWarehouseStockSeeder extends Seeder
             ['code' => 'B-080', 'name' => 'TELUR AYAM', 'size' => '-', 'unit' => 'kg', 'ending' => 19, 'storage_type' => 'wet', 'location_name' => 'Gudang Basah & Freezer'],
             ['code' => 'B-081', 'name' => 'TELUR AYAM KUPAS', 'size' => '-', 'unit' => 'pcs', 'ending' => 0, 'storage_type' => 'wet', 'location_name' => 'Gudang Basah & Freezer'],
             ['code' => 'B-082', 'name' => 'TELUR PUYUH', 'size' => '-', 'unit' => 'pcs', 'ending' => 0, 'storage_type' => 'wet', 'location_name' => 'Gudang Basah & Freezer'],
-            ['code' => 'B-083', 'name' => 'TEMPE A-ZAKI', 'size' => '1 Papan/500 g', 'unit' => 'papan', 'ending' => 0, 'storage_type' => 'wet', 'location_name' => 'Gudang Basah & Freezer'],
+            ['code' => 'B-083', 'name' => 'TEMPE A-ZAKI', 'size' => '1 Papan/500 g', 'unit' => 'papan', 'grams_per_unit' => 500, 'ending' => 0, 'storage_type' => 'wet', 'location_name' => 'Gudang Basah & Freezer'],
             ['code' => 'B-084', 'name' => 'TEMPE MUCHLAR', 'size' => '500 g', 'unit' => 'kg', 'ending' => 0, 'storage_type' => 'wet', 'location_name' => 'Gudang Basah & Freezer'],
             ['code' => 'B-085', 'name' => 'TEMU KUNCI', 'size' => '-', 'unit' => 'kg', 'ending' => 0, 'storage_type' => 'wet', 'location_name' => 'Gudang Basah & Freezer'],
             ['code' => 'B-086', 'name' => 'TIMUN BESAR', 'size' => '-', 'unit' => 'kg', 'ending' => 0, 'storage_type' => 'wet', 'location_name' => 'Gudang Basah & Freezer'],

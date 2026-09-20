@@ -173,14 +173,16 @@ class StockReceiptService
     }
 
     /** @return Collection<int, StockReceipt> */
-    public function createGroupedFromProcurementRequest(ProcurementRequest $request): Collection
+    public function createGroupedFromProcurementRequest(ProcurementRequest $request, ?string $receiptDate = null, ?string $notes = null): Collection
     {
-        if ($request->status !== ProcurementRequest::STATUS_ORDERED) {
-            throw new InvalidArgumentException('Penerimaan bahan hanya dapat dibuat dari permintaan yang sudah dipesan Gudang.');
-        }
-
-        return DB::transaction(function () use ($request): Collection {
-            $request->loadMissing(['warehouse', 'items.nonFoodItem']);
+        return DB::transaction(function () use ($request, $receiptDate, $notes): Collection {
+            $request = ProcurementRequest::query()
+                ->lockForUpdate()
+                ->findOrFail($request->getKey());
+            if ($request->status !== ProcurementRequest::STATUS_ORDERED) {
+                throw new InvalidArgumentException('Penerimaan bahan hanya dapat dibuat dari permintaan yang sudah dipesan Gudang.');
+            }
+            $request->load(['warehouse', 'items.nonFoodItem']);
 
             if ($request->items->isEmpty()) {
                 throw new InvalidArgumentException('Pesanan belum memiliki item untuk diterima.');
@@ -190,8 +192,13 @@ class StockReceiptService
                 throw new InvalidArgumentException('Seluruh item harus memiliki supplier sebelum dokumen penerimaan dibuat.');
             }
 
+            if (! $request->warehouse
+                || ! $request->warehouse->is_active
+                || (int) $request->warehouse->sppg_unit_id !== (int) $request->sppg_unit_id) {
+                throw new InvalidArgumentException('Gudang tujuan pengadaan tidak aktif atau tidak sesuai dengan Unit SPPG.');
+            }
 
-            $isNonFood = $request->warehouse?->type === Warehouse::TYPE_NON_FOOD;
+            $isNonFood = $request->warehouse->type === Warehouse::TYPE_NON_FOOD;
             $invalidReference = $request->items->contains(fn ($item): bool => $isNonFood
                 ? blank($item->non_food_item_id) || filled($item->ingredient_id)
                 : blank($item->ingredient_id) || filled($item->non_food_item_id));
@@ -201,15 +208,26 @@ class StockReceiptService
 
             return $request->items
                 ->groupBy('supplier_id')
-                ->map(function (Collection $items, int|string $supplierId) use ($request): StockReceipt {
-                    $receipt = StockReceipt::query()->firstOrCreate([
-                        'procurement_request_id' => $request->id,
-                        'supplier_id' => (int) $supplierId,
-                    ], [
+                ->map(function (Collection $items, int|string $supplierId) use ($request, $receiptDate, $notes): StockReceipt {
+                    $receipt = StockReceipt::query()
+                        ->where('procurement_request_id', $request->id)
+                        ->where('supplier_id', (int) $supplierId)
+                        ->first();
+
+                    // Memilih ulang pengadaan lama boleh membuka dokumennya, tetapi
+                    // tidak boleh menimpa hasil QC maupun stok yang sudah diterima.
+                    if ($receipt) {
+                        return $receipt;
+                    }
+
+                    $receipt = StockReceipt::query()->create([
                         'sppg_unit_id' => $request->sppg_unit_id,
                         'warehouse_id' => $request->warehouse_id,
-                        'receipt_date' => now()->toDateString(),
+                        'procurement_request_id' => $request->id,
+                        'supplier_id' => (int) $supplierId,
+                        'receipt_date' => $receiptDate ?: now()->toDateString(),
                         'status' => StockReceipt::STATUS_DRAFT,
+                        'notes' => trim((string) $notes) ?: null,
                         'created_by' => auth()->id(),
                     ]);
 
@@ -217,9 +235,8 @@ class StockReceiptService
                         $ordered = (float) ($item->approved_quantity ?: $item->requested_quantity ?: 0);
                         $orderedKg = (float) ($item->approved_quantity_kg ?: $item->requested_quantity_kg ?: 0);
 
-                        $receipt->items()->updateOrCreate([
+                        $receipt->items()->create([
                             'procurement_request_item_id' => $item->id,
-                        ], [
                             'ingredient_id' => $item->ingredient_id,
                             'non_food_item_id' => $item->non_food_item_id,
                             'supplier_id' => $item->supplier_id,

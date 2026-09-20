@@ -13,8 +13,14 @@ use Illuminate\Validation\ValidationException;
 
 class PreparationSessionService
 {
+    public function __construct(
+        private readonly PreparationUnitConversionService $preparationUnits,
+    ) {}
+
     public function createFromWithdrawal(WarehouseWithdrawal $withdrawal): ?PreparationSession
     {
+        $withdrawal->loadMissing('items.ingredient.measurementUnit');
+
         if ($withdrawal->division_code !== 'persiapan'
             || ! in_array($withdrawal->status, [WarehouseWithdrawal::WAITING, WarehouseWithdrawal::VERIFIED], true)) {
             return null;
@@ -27,17 +33,31 @@ class PreparationSessionService
             ]);
             foreach ($withdrawal->items as $item) {
                 $quantity = $item->actual_quantity ?? $item->requested_quantity ?? $item->verified_quantity_kg ?? $item->taken_quantity_kg;
-                $session->items()->updateOrCreate([
+                $sourceUnit = $item->unit_snapshot ?? 'kg';
+                $resultUnit = $this->preparationUnits->defaultResultUnit($sourceUnit);
+                $knownWeightKg = (float) ($item->verified_quantity_kg ?? 0);
+                if ($knownWeightKg <= 0) {
+                    $knownWeightKg = (float) ($item->taken_quantity_kg ?? 0);
+                }
+
+                $sessionItem = $session->items()->updateOrCreate([
                     'warehouse_withdrawal_item_id' => $item->id,
                 ], [
                     'ingredient_id' => $item->ingredient_id, 'inventory_lot_id' => $item->inventory_lot_id,
                     'ingredient_name_snapshot' => $item->ingredient_name_snapshot,
-                    'unit_snapshot' => $item->unit_snapshot ?? 'kg',
+                    'unit_snapshot' => $sourceUnit,
                     'received_quantity' => $quantity,
-                    'received_weight_kg' => ($item->unit_snapshot ?? 'kg') === 'kg'
-                        ? $quantity
-                        : 0,
+                    'processed_unit_snapshot' => $resultUnit,
+                    'waste_unit_snapshot' => $resultUnit,
+                    'received_weight_kg' => $knownWeightKg,
                 ]);
+
+                if ((float) $sessionItem->received_weight_kg <= 0) {
+                    $inferredWeightKg = $this->preparationUnits->inferSourceWeightKg($sessionItem, (float) $quantity);
+                    if ($inferredWeightKg !== null && $inferredWeightKg > 0) {
+                        $sessionItem->update(['received_weight_kg' => $inferredWeightKg]);
+                    }
+                }
             }
 
             return $session->refresh();
@@ -72,13 +92,34 @@ class PreparationSessionService
                 throw ValidationException::withMessages(['state' => 'Sesi belum dikerjakan.']);
             }
             foreach ($session->items as $item) {
-                $received = (float) ($item->received_quantity ?? $item->received_weight_kg);
-                $clean = (float) ($item->processed_quantity ?? $item->clean_weight_kg);
-                $waste = (float) ($item->waste_quantity ?? $item->waste_weight_kg);
-                $returned = (float) $item->returns->where('status', PreparationReturn::VERIFIED)->sum('actual_quantity');
-                $returned += (float) $item->returns->where('status', PreparationReturn::WAITING)->sum('requested_quantity');
-                if ($clean < 0 || $waste < 0 || abs(($clean + $waste + $returned) - $received) > 0.01) {
-                    throw ValidationException::withMessages(['items' => "Jumlah hasil + sisa + retur {$item->ingredient_name_snapshot} harus sama dengan jumlah diterima."]);
+                $item = $this->preparationUnits->normalizeItem($item);
+                $receivedQuantity = (float) ($item->received_quantity ?? 0);
+                $receivedKg = (float) ($item->received_weight_kg ?? 0);
+                if ($receivedQuantity > 0 && $receivedKg <= 0) {
+                    throw ValidationException::withMessages([
+                        'items' => "Bobot diterima aktual (kg) untuk {$item->ingredient_name_snapshot} wajib diisi karena bahan diterima dalam satuan {$item->unit_snapshot} dan belum memiliki konversi bobot.",
+                    ]);
+                }
+
+                $cleanKg = (float) ($item->clean_weight_kg ?? 0);
+                $wasteKg = (float) ($item->waste_weight_kg ?? 0);
+                $returnedQuantity = (float) $item->returns->where('status', PreparationReturn::VERIFIED)->sum('actual_quantity');
+                $returnedQuantity += (float) $item->returns->where('status', PreparationReturn::WAITING)->sum('requested_quantity');
+                $returnedKg = $returnedQuantity > 0
+                    ? $this->preparationUnits->sourceQuantityToKg($item, $returnedQuantity)
+                    : 0.0;
+
+                if ($cleanKg < 0 || $wasteKg < 0 || abs(($cleanKg + $wasteKg + $returnedKg) - $receivedKg) > 0.01) {
+                    throw ValidationException::withMessages([
+                        'items' => sprintf(
+                            'Rekonsiliasi %s belum sesuai. Diterima %.3f kg, hasil %.3f kg, limbah %.3f kg, retur %.3f kg. Total hasil + limbah + retur harus sama dengan bobot diterima.',
+                            $item->ingredient_name_snapshot,
+                            $receivedKg,
+                            $cleanKg,
+                            $wasteKg,
+                            $returnedKg,
+                        ),
+                    ]);
                 }
             }
 

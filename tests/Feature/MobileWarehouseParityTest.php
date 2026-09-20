@@ -4,12 +4,14 @@ use App\Models\Ingredient;
 use App\Models\InventoryLot;
 use App\Models\MeasurementUnit;
 use App\Models\OpeningStock;
+use App\Models\ProcurementRequest;
 use App\Models\SppgUnit;
 use App\Models\StockAdjustment;
 use App\Models\StockReceipt;
 use App\Models\StockReceiptItem;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Models\WarehouseWithdrawal;
 use App\Support\Mobile\MobileWorkspaceRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -85,6 +87,69 @@ it('creates a manual supplier receipt from mobile without procurement', function
         ->and((float) $receipt->items->first()->accepted_quantity)->toBe(10.0)
         ->and((float) $receipt->items->first()->rejected_quantity)->toBe(2.5)
         ->and($receipt->items->first()->quality_status)->toBe('partial');
+});
+
+it('creates a receipt from an ordered procurement without overwriting an existing inspection', function (): void {
+    $warehouse = Warehouse::forUnit($this->unit->id, Warehouse::TYPE_FOOD);
+    $procurement = ProcurementRequest::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'warehouse_id' => $warehouse->id,
+        'procurement_type' => Warehouse::TYPE_FOOD,
+        'request_date' => today()->toDateString(),
+        'needed_date' => today()->toDateString(),
+        'status' => ProcurementRequest::STATUS_ORDERED,
+        'ordered_at' => now(),
+        'created_by' => $this->user->id,
+    ]);
+    $procurement->items()->create([
+        'ingredient_id' => $this->ingredient->id,
+        'supplier_id' => $this->supplier->id,
+        'ingredient_name_snapshot' => $this->ingredient->name,
+        'unit_snapshot' => 'kg',
+        'requested_quantity' => 12,
+        'approved_quantity' => 12,
+        'requested_quantity_kg' => 12,
+        'approved_quantity_kg' => 12,
+    ]);
+
+    $fields = [
+        'source_type' => 'procurement',
+        'procurement_request_id' => $procurement->id,
+        'receipt_date' => today()->toDateString(),
+        'notes' => 'Barang dari pengadaan ahli gizi',
+    ];
+    $this->postJson('/api/mobile/operational-modules/gudang/records', [
+        'fields' => $fields,
+        'files' => [],
+    ])->assertCreated()->assertJsonPath('data.status', StockReceipt::STATUS_DRAFT);
+
+    $receipt = StockReceipt::query()->with('items')->firstOrFail();
+    expect($receipt->procurement_request_id)->toBe($procurement->id)
+        ->and($receipt->supplier_id)->toBe($this->supplier->id)
+        ->and($receipt->items)->toHaveCount(1)
+        ->and($receipt->items->first()->procurement_request_item_id)->toBe($procurement->items->first()->id);
+
+    $receipt->items->first()->update([
+        'received_quantity' => 10,
+        'accepted_quantity' => 9,
+        'rejected_quantity' => 1,
+        'quality_status' => 'partial',
+    ]);
+    $this->postJson('/api/mobile/operational-modules/gudang/records', [
+        'fields' => $fields,
+        'files' => [],
+    ])->assertCreated()->assertJsonPath('data.id', $receipt->id);
+
+    expect(StockReceipt::query()->count())->toBe(1)
+        ->and(StockReceiptItem::query()->count())->toBe(1)
+        ->and((float) $receipt->items->first()->refresh()->accepted_quantity)->toBe(9.0);
+
+    $procurement->update(['status' => ProcurementRequest::STATUS_APPROVED]);
+    $this->postJson('/api/mobile/operational-modules/gudang/records', [
+        'fields' => $fields,
+        'files' => [],
+    ])->assertUnprocessable();
+    expect(StockReceipt::query()->count())->toBe(1);
 });
 
 it('fills warehouse item snapshots when a division saves a newly taken item', function (): void {

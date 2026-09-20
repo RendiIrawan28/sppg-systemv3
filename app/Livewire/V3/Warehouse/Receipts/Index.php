@@ -29,12 +29,20 @@ class Index extends Component
     #[Url(as: 'gudang', history: true)]
     public string $warehouseType = Warehouse::TYPE_FOOD;
 
+    #[Url(as: 'pengadaan', history: true)]
+    public string $procurementFilter = '';
+
+    public string $procurementSearch = '';
+
     public ?string $procurementId = null;
+
+    public string $newReceiptDate = '';
 
     public function mount(): void
     {
         $this->currentUnit();
         abort_unless($this->allowed('stock.view'), 403);
+        $this->newReceiptDate = today()->toDateString();
     }
 
     public function updatedSearch(): void
@@ -51,26 +59,48 @@ class Index extends Component
     {
         abort_unless(in_array($this->warehouseType, [Warehouse::TYPE_FOOD, Warehouse::TYPE_NON_FOOD], true), 404);
         $this->procurementId = null;
+        $this->procurementFilter = '';
+        $this->procurementSearch = '';
         $this->resetPage();
+    }
+
+    public function updatedProcurementFilter(): void
+    {
+        $this->resetPage();
+    }
+
+    public function afterWorkDateChanged(): void
+    {
+        $this->procurementFilter = '';
+    }
+
+    public function updatedProcurementSearch(): void
+    {
+        $this->procurementId = null;
     }
 
     public function createReceipt(StockReceiptService $service): void
     {
-        abort_unless(config('warehouse.receipt_from_procurement_enabled'), 403, 'Buat penerimaan langsung dari supplier.');
         $unit = $this->currentUnit();
         $warehouse = Warehouse::forUnit($unit->getKey(), $this->warehouseType);
         abort_unless($this->allowed('stock.create'), 403);
         $data = $this->validate([
+            'newReceiptDate' => ['required', 'date', 'before_or_equal:today'],
             'procurementId' => ['required', Rule::exists('procurement_requests', 'id')->where(fn ($query) => $query
                 ->where('sppg_unit_id', $unit->getKey())
                 ->where('warehouse_id', $warehouse->getKey())
                 ->where('status', ProcurementRequest::STATUS_ORDERED))],
+        ], [
+            'procurementId.required' => 'Pilih pengadaan yang sudah dipesan.',
+            'procurementId.exists' => 'Pengadaan tidak tersedia untuk Gudang ini atau belum dipesan.',
+            'newReceiptDate.required' => 'Tanggal penerimaan wajib diisi.',
+            'newReceiptDate.before_or_equal' => 'Tanggal penerimaan tidak boleh melebihi hari ini.',
         ]);
         $request = ProcurementRequest::query()
             ->where('sppg_unit_id', $unit->getKey())
             ->where('warehouse_id', $warehouse->getKey())
             ->findOrFail($data['procurementId']);
-        $receipts = $service->createGroupedFromProcurementRequest($request);
+        $receipts = $service->createGroupedFromProcurementRequest($request, $data['newReceiptDate']);
 
         if ($receipts->count() === 1) {
             $this->redirectRoute('v3.warehouse.receipts.show', ['receipt' => $receipts->first()], navigate: true);
@@ -78,8 +108,12 @@ class Index extends Component
             return;
         }
 
-        session()->flash('v3.status', "{$receipts->count()} dokumen penerimaan dibuat berdasarkan supplier.");
-        $this->redirectRoute('v3.warehouse.receipts.index', navigate: true);
+        session()->flash('v3.status', "{$receipts->count()} dokumen penerimaan tersedia berdasarkan supplier. Periksa masing-masing sebelum memasukkan stok.");
+        $this->redirectRoute('v3.warehouse.receipts.index', [
+            'gudang' => $this->warehouseType,
+            'tanggal' => $receipts->first()->receipt_date->toDateString(),
+            'pengadaan' => $request->getKey(),
+        ], navigate: true);
     }
 
     public function render()
@@ -92,7 +126,12 @@ class Index extends Component
             ->where('sppg_unit_id', $unit->getKey())
             ->where('warehouse_id', $warehouse->getKey())
             ->whereDate('receipt_date', $this->selectedWorkDate());
-        $query = (clone $base)->with(['procurementRequest', 'supplier', 'items'])
+        $query = StockReceipt::query()
+            ->where('sppg_unit_id', $unit->getKey())
+            ->where('warehouse_id', $warehouse->getKey())
+            ->when($this->procurementFilter === '', fn ($query) => $query->whereDate('receipt_date', $this->selectedWorkDate()))
+            ->with(['procurementRequest', 'supplier', 'items'])
+            ->when($this->procurementFilter !== '', fn ($query) => $query->where('procurement_request_id', $this->procurementFilter))
             ->when(trim($this->search) !== '', function ($query): void {
                 $search = trim($this->search);
                 $query->where(fn ($query) => $query->where('receipt_number', 'like', "%{$search}%")
@@ -106,12 +145,14 @@ class Index extends Component
             ...$this->shellData($unit),
             'receipts' => $query->orderByDesc('receipt_date')->orderByDesc('created_at')->paginate(12),
             'statuses' => OperationsPresentation::receiptStatuses(),
-            'orderedRequests' => config('warehouse.receipt_from_procurement_enabled') ? ProcurementRequest::query()
+            'orderedRequests' => ProcurementRequest::query()
                 ->where('sppg_unit_id', $unit->getKey())
                 ->where('warehouse_id', $warehouse->getKey())
                 ->where('status', ProcurementRequest::STATUS_ORDERED)
-                ->whereNotIn('id', StockReceipt::query()->select('procurement_request_id')->whereNotNull('procurement_request_id'))
-                ->latest('ordered_at')->limit(50)->get() : collect(),
+                ->when(trim($this->procurementSearch) !== '', fn ($query) => $query
+                    ->where('request_number', 'like', '%'.trim($this->procurementSearch).'%'))
+                ->withCount('stockReceipts')
+                ->latest('ordered_at')->limit(100)->get(),
             'receiptCount' => (clone $base)->count(),
             'draftCount' => (clone $base)->where('status', StockReceipt::STATUS_DRAFT)->count(),
             'receivedCount' => (clone $base)->where('status', StockReceipt::STATUS_RECEIVED)->count(),

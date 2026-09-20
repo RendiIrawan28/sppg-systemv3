@@ -11,6 +11,7 @@ use App\Models\ProcessingBatch;
 use App\Services\PreparationOutputService;
 use App\Services\PreparationReturnService;
 use App\Services\PreparationSessionService;
+use App\Services\PreparationUnitConversionService;
 use App\Services\PreparationWasteReportSyncService;
 use App\Support\FileNaming;
 use Illuminate\Support\Facades\DB;
@@ -54,8 +55,11 @@ class Index extends Component
         $this->notes = (string) $session->notes;
         $this->reviewNotes = (string) $session->review_notes;
         $this->items = $session->items->mapWithKeys(fn ($item) => [$item->id => [
+            'received_weight_kg' => (float) ($item->received_weight_kg ?? 0) > 0 ? $item->received_weight_kg : '',
             'processed_quantity' => $item->processed_quantity ?? $item->clean_weight_kg ?? '',
+            'processed_unit_snapshot' => $item->processed_unit_snapshot ?: app(PreparationUnitConversionService::class)->defaultResultUnit($item->unit_snapshot),
             'waste_quantity' => $item->waste_quantity ?? $item->waste_weight_kg ?? '',
+            'waste_unit_snapshot' => $item->waste_unit_snapshot ?: app(PreparationUnitConversionService::class)->defaultResultUnit($item->unit_snapshot),
             'condition_status' => $item->condition_status ?: 'good',
             'target_division' => $item->output_target_division ?: $item->outputs->first()?->target_division ?: 'processing',
             'notes' => $item->notes ?? '',
@@ -66,13 +70,17 @@ class Index extends Component
     public function save(
         PreparationOutputService $outputs,
         PreparationWasteReportSyncService $wasteReports,
+        PreparationUnitConversionService $unitConversion,
     ): void {
         abort_unless($this->allowed('preparation.update'), 403);
         $session = $this->record($this->selectedId);
         abort_unless($session->state === 'in_progress', 422);
         $this->validate([
+            'items.*.received_weight_kg' => ['nullable', 'numeric', 'gte:0'],
             'items.*.processed_quantity' => ['nullable', 'numeric', 'gte:0'],
+            'items.*.processed_unit_snapshot' => ['required', 'string', 'max:80'],
             'items.*.waste_quantity' => ['nullable', 'numeric', 'gte:0'],
+            'items.*.waste_unit_snapshot' => ['required', 'string', 'max:80'],
             'items.*.condition_status' => ['required', 'in:good,fair,damaged'],
             'items.*.target_division' => ['required', 'in:processing,portioning'],
             'items.*.notes' => ['nullable', 'string', 'max:1000'],
@@ -82,20 +90,22 @@ class Index extends Component
 
         $newPaths = [];
         $oldPaths = [];
-        DB::transaction(function () use ($session, &$newPaths, &$oldPaths): void {
+        DB::transaction(function () use ($session, $unitConversion, &$newPaths, &$oldPaths): void {
             foreach ($session->items as $item) {
                 $row = $this->items[$item->id] ?? [];
                 $processed = filled($row['processed_quantity'] ?? null) ? $row['processed_quantity'] : null;
                 $waste = filled($row['waste_quantity'] ?? null) ? $row['waste_quantity'] : 0;
                 $item->update([
+                    'received_weight_kg' => filled($row['received_weight_kg'] ?? null) ? $row['received_weight_kg'] : $item->received_weight_kg,
                     'processed_quantity' => $processed,
+                    'processed_unit_snapshot' => $row['processed_unit_snapshot'] ?? $item->processed_unit_snapshot ?? $item->unit_snapshot,
                     'waste_quantity' => $waste,
+                    'waste_unit_snapshot' => $row['waste_unit_snapshot'] ?? $item->waste_unit_snapshot ?? $item->unit_snapshot,
                     'condition_status' => $row['condition_status'] ?? 'good',
                     'output_target_division' => $row['target_division'] ?? 'processing',
-                    'clean_weight_kg' => $item->unit_snapshot === 'kg' ? $processed : 0,
-                    'waste_weight_kg' => $item->unit_snapshot === 'kg' ? $waste : 0,
                     'notes' => filled($row['notes'] ?? null) ? trim($row['notes']) : null,
                 ]);
+                $unitConversion->normalizeItem($item->refresh());
                 $upload = $this->itemPhotos[$item->id] ?? null;
                 if ($upload instanceof TemporaryUploadedFile) {
                     $path = FileNaming::upload(
@@ -163,7 +173,7 @@ class Index extends Component
 
     public function complete(PreparationSessionService $service): void
     {
-        $this->save(app(PreparationOutputService::class), app(PreparationWasteReportSyncService::class));
+        $this->save(app(PreparationOutputService::class), app(PreparationWasteReportSyncService::class), app(PreparationUnitConversionService::class));
         $service->complete($this->record($this->selectedId), auth()->user());
         $this->select($this->selectedId);
     }
@@ -235,6 +245,7 @@ class Index extends Component
             'canApprove' => $this->allowed('preparation.approve'),
             'canExport' => $this->allowed('preparation.export'),
             'statusLabels' => OperationalReportStatus::options(),
+            'preparationUnits' => app(PreparationUnitConversionService::class)->selectableUnits(),
             'processingTargets' => ProcessingBatch::query()->where('sppg_unit_id', $unit->id)->where('state', 'in_progress')->whereDate('production_date', $this->selectedWorkDate())->pluck('batch_number', 'id'),
             'portioningTargets' => PortioningSession::query()->where('sppg_unit_id', $unit->id)->where('state', 'in_progress')->whereDate('portioning_date', $this->selectedWorkDate())->pluck('session_number', 'id'),
         ])->layout('layouts.v3', ['title' => 'Persiapan']);

@@ -1318,7 +1318,17 @@ fun OperationalRecordEditScreen(
 ) {
     LaunchedEffect(isCreate, state.selectedRecord?.id) { onPrepare() }
     val fields = state.activeFormFields
-    val isManualReceipt = isCreate && fields.any { it.type == "manual_receipt_rows" }
+    val isReceiptCreation = isCreate && fields.any { it.type == "manual_receipt_rows" }
+    val receiptSource = state.editValues["source_type"]
+    val visibleFields = fields.filter { field ->
+        if (!field.editable) return@filter false
+        if (!isReceiptCreation) return@filter true
+        when (field.key) {
+            "procurement_request_id" -> receiptSource == "procurement"
+            "supplier_id", "manual_rows_payload" -> receiptSource == "manual"
+            else -> true
+        }
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -1363,7 +1373,7 @@ fun OperationalRecordEditScreen(
                 ) {
                     Column(Modifier.padding(18.dp)) {
                         Text(
-                            if (isManualReceipt) "Buat penerimaan manual"
+                            if (isReceiptCreation) "Pilih sumber penerimaan"
                             else if (isCreate && createActionLabel == "Mulai Pemorsian") "Pilih rencana distribusi aktif"
                             else if (isCreate && createActionLabel != null) "Pilih rencana produksi aktif"
                             else "Isi hanya data yang perlu diubah",
@@ -1371,8 +1381,12 @@ fun OperationalRecordEditScreen(
                         )
                         Spacer(Modifier.height(5.dp))
                         Text(
-                            if (isManualReceipt) {
-                                "Pilih supplier, tambahkan barang yang datang, lalu lengkapi jumlah dan dokumentasi setiap barang."
+                            if (isReceiptCreation) {
+                                when (receiptSource) {
+                                    "procurement" -> "Pilih pengadaan yang sudah dipesan. Barang dibuat per supplier; periksa QC dan unggah foto tiap barang pada dokumen penerimaan."
+                                    "manual" -> "Pilih supplier, tambahkan barang yang datang, lalu lengkapi jumlah dan dokumentasi setiap barang."
+                                    else -> "Gunakan pengadaan yang sudah dipesan atau buat penerimaan manual dari supplier."
+                                }
                             } else if (isCreate && createActionLabel != null) {
                                 if (createActionLabel == "Mulai Pemorsian") {
                                     "Pemorsian langsung dimulai setelah rencana dipilih. Barang dapat diambil sesudahnya."
@@ -1398,7 +1412,7 @@ fun OperationalRecordEditScreen(
                     }
                 }
             }
-            items(fields.filter { it.editable }, key = { it.key }) { field ->
+            items(visibleFields, key = { it.key }) { field ->
                 OperationalFormInput(
                     field = field,
                     value = state.editValues[field.key],
@@ -1423,7 +1437,7 @@ fun OperationalRecordEditScreen(
                         )
                     } else {
                         Text(
-                            if (isManualReceipt) "Buat draft penerimaan"
+                            if (isReceiptCreation) "Buat atau buka penerimaan"
                             else if (isCreate && createActionLabel != null) createActionLabel
                             else if (isCreate) "Simpan data baru"
                             else "Simpan perubahan",
@@ -1649,7 +1663,9 @@ private fun OperationalFormInput(
             enabled = false,
             modifier = Modifier.fillMaxWidth(),
             label = { Text(label) },
-            placeholder = { Text("Belum ada pekerjaan aktif") },
+            placeholder = {
+                Text(if (field.key == "procurement_request_id") "Belum ada pengadaan yang dipesan" else "Belum ada pekerjaan aktif")
+            },
             shape = RoundedCornerShape(16.dp),
         )
         else -> SppgTextField(

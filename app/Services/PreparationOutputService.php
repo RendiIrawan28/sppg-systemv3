@@ -16,6 +16,10 @@ use Illuminate\Validation\ValidationException;
 
 class PreparationOutputService
 {
+    public function __construct(
+        private readonly PreparationUnitConversionService $preparationUnits,
+    ) {}
+
     /** @param array<int, string> $targets */
     public function syncSessionOutputs(PreparationSession $session, User $actor, array $targets): void
     {
@@ -24,6 +28,7 @@ class PreparationOutputService
             $session = PreparationSession::query()->with(['items.resultDocumentation', 'outputs.withdrawals'])
                 ->lockForUpdate()->findOrFail($session->getKey());
             foreach ($session->items as $item) {
+                $item = $this->preparationUnits->normalizeItem($item);
                 $target = $targets[$item->getKey()] ?? 'processing';
                 if (! in_array($target, ['processing', 'portioning'], true)) {
                     throw ValidationException::withMessages(['target_division' => 'Tujuan hasil Persiapan tidak valid.']);
@@ -49,7 +54,7 @@ class PreparationOutputService
                         'source_ingredient_name_snapshot' => $item->ingredient_name_snapshot,
                         'quantity' => $quantity,
                         'available_quantity' => $available,
-                        'unit_snapshot' => $item->unit_snapshot,
+                        'unit_snapshot' => $item->processed_unit_snapshot ?: $item->unit_snapshot,
                         'target_division' => $target,
                         'stored_at' => now(),
                         'state' => $available <= 0 ? PreparationOutput::DEPLETED : ($available < $quantity ? PreparationOutput::PARTIALLY_TAKEN : PreparationOutput::AVAILABLE),

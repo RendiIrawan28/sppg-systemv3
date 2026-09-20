@@ -318,9 +318,6 @@ class ProcurementRequestService
                 'ordered_by' => $user->id,
                 'ordered_at' => now(),
             ])->save();
-
-            app(StockReceiptService::class)
-                ->createGroupedFromProcurementRequest($request->refresh()->load('items'));
         });
     }
 

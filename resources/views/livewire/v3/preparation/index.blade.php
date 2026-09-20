@@ -52,18 +52,37 @@
 
                     <div class="rounded-2xl border border-slate-200 bg-white p-5">
                         <h3 class="font-bold">Bahan Persiapan</h3>
-                        <p class="mt-1 text-xs text-slate-500">Hasil siap + limbah + retur yang dicatat harus sama dengan jumlah yang diterima.</p>
+                        <p class="mt-1 text-xs text-slate-500">Rekonsiliasi dilakukan dalam bobot kg. Satuan dari Gudang tetap dipertahankan, sedangkan hasil siap dan limbah boleh menggunakan satuan berbeda.</p>
                         <div class="mt-4 space-y-3">
                             @foreach($selected->items as $item)
                                 <div class="rounded-xl bg-slate-50 p-4">
-                                    <div class="flex justify-between gap-3"><b>{{ $item->ingredient_name_snapshot }}</b><span class="text-xs">Diterima {{ number_format((float) ($item->received_quantity ?? $item->received_weight_kg), 3, ',', '.') }} {{ $item->unit_snapshot }}</span></div>
-                                    <div class="mt-3 grid gap-3 md:grid-cols-3">
+                                    @php
+                                        $receivedQuantity = (float) ($item->received_quantity ?? 0);
+                                        $receivedWeightKg = (float) ($item->received_weight_kg ?? 0);
+                                        $sourceIsWeight = app(\App\Services\PreparationUnitConversionService::class)->isSourceWeightUnit($item);
+                                    @endphp
+                                    <div class="flex flex-wrap justify-between gap-3">
+                                        <b>{{ $item->ingredient_name_snapshot }}</b>
+                                        <span class="text-xs">Diterima {{ number_format($receivedQuantity, 3, ',', '.') }} {{ $item->unit_snapshot }}@if($receivedWeightKg > 0) · {{ number_format($receivedWeightKg, 3, ',', '.') }} kg @endif</span>
+                                    </div>
+                                    <div class="mt-3 grid gap-3 md:grid-cols-4">
                                         <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Kondisi</span><select wire:model="items.{{ $item->id }}.condition_status" @disabled(!$canEdit || $selected->state !== 'in_progress') class="h-10 w-full rounded-lg border px-3 text-sm"><option value="good">Baik</option><option value="fair">Sedang</option><option value="damaged">Rusak</option></select></label>
-                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Hasil siap</span><input wire:model="items.{{ $item->id }}.processed_quantity" @disabled(!$canEdit || $selected->state !== 'in_progress') type="number" min="0" step=".001" class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="0 {{ $item->unit_snapshot }}"></label>
-                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Limbah/sisa</span><input wire:model="items.{{ $item->id }}.waste_quantity" @disabled(!$canEdit || $selected->state !== 'in_progress') type="number" min="0" step=".001" class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="0 {{ $item->unit_snapshot }}"></label>
+                                        @if(!$sourceIsWeight)
+                                            <label>
+                                                <span class="mb-1 block text-[11px] font-semibold text-slate-500">Bobot diterima aktual (kg) <span class="text-rose-600">*</span></span>
+                                                <input wire:model="items.{{ $item->id }}.received_weight_kg" @disabled(!$canEdit || $selected->state !== 'in_progress') type="number" min="0" step=".001" class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="Contoh: 10.000">
+                                                <span class="mt-1 block text-[10px] text-slate-400">Wajib bila satuan Gudang {{ $item->unit_snapshot }} belum punya konversi bobot.</span>
+                                            </label>
+                                        @else
+                                            <div><span class="mb-1 block text-[11px] font-semibold text-slate-500">Bobot diterima</span><div class="flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700">{{ number_format($receivedWeightKg ?: $receivedQuantity, 3, ',', '.') }} kg</div></div>
+                                        @endif
+                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Hasil siap</span><input wire:model="items.{{ $item->id }}.processed_quantity" @disabled(!$canEdit || $selected->state !== 'in_progress') type="number" min="0" step=".001" class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="0"></label>
+                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Satuan hasil</span><select wire:model="items.{{ $item->id }}.processed_unit_snapshot" @disabled(!$canEdit || $selected->state !== 'in_progress') class="h-10 w-full rounded-lg border px-3 text-sm">@foreach($preparationUnits as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></label>
+                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Limbah/sisa</span><input wire:model="items.{{ $item->id }}.waste_quantity" @disabled(!$canEdit || $selected->state !== 'in_progress') type="number" min="0" step=".001" class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="0"></label>
+                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Satuan limbah</span><select wire:model="items.{{ $item->id }}.waste_unit_snapshot" @disabled(!$canEdit || $selected->state !== 'in_progress') class="h-10 w-full rounded-lg border px-3 text-sm">@foreach($preparationUnits as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach</select></label>
                                         <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Tujuan hasil siap</span><select wire:model="items.{{ $item->id }}.target_division" @disabled(!$canEdit || $selected->state !== 'in_progress') class="h-10 w-full rounded-lg border px-3 text-sm"><option value="processing">Pengolahan</option><option value="portioning">Pemorsian</option></select></label>
                                         <div><span class="mb-1 block text-[11px] font-semibold text-slate-500">Retur dicatat</span><div class="flex h-10 items-center rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700">{{ number_format((float) $item->returns->sum(fn($return) => $return->status === \App\Models\PreparationReturn::VERIFIED ? $return->actual_quantity : ($return->status === \App\Models\PreparationReturn::WAITING ? $return->requested_quantity : 0)), 3, ',', '.') }} {{ $item->unit_snapshot }}</div></div>
-                                        <label><span class="mb-1 block text-[11px] font-semibold text-slate-500">Catatan</span><input wire:model="items.{{ $item->id }}.notes" @disabled(!$canEdit || $selected->state !== 'in_progress') class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="Opsional"></label>
+                                        <label class="md:col-span-2"><span class="mb-1 block text-[11px] font-semibold text-slate-500">Catatan</span><input wire:model="items.{{ $item->id }}.notes" @disabled(!$canEdit || $selected->state !== 'in_progress') class="h-10 w-full rounded-lg border px-3 text-sm" placeholder="Opsional"></label>
                                     </div>
                                     <div class="mt-3 rounded-xl border border-sky-100 bg-white p-3">
                                         <p class="text-xs font-bold text-slate-700">Foto hasil {{ $item->ingredient_name_snapshot }} @if((float)$item->processed_quantity > 0)<span class="text-rose-600">*</span>@endif</p>

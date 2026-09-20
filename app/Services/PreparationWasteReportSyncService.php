@@ -12,13 +12,18 @@ use Illuminate\Validation\ValidationException;
 
 class PreparationWasteReportSyncService
 {
+    public function __construct(
+        private readonly PreparationUnitConversionService $preparationUnits,
+    ) {}
+
     public function sync(PreparationSession $session, User $actor): ?WasteHandoverReport
     {
         return DB::transaction(function () use ($session, $actor): ?WasteHandoverReport {
             $session = PreparationSession::query()
                 ->with(['items.resultDocumentation', 'wasteHandoverReport'])
                 ->lockForUpdate()->findOrFail($session->getKey());
-            $wasteItems = $session->items->filter(fn ($item): bool => (float) $item->waste_quantity > 0)->values();
+            $wasteItems = $session->items->map(fn ($item) => $this->preparationUnits->normalizeItem($item))
+                ->filter(fn ($item): bool => (float) $item->waste_quantity > 0)->values();
             $report = $session->wasteHandoverReport;
 
             if ($wasteItems->isEmpty()) {
@@ -59,8 +64,8 @@ class PreparationWasteReportSyncService
                     [
                         'waste_type' => $item->ingredient_name_snapshot,
                         'quantity' => $item->waste_quantity,
-                        'unit' => $item->unit_snapshot,
-                        'weight_kg' => $item->unit_snapshot === 'kg' ? $item->waste_quantity : null,
+                        'unit' => $item->waste_unit_snapshot ?: $item->unit_snapshot,
+                        'weight_kg' => $item->waste_weight_kg,
                         'notes' => $item->notes,
                         'photo_path' => $item->resultDocumentation?->photo_path,
                     ],

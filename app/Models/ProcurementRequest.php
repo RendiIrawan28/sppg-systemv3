@@ -100,6 +100,11 @@ class ProcurementRequest extends Model
         return $this->hasMany(ProcurementRequestItem::class);
     }
 
+    public function stockReceipts(): HasMany
+    {
+        return $this->hasMany(StockReceipt::class);
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');

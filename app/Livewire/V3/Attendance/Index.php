@@ -6,6 +6,7 @@ use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\AttendanceDevice;
 use App\Models\AttendanceRegistrationSession;
 use App\Models\AttendanceSession;
+use App\Models\AttendanceSessionHistory;
 use App\Models\AttendanceTap;
 use App\Models\Division;
 use App\Models\User;
@@ -15,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
@@ -70,6 +72,12 @@ class Index extends Component
     public string $resetReason = '';
 
     public string $resetConfirmation = '';
+
+    public ?int $deleteSessionId = null;
+
+    public string $deleteReason = '';
+
+    public string $deleteConfirmation = '';
 
     public function mount(): void
     {
@@ -226,9 +234,91 @@ class Index extends Component
     public function openResetPanel(): void
     {
         abort_unless(auth()->user()->is_super_admin, 403);
+        $this->cancelDeleteSession();
         $this->reset('resetReason', 'resetConfirmation');
         $this->resetErrorBag();
         $this->showResetPanel = true;
+    }
+
+    public function updatedFilterDate(): void
+    {
+        $this->cancelDeleteSession();
+        $this->showResetPanel = false;
+    }
+
+    public function openDeleteSession(int $id): void
+    {
+        abort_unless(auth()->user()->is_super_admin, 403);
+
+        $session = AttendanceSession::query()
+            ->where('sppg_unit_id', $this->currentUnit()->getKey())
+            ->whereDate('work_date', $this->filterDate)
+            ->findOrFail($id);
+
+        $this->deleteSessionId = $session->getKey();
+        $this->reset('deleteReason', 'deleteConfirmation');
+        $this->resetErrorBag();
+        $this->showResetPanel = false;
+    }
+
+    public function cancelDeleteSession(): void
+    {
+        $this->reset('deleteSessionId', 'deleteReason', 'deleteConfirmation');
+        $this->resetErrorBag();
+    }
+
+    public function deleteAttendanceSession(): void
+    {
+        abort_unless(auth()->user()->is_super_admin, 403);
+
+        $data = $this->validate([
+            'filterDate' => ['required', 'date_format:Y-m-d'],
+            'deleteSessionId' => ['required', 'integer'],
+            'deleteReason' => ['required', 'string', 'max:1000'],
+            'deleteConfirmation' => ['required', 'in:HAPUS'],
+        ], [
+            'deleteReason.required' => 'Jelaskan alasan penghapusan data presensi ini.',
+            'deleteConfirmation.required' => 'Ketik HAPUS untuk mengonfirmasi.',
+            'deleteConfirmation.in' => 'Ketik HAPUS untuk mengonfirmasi.',
+        ], [
+            'filterDate' => 'tanggal presensi',
+            'deleteSessionId' => 'data presensi',
+            'deleteReason' => 'alasan penghapusan',
+            'deleteConfirmation' => 'konfirmasi penghapusan',
+        ]);
+
+        DB::transaction(function () use ($data): void {
+            $session = AttendanceSession::query()
+                ->where('sppg_unit_id', $this->currentUnit()->getKey())
+                ->whereDate('work_date', $data['filterDate'])
+                ->lockForUpdate()
+                ->find($data['deleteSessionId']);
+
+            if (! $session) {
+                throw ValidationException::withMessages([
+                    'deleteSessionId' => 'Data presensi ini tidak ditemukan atau sudah dihapus. Muat ulang halaman lalu pilih kembali.',
+                ]);
+            }
+
+            $reason = trim($data['deleteReason']);
+            $before = $session->toArray();
+            $session->forceFill([
+                'deleted_by' => auth()->id(),
+                'deletion_reason' => $reason,
+            ])->save();
+            $session->delete();
+            AttendanceSessionHistory::query()->create([
+                'attendance_session_id' => $session->getKey(),
+                'actor_id' => auth()->id(),
+                'action' => 'deleted',
+                'before_data' => $before,
+                'after_data' => $session->toArray(),
+                'reason' => $reason,
+            ]);
+        });
+
+        $this->cancelDeleteSession();
+        $this->actionMessage = 'Satu data presensi berhasil dihapus dari laporan. Riwayat tap RFID tetap tersimpan.';
     }
 
     public function resetAttendance(): void
@@ -276,6 +366,9 @@ class Index extends Component
         $validDate = validator(['date' => $this->filterDate], ['date' => 'required|date_format:Y-m-d'])->passes();
         $report = app(AttendanceReportData::class);
         $sessions = $validDate ? $report->sessions($unit->id, $this->filterDate, $this->filterDate, (int) $this->filterDivisionId ?: null, $this->search) : collect();
+        $deleteTarget = $this->deleteSessionId && $validDate
+            ? AttendanceSession::query()->with('user')->where('sppg_unit_id', $unit->getKey())->whereDate('work_date', $this->filterDate)->find($this->deleteSessionId)
+            : null;
         $summarySessions = $sessions;
         $devices = AttendanceDevice::query()->where('sppg_unit_id', $unit->getKey())->latest()->get();
         $activeRegistration = AttendanceRegistrationSession::query()
@@ -285,6 +378,7 @@ class Index extends Component
         return view('livewire.v3.attendance.index', [
             ...$this->shellData($unit),
             'sessions' => $sessions,
+            'deleteTarget' => $deleteTarget,
             'sessionGroups' => $report->groups($sessions),
             'divisions' => Division::query()->orderBy('sort_order')->orderBy('name')->get(),
             'validDate' => $validDate,

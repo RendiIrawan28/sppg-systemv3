@@ -147,7 +147,7 @@
                             <div class="photo-caption">
                                 <strong>{{ $item->ingredient_name_snapshot }}</strong><br>
                                 @if($isMultiSession){{ $photo['session']->session_number }}<br>@endif
-                                Hasil siap: {{ number_format((float) $item->processed_quantity, 3, ',', '.') }} {{ $item->unit_snapshot }}
+                                Hasil siap: {{ number_format((float) $item->processed_quantity, 3, ',', '.') }} {{ $item->processed_unit_snapshot ?: $item->unit_snapshot }}
                             </div>
                         </td>
                     @endforeach

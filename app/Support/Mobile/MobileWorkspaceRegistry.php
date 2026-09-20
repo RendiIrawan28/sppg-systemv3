@@ -21,6 +21,7 @@ use App\Models\PortioningSession;
 use App\Models\PreparationReturn;
 use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
+use App\Models\ProcurementRequest;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingMaterialStock;
 use App\Models\ProcessingMaterialUsage;
@@ -477,6 +478,25 @@ class MobileWorkspaceRegistry
                 ])->all();
         }
 
+        if ($source === 'preparation_result_units') {
+            $defaults = collect([
+                'kg' => 'Kilogram (kg)',
+                'g' => 'Gram (g)',
+            ]);
+            $masterUnits = MeasurementUnit::query()
+                ->where('is_active', true)
+                ->orderBy('unit_type')
+                ->orderBy('name')
+                ->get()
+                ->mapWithKeys(function (MeasurementUnit $unit): array {
+                    $value = trim((string) ($unit->symbol ?: $unit->code ?: $unit->name));
+
+                    return [$value => $unit->name.($value !== $unit->name ? ' ('.$value.')' : '')];
+                });
+
+            return $defaults->union($masterUnits)->all();
+        }
+
         if ($source === 'processing_output_units') {
             $defaults = collect([
                 'pack' => 'Pack',
@@ -511,7 +531,7 @@ class MobileWorkspaceRegistry
                     (string) $item->getKey() => trim(implode(' - ', array_filter([
                         $item->session?->session_number,
                         $item->ingredient_name_snapshot,
-                        rtrim(rtrim(number_format((float) $item->processed_quantity, 4, '.', ''), '0'), '.').' '.$item->unit_snapshot,
+                        rtrim(rtrim(number_format((float) $item->processed_quantity, 4, '.', ''), '0'), '.').' '.($item->processed_unit_snapshot ?: $item->unit_snapshot),
                     ]))),
                 ])
                 ->all();
@@ -667,6 +687,33 @@ class MobileWorkspaceRegistry
                 ->get()
                 ->mapWithKeys(fn (Supplier $supplier): array => [
                     (string) $supplier->getKey() => $supplier->name.($supplier->code ? ' · '.$supplier->code : ''),
+                ])->all();
+        }
+
+        if (in_array($source, ['ordered_food_procurements', 'ordered_non_food_procurements'], true)) {
+            $type = $source === 'ordered_non_food_procurements'
+                ? Warehouse::TYPE_NON_FOOD
+                : Warehouse::TYPE_FOOD;
+            $warehouse = Warehouse::query()
+                ->where('sppg_unit_id', $unitId)
+                ->where('type', $type)
+                ->first();
+            if (! $warehouse?->is_active) {
+                return [];
+            }
+
+            return ProcurementRequest::query()
+                ->where('sppg_unit_id', $unitId)
+                ->where('warehouse_id', $warehouse->getKey())
+                ->where('status', ProcurementRequest::STATUS_ORDERED)
+                ->withCount('stockReceipts')
+                ->latest('ordered_at')
+                ->limit(100)
+                ->get()
+                ->mapWithKeys(fn (ProcurementRequest $procurement): array => [
+                    (string) $procurement->getKey() => $procurement->request_number
+                        .' · '.($procurement->needed_date?->format('d-m-Y') ?: '-')
+                        .($procurement->stock_receipts_count ? ' · penerimaan sudah ada' : ''),
                 ])->all();
         }
 
@@ -903,13 +950,19 @@ class MobileWorkspaceRegistry
     {
         return [
             'label' => $nonFood ? 'Penerimaan Non-Pangan' : 'Penerimaan Pangan',
-            'description' => 'Catat jumlah barang supplier, hasil pemeriksaan, dan dokumentasi penerimaan.',
+            'description' => 'Pilih pengadaan yang sudah dipesan atau input manual, lalu periksa barang dan dokumentasi penerimaan.',
             'model' => StockReceipt::class,
             'permission' => $nonFood ? 'non_food_stock' : 'stock',
             'warehouse_type' => $nonFood ? Warehouse::TYPE_NON_FOOD : Warehouse::TYPE_FOOD,
             'number' => 'receipt_number',
             'date' => 'receipt_date',
             'fields' => [
+                [...$this->field('source_type', 'Sumber penerimaan', 'select', true, [
+                    'procurement' => 'Dari pengadaan',
+                    'manual' => 'Input manual',
+                ]), 'create_only' => true],
+                [...$this->field('procurement_request_id', 'Pengadaan yang sudah dipesan', 'select', true,
+                    $nonFood ? 'ordered_non_food_procurements' : 'ordered_food_procurements'), 'create_only' => true],
                 [...$this->field('receipt_date', 'Tanggal penerimaan', 'date', true), 'create_only' => true],
                 [...$this->field('supplier_id', 'Supplier', 'select', true, 'active_suppliers'), 'create_only' => true],
                 [...$this->field(
@@ -1029,9 +1082,12 @@ class MobileWorkspaceRegistry
                     [...$this->field('ingredient_name_snapshot', 'Bahan'), 'editable' => false],
                     [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
                     [...$this->field('received_quantity', 'Diterima', 'number'), 'editable' => false],
+                    $this->field('received_weight_kg', 'Bobot diterima aktual (kg)', 'number'),
                     $this->field('condition_status', 'Kondisi', 'select', true, ['good' => 'Baik', 'fair' => 'Sedang', 'damaged' => 'Rusak']),
                     $this->field('processed_quantity', 'Hasil siap', 'number'),
+                    $this->field('processed_unit_snapshot', 'Satuan hasil', 'select', false, 'preparation_result_units'),
                     $this->field('waste_quantity', 'Limbah', 'number'),
+                    $this->field('waste_unit_snapshot', 'Satuan limbah', 'select', false, 'preparation_result_units'),
                     $this->field('output_target_division', 'Tujuan hasil siap', 'select', true, ['processing' => 'Pengolahan', 'portioning' => 'Pemorsian']),
                     $this->field('result_photo_path', 'Foto hasil bahan', 'file'),
                     $this->field('notes', 'Catatan bahan', 'textarea'),

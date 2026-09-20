@@ -146,6 +146,14 @@ class MobileOperationalRecordTransformer
             return filled($item?->name) ? (string) $item->name : $this->displayValue($value);
         }
 
+        if (($field['name'] ?? null) === 'procurement_request_id' && method_exists($record, 'procurementRequest')) {
+            $procurement = $record->relationLoaded('procurementRequest')
+                ? $record->getRelation('procurementRequest')
+                : $record->procurementRequest()->first();
+
+            return filled($procurement?->request_number) ? (string) $procurement->request_number : $this->displayValue($value);
+        }
+
         if (($field['type'] ?? null) === 'select' && isset($field['options'])) {
             $options = $this->registry->options($field['options'], $unitId);
             $raw = $this->rawValue($value);
@@ -219,7 +227,8 @@ class MobileOperationalRecordTransformer
     private function subtitle(string $slug, Model $record): ?string
     {
         return match ($slug) {
-            'gudang', 'gudang-non-pangan' => filled($record->getAttribute('notes')) ? Str::limit((string) $record->getAttribute('notes'), 90) : null,
+            'gudang', 'gudang-non-pangan' => ($record->getAttribute('procurement_request_id') ? 'Dari pengadaan' : 'Penerimaan manual')
+                .(filled($record->getAttribute('notes')) ? ' · '.Str::limit((string) $record->getAttribute('notes'), 70) : ''),
             'gudang-stok-awal', 'gudang-stok-awal-non-pangan' => filled($record->getAttribute('notes')) ? Str::limit((string) $record->getAttribute('notes'), 90) : 'Stok langsung aktif',
             'gudang-stok', 'gudang-stok-non-pangan' => filled($record->getAttribute('storage_type')) ? Str::headline((string) $record->getAttribute('storage_type')) : null,
             'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan' => filled($record->getAttribute('reason')) ? Str::limit((string) $record->getAttribute('reason'), 90) : null,

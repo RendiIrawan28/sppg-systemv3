@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PreparationSessionItem extends Model
 {
-    protected $fillable = ['preparation_session_id', 'warehouse_withdrawal_item_id', 'ingredient_id', 'inventory_lot_id', 'ingredient_name_snapshot', 'unit_snapshot', 'received_quantity', 'processed_quantity', 'waste_quantity', 'condition_status', 'output_target_division', 'received_weight_kg', 'clean_weight_kg', 'waste_weight_kg', 'process_method', 'thawing_temperature_celsius', 'notes'];
+    protected $fillable = ['preparation_session_id', 'warehouse_withdrawal_item_id', 'ingredient_id', 'inventory_lot_id', 'ingredient_name_snapshot', 'unit_snapshot', 'received_quantity', 'processed_quantity', 'processed_unit_snapshot', 'waste_quantity', 'waste_unit_snapshot', 'condition_status', 'output_target_division', 'received_weight_kg', 'clean_weight_kg', 'waste_weight_kg', 'process_method', 'thawing_temperature_celsius', 'notes'];
 
     protected function casts(): array
     {

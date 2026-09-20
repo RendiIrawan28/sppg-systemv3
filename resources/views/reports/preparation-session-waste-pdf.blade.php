@@ -107,7 +107,7 @@
                 <tr>
                     <td class="number">{{ $loop->iteration }}.</td>
                     <td>Sisa {{ $item->ingredient_name_snapshot }}</td>
-                    <td class="right">{{ number_format($waste, 3, ',', '.') }} {{ $item->unit_snapshot }}</td>
+                    <td class="right">{{ number_format($waste, 3, ',', '.') }} {{ $item->waste_unit_snapshot ?: $item->unit_snapshot }}</td>
                     <td>{{ $item->notes ?: '-' }}</td>
                 </tr>
             @endforeach

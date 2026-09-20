@@ -42,7 +42,14 @@ class InventoryUnitService
 
         $ingredient->loadMissing('measurementUnit');
 
-        return $this->legacyKilogramsFromUnit($ingredient->measurementUnit, $quantity);
+        $fromMeasurementUnit = $this->legacyKilogramsFromUnit($ingredient->measurementUnit, $quantity);
+        if ($fromMeasurementUnit > 0 || $quantity == 0) {
+            return $fromMeasurementUnit;
+        }
+
+        $gramsPerUnit = (float) ($ingredient->grams_per_unit ?? 0);
+
+        return $gramsPerUnit > 0 ? round($quantity * $gramsPerUnit / 1000, 4) : 0;
     }
 
     public function legacyKilogramsFromUnit(?MeasurementUnit $unit, float $quantity): float
