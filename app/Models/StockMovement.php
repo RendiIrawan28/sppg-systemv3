@@ -23,6 +23,8 @@ class StockMovement extends Model
 
     public const TYPE_RETURN_FROM_PROCESSING = 'return_from_processing';
 
+    public const TYPE_RETURN_FROM_PORTIONING = 'return_from_portioning';
+
     protected $fillable = [
         'uuid', 'sppg_unit_id', 'warehouse_id', 'ingredient_id', 'non_food_item_id', 'inventory_lot_id', 'ingredient_name_snapshot', 'unit_snapshot',
         'movement_type', 'movement_date', 'quantity_in_kg', 'quantity_out_kg', 'quantity_in', 'quantity_out', 'source_type', 'source_id',
@@ -68,6 +70,13 @@ class StockMovement extends Model
         return $this->belongsTo(InventoryLot::class);
     }
 
-    public function warehouse(): BelongsTo { return $this->belongsTo(Warehouse::class); }
-    public function nonFoodItem(): BelongsTo { return $this->belongsTo(NonFoodItem::class); }
+    public function warehouse(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class);
+    }
+
+    public function nonFoodItem(): BelongsTo
+    {
+        return $this->belongsTo(NonFoodItem::class);
+    }
 }

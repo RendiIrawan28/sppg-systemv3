@@ -15,14 +15,15 @@ use App\Models\DistributionStop;
 use App\Models\FieldDistributionPlan;
 use App\Models\InventoryLot;
 use App\Models\MenuCycleDay;
+use App\Models\PortioningReturn;
 use App\Models\PortioningSession;
 use App\Models\PreparationOutputWithdrawal;
 use App\Models\PreparationReturn;
 use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
-use App\Models\ProcurementRequest;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingReturn;
+use App\Models\ProcurementRequest;
 use App\Models\StockAdjustment;
 use App\Models\StockReceipt;
 use App\Models\Warehouse;
@@ -38,6 +39,7 @@ use App\Services\FieldDailyReportWorkflow;
 use App\Services\FieldOperationalPlanGenerator;
 use App\Services\MobileDailyBeneficiaryConfirmationService;
 use App\Services\OpeningStockService;
+use App\Services\PortioningReturnService;
 use App\Services\PortioningWorkflow;
 use App\Services\PreparationOutputService;
 use App\Services\PreparationReturnService;
@@ -545,6 +547,7 @@ class MobileOperationalController extends Controller
                             ]);
                         }
                     }
+
                     return app(StockReceiptService::class)->createManual(
                         $unitId,
                         $warehouse->getKey(),
@@ -963,6 +966,7 @@ class MobileOperationalController extends Controller
                     'pengambilan-gudang-persiapan', 'pengambilan-gudang-pengolahan', 'pengambilan-gudang-pemorsian', 'pengambilan-non-pangan' => $this->runDivisionWarehouseWithdrawalAction($action, $item, $actor),
                     'gudang-retur' => $this->runPreparationReturnAction($action, $item, $actor, $fields, $notes),
                     'gudang-retur-pengolahan' => $this->runProcessingReturnAction($action, $item, $actor, $fields, $notes),
+                    'gudang-retur-pemorsian' => $this->runPortioningReturnAction($action, $item, $actor, $fields, $notes),
                     'lapangan-konfirmasi' => $this->runDailyBeneficiaryConfirmationAction($action, $item, $actor),
                     'persiapan' => $this->runPreparationAction($action, $item, $actor, $fields, $notes),
                     'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => $this->runPreparationOutputAction($module, $action, $item, $actor, $fields, $notes),
@@ -1144,6 +1148,49 @@ class MobileOperationalController extends Controller
             return response()->json([
                 'message' => 'Retur Pengolahan berhasil diajukan ke Gudang.',
                 'data' => $this->relationItemData($return->refresh(), $relationDefinition, $registry, (int) $systemUnit->id()),
+            ], 201);
+        }
+        if ($module === 'pemorsian' && $relation === 'returns') {
+            $input = $request->validate([
+                'fields' => ['present', 'array'],
+                'fields.portioning_supply_id' => ['required', 'integer'],
+                'fields.requested_quantity' => ['required', 'numeric', 'gt:0'],
+                'fields.reason' => ['required', 'string', 'max:1000'],
+                'files.photo_path' => ['nullable', 'string', 'max:7500000'],
+            ]);
+            $supply = $parent->supplies()
+                ->where('source_type', 'warehouse_withdrawal')
+                ->findOrFail((int) $input['fields']['portioning_supply_id']);
+            $photoPath = filled(data_get($input, 'files.photo_path'))
+                ? $this->storeEncodedImage(
+                    (string) data_get($input, 'files.photo_path'),
+                    'mobile/pemorsian/returns',
+                    'files.photo_path',
+                    'pemorsian',
+                    'retur',
+                    $supply->supply_name,
+                    $parent->portioning_date,
+                )
+                : null;
+            try {
+                $return = app(PortioningReturnService::class)->submit(
+                    $parent,
+                    $supply,
+                    (float) $input['fields']['requested_quantity'],
+                    (string) $input['fields']['reason'],
+                    $photoPath,
+                    $request->user(),
+                );
+            } catch (\Throwable $exception) {
+                if ($photoPath) {
+                    Storage::disk('public')->delete($photoPath);
+                }
+                throw $exception;
+            }
+
+            return response()->json([
+                'message' => 'Retur Pemorsian berhasil diajukan ke Gudang.',
+                'data' => $this->relationItemData($return, $relationDefinition, $registry, (int) $systemUnit->id()),
             ], 201);
         }
 
@@ -2054,6 +2101,28 @@ class MobileOperationalController extends Controller
             ];
         }
 
+        if ($module === 'gudang-retur-pemorsian'
+            && $status === PortioningReturn::WAITING
+            && $actor->can('stock.approve')) {
+            return [
+                $this->actionDefinition('verify', 'Terima retur Pemorsian', false, [
+                    $this->actionField(
+                        'actual_quantity',
+                        'Jumlah aktual',
+                        'number',
+                        true,
+                        (string) ($item->actual_quantity ?: $item->requested_quantity),
+                    ),
+                    $this->actionField('warehouse_disposition', 'Keputusan Gudang', 'select', true, null, [
+                        'available' => 'Kembali tersedia',
+                        'quarantine' => 'Karantina',
+                        'rejected' => 'Ditolak/rusak',
+                    ]),
+                ]),
+                $this->actionDefinition('reject', 'Tolak retur Pemorsian', true),
+            ];
+        }
+
         if (in_array($module, ['hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian'], true)
             && $actor->can(($module === 'hasil-persiapan-pengolahan' ? 'processing' : 'portioning').'.update')
             && $item->isAvailableFor($module === 'hasil-persiapan-pengolahan' ? 'processing' : 'portioning')) {
@@ -2547,6 +2616,28 @@ class MobileOperationalController extends Controller
         ?string $notes,
     ): Model {
         $service = app(ProcessingReturnService::class);
+
+        return match ($action) {
+            'verify' => $service->verify(
+                $item,
+                (float) ($fields['actual_quantity'] ?? 0),
+                (string) ($fields['warehouse_disposition'] ?? ''),
+                $notes,
+                $actor,
+            ),
+            'reject' => $service->reject($item, (string) $notes, $actor),
+        };
+    }
+
+    /** @param array<string,mixed> $fields */
+    private function runPortioningReturnAction(
+        string $action,
+        Model $item,
+        $actor,
+        array $fields,
+        ?string $notes,
+    ): Model {
+        $service = app(PortioningReturnService::class);
 
         return match ($action) {
             'verify' => $service->verify(
@@ -3065,6 +3156,10 @@ class MobileOperationalController extends Controller
                     ? ['create', 'update', 'delete'] : [],
                 'supplies' => [],
                 'preparationOutputWithdrawals' => ['action'],
+                'returns' => $parent instanceof PortioningSession
+                    && $this->scalarValue($parent->getAttribute('state')) === 'in_progress'
+                    && $parent->isReportEditable()
+                        ? ['create'] : [],
                 default => [],
             },
             'distribusi' => match ($relation) {
@@ -3604,6 +3699,31 @@ class MobileOperationalController extends Controller
                 $emptyFormFields = collect($emptyFormFields)->map(function (array $field) use ($usageOptions): array {
                     if ($field['key'] === 'processing_material_usage_id') {
                         $field['options'] = $usageOptions;
+                    }
+
+                    return $field;
+                })->values()->all();
+            }
+            if ($module === 'pemorsian' && $key === 'returns') {
+                $supplyOptions = $parent->supplies
+                    ->where('source_type', 'warehouse_withdrawal')
+                    ->filter(fn (Model $supply): bool => filled($supply->inventory_lot_id) && filled($supply->ingredient_id))
+                    ->mapWithKeys(function (Model $supply): array {
+                        $returned = $supply->returns()
+                            ->whereIn('status', [PortioningReturn::WAITING, PortioningReturn::VERIFIED])
+                            ->sum(DB::raw('COALESCE(actual_quantity, requested_quantity)'));
+                        $remaining = max(0, (float) $supply->quantity - (float) $returned);
+
+                        return $remaining > 0.0001 ? [(string) $supply->getKey() => sprintf(
+                            '%s · sisa %s %s',
+                            $supply->supply_name,
+                            rtrim(rtrim(number_format($remaining, 4, '.', ''), '0'), '.'),
+                            $supply->unit_name,
+                        )] : [];
+                    })->all();
+                $emptyFormFields = collect($emptyFormFields)->map(function (array $field) use ($supplyOptions): array {
+                    if ($field['key'] === 'portioning_supply_id') {
+                        $field['options'] = $supplyOptions;
                     }
 
                     return $field;

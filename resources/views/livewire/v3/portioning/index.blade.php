@@ -196,7 +196,38 @@
                         <p class="mt-1 text-xs text-slate-500">Barang langsung masuk ke sesi. Verifikasi Gudang dilakukan terpisah untuk menyesuaikan stok sistem.</p>
                         <div class="mt-4 grid gap-3 md:grid-cols-2">
                             @forelse($selected->supplies->where('source_type', 'warehouse_withdrawal') as $supply)
-                                <div class="rounded-xl bg-slate-50 p-4"><b>{{ $supply->supply_name }}</b><p class="mt-1 text-xs text-slate-500">{{ number_format((float) $supply->quantity, 3, ',', '.') }} {{ $supply->unit_name }} · {{ $supply->source_reference ?: 'Pengambilan Gudang' }}</p></div>
+                                @php
+                                    $returnedQuantity = (float) $supply->returns
+                                        ->whereIn('status', [\App\Models\PortioningReturn::WAITING, \App\Models\PortioningReturn::VERIFIED])
+                                        ->sum(fn ($return) => (float) ($return->actual_quantity ?: $return->requested_quantity));
+                                    $returnableQuantity = max(0, (float) $supply->quantity - $returnedQuantity);
+                                @endphp
+                                <div class="rounded-xl bg-slate-50 p-4">
+                                    <div class="flex flex-wrap items-start justify-between gap-2">
+                                        <div><b>{{ $supply->supply_name }}</b><p class="mt-1 text-xs text-slate-500">Diambil {{ number_format((float) $supply->quantity, 3, ',', '.') }} {{ $supply->unit_name }} · dapat diretur {{ number_format($returnableQuantity, 3, ',', '.') }} {{ $supply->unit_name }}</p></div>
+                                        <span class="text-[10px] font-semibold text-slate-500">{{ $supply->source_reference ?: 'Pengambilan Gudang' }}</span>
+                                    </div>
+                                    @foreach($supply->returns as $return)
+                                        <div class="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs">
+                                            <div class="flex flex-wrap justify-between gap-3"><span>{{ $return->return_number }} · {{ number_format((float) $return->requested_quantity, 3, ',', '.') }} {{ $return->unit_snapshot }}</span><div class="flex items-center gap-2">@if($return->photo_path)<x-v3.documentation-button :url="Storage::disk('public')->url($return->photo_path)" :title="'Bukti retur Pemorsian · '.$return->ingredient_name_snapshot" label="Lihat foto" />@endif<b class="{{ $return->status === \App\Models\PortioningReturn::VERIFIED ? 'text-emerald-700' : ($return->status === \App\Models\PortioningReturn::REJECTED ? 'text-rose-700' : 'text-amber-700') }}">{{ str($return->status)->replace('_', ' ')->title() }}</b></div></div>
+                                            @if($return->warehouse_notes)<p class="mt-1 text-slate-500">Catatan Gudang: {{ $return->warehouse_notes }}</p>@endif
+                                        </div>
+                                    @endforeach
+                                    @if($canEdit && $selected->state === \App\Enums\PortioningSessionState::InProgress && $returnableQuantity > 0.0001)
+                                        <div class="mt-3 space-y-2 border-t border-slate-200 pt-3">
+                                            <p class="text-xs font-bold text-slate-700">Kembalikan barang yang tidak digunakan</p>
+                                            <div class="grid gap-2 sm:grid-cols-2">
+                                                <input wire:model="returnQuantities.{{ $supply->id }}" type="number" min="0" max="{{ $returnableQuantity }}" step="0.001" class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm" placeholder="Jumlah retur">
+                                                <input wire:model="returnReasons.{{ $supply->id }}" class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm" placeholder="Alasan retur">
+                                            </div>
+                                            <input wire:model="returnPhotos.{{ $supply->id }}" type="file" accept="image/*" class="block w-full rounded-lg border border-slate-200 bg-white p-2 text-xs">
+                                            @error('returnQuantities.'.$supply->id)<p class="text-xs font-semibold text-rose-600">{{ $message }}</p>@enderror
+                                            @error('returnReasons.'.$supply->id)<p class="text-xs font-semibold text-rose-600">{{ $message }}</p>@enderror
+                                            @error('returnPhotos.'.$supply->id)<p class="text-xs font-semibold text-rose-600">{{ $message }}</p>@enderror
+                                            <button type="button" wire:click="submitReturn({{ $supply->id }})" wire:loading.attr="disabled" wire:target="submitReturn" class="h-10 rounded-lg bg-amber-500 px-4 text-xs font-bold text-white disabled:opacity-50">Ajukan retur ke Gudang</button>
+                                        </div>
+                                    @endif
+                                </div>
                             @empty
                                 <div class="rounded-xl border border-dashed p-5 text-sm text-slate-500 md:col-span-2">Belum ada barang yang diambil dari Gudang.</div>
                             @endforelse

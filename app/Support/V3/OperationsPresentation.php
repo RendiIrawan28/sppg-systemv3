@@ -39,6 +39,9 @@ final class OperationsPresentation
             StockMovement::TYPE_HANDOVER => 'Pengambilan Divisi',
             StockMovement::TYPE_ADJUSTMENT => 'Penyesuaian',
             StockMovement::TYPE_OPENING_BALANCE => 'Stok Awal',
+            StockMovement::TYPE_RETURN_FROM_PREPARATION => 'Retur Persiapan',
+            StockMovement::TYPE_RETURN_FROM_PROCESSING => 'Retur Pengolahan',
+            StockMovement::TYPE_RETURN_FROM_PORTIONING => 'Retur Pemorsian',
         ];
     }
 

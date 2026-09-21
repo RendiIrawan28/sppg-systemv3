@@ -137,7 +137,6 @@ class MobileOperationalRecordTransformer
             return filled($ingredient?->name) ? (string) $ingredient->name : $this->displayValue($value);
         }
 
-
         if (($field['name'] ?? null) === 'non_food_item_id' && method_exists($record, 'nonFoodItem')) {
             $item = $record->relationLoaded('nonFoodItem')
                 ? $record->getRelation('nonFoodItem')
@@ -198,7 +197,7 @@ class MobileOperationalRecordTransformer
             'gudang-stok', 'gudang-stok-non-pangan' => ['location_name', 'lot_number'],
             'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan' => ['adjustment_number'],
             'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'pengambilan-non-pangan' => ['purpose_reference', 'reference_number_snapshot'],
-            'gudang-retur', 'gudang-retur-pengolahan' => ['ingredient_name_snapshot'],
+            'gudang-retur', 'gudang-retur-pengolahan', 'gudang-retur-pemorsian' => ['ingredient_name_snapshot'],
             'persiapan' => ['purpose_reference'],
             'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => ['output_name', 'source_ingredient_name_snapshot'],
             'pengambilan-ompreng-tugas' => ['destination_name'],
@@ -233,7 +232,7 @@ class MobileOperationalRecordTransformer
             'gudang-stok', 'gudang-stok-non-pangan' => filled($record->getAttribute('storage_type')) ? Str::headline((string) $record->getAttribute('storage_type')) : null,
             'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan' => filled($record->getAttribute('reason')) ? Str::limit((string) $record->getAttribute('reason'), 90) : null,
             'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'pengambilan-non-pangan' => filled($record->getAttribute('division_code')) ? 'Divisi '.Str::headline((string) $record->getAttribute('division_code')) : null,
-            'gudang-retur', 'gudang-retur-pengolahan' => filled($record->getAttribute('reason')) ? Str::limit((string) $record->getAttribute('reason'), 90) : null,
+            'gudang-retur', 'gudang-retur-pengolahan', 'gudang-retur-pemorsian' => filled($record->getAttribute('reason')) ? Str::limit((string) $record->getAttribute('reason'), 90) : null,
             'persiapan' => filled($record->getAttribute('notes')) ? Str::limit((string) $record->getAttribute('notes'), 90) : null,
             'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => filled($record->getAttribute('storage_location')) ? 'Disimpan di '.$record->getAttribute('storage_location') : null,
             'pengambilan-ompreng-tugas' => filled($record->getAttribute('address')) ? Str::limit((string) $record->getAttribute('address'), 90) : null,
@@ -293,7 +292,7 @@ class MobileOperationalRecordTransformer
             'gudang-stok', 'gudang-stok-non-pangan' => [['balance_quantity', 'Saldo'], ['movements_count', 'Mutasi']],
             'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan' => [['system_quantity', 'Saldo sistem'], ['actual_quantity', 'Saldo aktual']],
             'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'pengambilan-non-pangan' => [['items_count', 'Barang']],
-            'gudang-retur', 'gudang-retur-pengolahan' => [['requested_quantity', 'Diajukan'], ['actual_quantity', 'Aktual']],
+            'gudang-retur', 'gudang-retur-pengolahan', 'gudang-retur-pemorsian' => [['requested_quantity', 'Diajukan'], ['actual_quantity', 'Aktual']],
             'persiapan' => [['items_count', 'Bahan']],
             'hasil-persiapan', 'hasil-persiapan-pengolahan', 'hasil-persiapan-pemorsian' => [['available_quantity', 'Tersedia'], ['withdrawals_count', 'Pengambilan']],
             'pengambilan-ompreng-tugas' => [['target_containers', 'Target'], ['remaining_containers', 'Sisa']],
@@ -312,7 +311,7 @@ class MobileOperationalRecordTransformer
 
         return collect($fields)->map(function (array $field) use ($record, $slug): array {
             $value = (string) ($record->getAttribute($field[0]) ?? 0);
-            if (in_array($slug, ['gudang-stok', 'gudang-stok-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan', 'gudang-retur', 'gudang-retur-pengolahan'], true)
+            if (in_array($slug, ['gudang-stok', 'gudang-stok-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan', 'gudang-retur', 'gudang-retur-pengolahan', 'gudang-retur-pemorsian'], true)
                 && filled($record->getAttribute('unit_snapshot'))) {
                 $value .= ' '.$record->getAttribute('unit_snapshot');
             }

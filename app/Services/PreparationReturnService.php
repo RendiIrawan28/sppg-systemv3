@@ -99,6 +99,7 @@ class PreparationReturnService
 
             StockMovement::query()->create([
                 'sppg_unit_id' => $return->sppg_unit_id,
+                'warehouse_id' => $destinationLot->warehouse_id,
                 'ingredient_id' => $return->ingredient_id,
                 'inventory_lot_id' => $destinationLot->id,
                 'ingredient_name_snapshot' => $return->ingredient_name_snapshot,
@@ -183,6 +184,7 @@ class PreparationReturnService
 
         return InventoryLot::query()->create([
             'sppg_unit_id' => $return->sppg_unit_id,
+            'warehouse_id' => $source?->warehouse_id,
             'ingredient_id' => $return->ingredient_id,
             'unit_snapshot' => $return->unit_snapshot,
             'initial_quantity' => $quantity,
@@ -227,7 +229,9 @@ class PreparationReturnService
 
     private function notifyRequester(PreparationReturn $return, bool $verified): void
     {
-        if (! $return->returned_by) return;
+        if (! $return->returned_by) {
+            return;
+        }
 
         app(OperationalNotificationService::class)->notifyUsersAfterCommit(
             unitId: (int) $return->sppg_unit_id,

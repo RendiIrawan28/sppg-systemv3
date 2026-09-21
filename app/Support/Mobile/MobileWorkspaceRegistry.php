@@ -17,15 +17,17 @@ use App\Models\InventoryLot;
 use App\Models\MeasurementUnit;
 use App\Models\NonFoodItem;
 use App\Models\OpeningStock;
+use App\Models\PortioningReturn;
 use App\Models\PortioningSession;
+use App\Models\PortioningSupply;
 use App\Models\PreparationReturn;
 use App\Models\PreparationSession;
 use App\Models\PreparationSessionItem;
-use App\Models\ProcurementRequest;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingMaterialStock;
 use App\Models\ProcessingMaterialUsage;
 use App\Models\ProcessingReturn;
+use App\Models\ProcurementRequest;
 use App\Models\SecurityShift;
 use App\Models\StockAdjustment;
 use App\Models\StockReceipt;
@@ -43,13 +45,13 @@ class MobileWorkspaceRegistry
 {
     private const ROLE_MODULES = [
         UserRole::KepalaSppg->value => [
-            'gudang', 'gudang-non-pangan', 'gudang-stok-awal', 'gudang-stok-awal-non-pangan', 'gudang-stok', 'gudang-stok-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan', 'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'gudang-retur', 'gudang-retur-pengolahan',
+            'gudang', 'gudang-non-pangan', 'gudang-stok-awal', 'gudang-stok-awal-non-pangan', 'gudang-stok', 'gudang-stok-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan', 'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'gudang-retur', 'gudang-retur-pengolahan', 'gudang-retur-pemorsian',
             'persiapan', 'pengolahan', 'pemorsian', 'distribusi', 'pencucian', 'kebersihan',
             'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan',
             'lapangan-insiden', 'lapangan-laporan',
         ],
         UserRole::AsistenLapangan->value => ['lapangan-insiden', 'lapangan-laporan'],
-        UserRole::StafGudang->value => ['gudang', 'gudang-non-pangan', 'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'gudang-retur', 'gudang-stok', 'gudang-stok-non-pangan', 'gudang-stok-awal', 'gudang-stok-awal-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan'],
+        UserRole::StafGudang->value => ['gudang', 'gudang-non-pangan', 'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'gudang-retur', 'gudang-retur-pengolahan', 'gudang-retur-pemorsian', 'gudang-stok', 'gudang-stok-non-pangan', 'gudang-stok-awal', 'gudang-stok-awal-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan'],
         UserRole::KepalaDivisiPersiapan->value => ['pengambilan-gudang-persiapan', 'pengambilan-non-pangan', 'persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
         UserRole::PetugasPersiapan->value => ['pengambilan-gudang-persiapan', 'pengambilan-non-pangan', 'persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
         UserRole::KepalaDivisiPengolahan->value => ['pengambilan-gudang-pengolahan', 'pengambilan-non-pangan', 'pengolahan', 'lapangan-insiden'],
@@ -85,6 +87,7 @@ class MobileWorkspaceRegistry
             'gudang-stok-awal-non-pangan' => $this->warehouseOpeningStockDefinition(true),
             'gudang-retur' => $this->warehouseReturnDefinition(),
             'gudang-retur-pengolahan' => $this->warehouseProcessingReturnDefinition(),
+            'gudang-retur-pemorsian' => $this->warehousePortioningReturnDefinition(),
             'pengambilan-gudang-persiapan' => $this->divisionWarehouseWithdrawalDefinition('persiapan'),
             'pengambilan-gudang-pengolahan' => $this->divisionWarehouseWithdrawalDefinition('pengolahan'),
             'pengambilan-gudang-pemorsian' => $this->divisionWarehouseWithdrawalDefinition('pemorsian'),
@@ -223,6 +226,20 @@ class MobileWorkspaceRegistry
                     [...$this->field('taken_at', 'Waktu diambil', 'datetime'), 'editable' => false],
                     [...$this->field('notes', 'Catatan'), 'editable' => false],
                     [...$this->field('review_notes', 'Catatan pemeriksaan'), 'editable' => false],
+                ]);
+                $definition['relations']['returns'] = $this->relation('Retur barang ke Gudang', [
+                    $this->field('portioning_supply_id', 'Barang yang diretur', 'select', true, 'portioning_supplies_returnable'),
+                    [...$this->field('return_number', 'Nomor retur'), 'editable' => false],
+                    [...$this->field('return_date', 'Tanggal retur', 'date'), 'editable' => false],
+                    [...$this->field('ingredient_name_snapshot', 'Barang'), 'editable' => false],
+                    [...$this->field('unit_snapshot', 'Satuan'), 'editable' => false],
+                    $this->field('requested_quantity', 'Jumlah retur', 'number', true),
+                    [...$this->field('actual_quantity', 'Jumlah diterima Gudang', 'number'), 'editable' => false],
+                    [...$this->field('warehouse_disposition', 'Keputusan Gudang'), 'editable' => false],
+                    $this->field('reason', 'Alasan retur', 'textarea', true),
+                    $this->field('photo_path', 'Foto barang retur', 'file'),
+                    [...$this->field('status', 'Status'), 'editable' => false],
+                    [...$this->field('warehouse_notes', 'Catatan Gudang', 'textarea'), 'editable' => false],
                 ]);
                 $definition['with'] = array_values(array_unique([
                     ...((array) ($definition['with'] ?? [])),
@@ -576,6 +593,42 @@ class MobileWorkspaceRegistry
                         $usage->material_name,
                         rtrim(rtrim(number_format($remaining, 4, '.', ''), '0'), '.'),
                         $usage->unit_name,
+                    )];
+                })
+                ->all();
+        }
+
+        if ($source === 'portioning_supplies_returnable') {
+            return PortioningSupply::query()
+                ->where('source_type', 'warehouse_withdrawal')
+                ->whereNotNull('inventory_lot_id')
+                ->whereNotNull('ingredient_id')
+                ->whereHas('session', fn ($query) => $query
+                    ->where('sppg_unit_id', $unitId)
+                    ->where('state', 'in_progress'))
+                ->with(['session:id,session_number', 'returns:id,portioning_supply_id,requested_quantity,actual_quantity,status'])
+                ->latest('id')
+                ->limit(250)
+                ->get()
+                ->filter(function (PortioningSupply $supply): bool {
+                    $returned = $supply->returns
+                        ->whereIn('status', [PortioningReturn::WAITING, PortioningReturn::VERIFIED])
+                        ->sum(fn (PortioningReturn $return): float => (float) ($return->actual_quantity ?: $return->requested_quantity));
+
+                    return (float) $supply->quantity - $returned > 0.0001;
+                })
+                ->mapWithKeys(function (PortioningSupply $supply): array {
+                    $returned = $supply->returns
+                        ->whereIn('status', [PortioningReturn::WAITING, PortioningReturn::VERIFIED])
+                        ->sum(fn (PortioningReturn $return): float => (float) ($return->actual_quantity ?: $return->requested_quantity));
+                    $remaining = max(0, (float) $supply->quantity - $returned);
+
+                    return [(string) $supply->getKey() => sprintf(
+                        '%s · %s · sisa %s %s',
+                        $supply->session?->session_number ?: 'Pemorsian',
+                        $supply->supply_name,
+                        rtrim(rtrim(number_format($remaining, 4, '.', ''), '0'), '.'),
+                        $supply->unit_name,
                     )];
                 })
                 ->all();
@@ -1327,6 +1380,37 @@ class MobileWorkspaceRegistry
                 $this->field('status', 'Status'),
                 $this->field('reason', 'Alasan'),
                 $this->field('photo_path', 'Foto bahan retur', 'file'),
+                $this->field('warehouse_notes', 'Catatan Gudang'),
+                $this->field('verified_at', 'Diverifikasi', 'datetime'),
+            ],
+            'relations' => [],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function warehousePortioningReturnDefinition(): array
+    {
+        return [
+            'label' => 'Retur Pemorsian',
+            'description' => 'Pemeriksaan barang tidak terpakai dari Pemorsian dan keputusan saldo Gudang.',
+            'model' => PortioningReturn::class,
+            'permission' => 'stock',
+            'number' => 'return_number',
+            'date' => 'return_date',
+            'allow_create' => false,
+            'allow_update' => false,
+            'allow_delete' => false,
+            'fields' => [
+                $this->field('return_date', 'Tanggal retur', 'date'),
+                $this->field('return_number', 'Nomor retur'),
+                $this->field('ingredient_name_snapshot', 'Barang'),
+                $this->field('unit_snapshot', 'Satuan'),
+                $this->field('requested_quantity', 'Diajukan', 'number'),
+                $this->field('actual_quantity', 'Aktual', 'number'),
+                $this->field('warehouse_disposition', 'Keputusan Gudang'),
+                $this->field('status', 'Status'),
+                $this->field('reason', 'Alasan'),
+                $this->field('photo_path', 'Foto barang retur', 'file'),
                 $this->field('warehouse_notes', 'Catatan Gudang'),
                 $this->field('verified_at', 'Diverifikasi', 'datetime'),
             ],

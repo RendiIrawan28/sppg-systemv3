@@ -871,6 +871,8 @@ private fun OperationalDetailContent(
     val capabilities = record.capabilities
     val preparationReturnSection = record.sections.orEmpty()
         .firstOrNull { module == "persiapan" && it.key == "returns" }
+    val portioningReturnSection = record.sections.orEmpty()
+        .firstOrNull { module == "pemorsian" && it.key == "returns" }
     val receiptActions = if (module == "gudang") {
         capabilities?.actions.orEmpty().filter { it.key == "receive" }
     } else emptyList()
@@ -1007,9 +1009,19 @@ private fun OperationalDetailContent(
         }
         if (preparationReturnSection?.canCreate == true) {
             item {
-                PreparationReturnCallout(
+                DivisionReturnCallout(
                     returnCount = preparationReturnSection.items.size,
+                    division = "Persiapan",
                     onCreate = { onRelationCreate(preparationReturnSection) },
+                )
+            }
+        }
+        if (portioningReturnSection?.canCreate == true) {
+            item {
+                DivisionReturnCallout(
+                    returnCount = portioningReturnSection.items.size,
+                    division = "Pemorsian",
+                    onCreate = { onRelationCreate(portioningReturnSection) },
                 )
             }
         }
@@ -1106,7 +1118,9 @@ private fun OperationalDetailContent(
                     )
                 } else {
                     OperationalSectionCard(
-                        section = section,
+                        section = if (section.key == "returns" && module in setOf("persiapan", "pemorsian")) {
+                            section.copy(canCreate = false)
+                        } else section,
                         subtitle = if (module == "kebersihan") cleaningSectionHint(section.key) else null,
                         emptyMessage = if (module == "kebersihan") cleaningSectionEmptyMessage(section.key) else "Belum ada data.",
                         onCreate = { onRelationCreate(section) },
@@ -1265,7 +1279,7 @@ private fun OperationalDetailContent(
 }
 
 @Composable
-private fun PreparationReturnCallout(returnCount: Int, onCreate: () -> Unit) {
+private fun DivisionReturnCallout(returnCount: Int, division: String, onCreate: () -> Unit) {
     SppgCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -1275,9 +1289,9 @@ private fun PreparationReturnCallout(returnCount: Int, onCreate: () -> Unit) {
             modifier = Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("ADA BAHAN YANG TIDAK DIGUNAKAN?", fontWeight = FontWeight.Bold)
+            Text("ADA BARANG YANG TIDAK DIGUNAKAN?", fontWeight = FontWeight.Bold)
             Text(
-                "Catat retur sebelum menyelesaikan Persiapan. Gudang akan memeriksa jumlah fisik sebelum stok dikembalikan.",
+                "Catat retur sebelum menyelesaikan $division. Gudang akan memeriksa jumlah fisik sebelum stok dikembalikan.",
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -1295,7 +1309,7 @@ private fun PreparationReturnCallout(returnCount: Int, onCreate: () -> Unit) {
             ) {
                 Icon(Icons.Outlined.Add, contentDescription = null)
                 Spacer(Modifier.width(7.dp))
-                Text("Catat Retur Bahan", fontWeight = FontWeight.Bold)
+                Text("Catat Retur Barang", fontWeight = FontWeight.Bold)
             }
         }
     }

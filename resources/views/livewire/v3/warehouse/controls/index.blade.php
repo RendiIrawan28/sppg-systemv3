@@ -48,7 +48,28 @@
         </div>
     @endforeach
 
-    @if($returns->isEmpty() && $processingReturns->isEmpty())
+    @foreach($portioningReturns as $return)
+        <div class="rounded-2xl border {{ $return->status === \App\Models\PortioningReturn::WAITING ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white' }} p-4">
+            <div class="flex flex-wrap justify-between gap-3">
+                <div><span class="rounded bg-cyan-100 px-2 py-1 text-[10px] font-bold text-cyan-700">Pemorsian</span> <b>{{ $return->ingredient_name_snapshot }}</b> · {{ $return->return_number }}<br><span class="text-xs text-slate-600">Diajukan {{ number_format((float) $return->requested_quantity, 3, ',', '.') }} {{ $return->unit_snapshot }} oleh {{ $return->returner?->name ?: '-' }}</span><br><span class="text-xs">{{ $return->reason }}</span></div>
+                <div class="text-right text-xs">@if($return->photo_path)<x-v3.documentation-button :url="Storage::disk('public')->url($return->photo_path)" :title="'Bukti retur Pemorsian · '.$return->ingredient_name_snapshot" label="Lihat bukti" class="mb-1" /><br>@endif<b>{{ str($return->status)->replace('_', ' ')->title() }}</b></div>
+            </div>
+            @if($return->status === \App\Models\PortioningReturn::WAITING && $canApprove)
+                <div class="mt-3 grid gap-2 md:grid-cols-4">
+                    <input wire:model="portioningReturnActualQuantities.{{ $return->id }}" type="number" min="0" step=".001" class="h-10 rounded-lg border px-3 text-sm" placeholder="Jumlah aktual">
+                    <select wire:model="portioningReturnDispositions.{{ $return->id }}" class="h-10 rounded-lg border px-3 text-sm"><option value="available">Kembali tersedia</option><option value="quarantine">Karantina</option><option value="rejected">Ditolak/tidak tersedia</option></select>
+                    <input wire:model="portioningReturnNotes.{{ $return->id }}" class="h-10 rounded-lg border px-3 text-sm" placeholder="Catatan Gudang">
+                    <div class="flex gap-2"><button wire:click="rejectPortioningReturn({{ $return->id }})" class="flex-1 rounded-lg border border-rose-200 px-3 text-xs font-bold text-rose-700">Tolak</button><button wire:click="verifyPortioningReturn({{ $return->id }})" class="flex-1 rounded-lg bg-emerald-600 px-3 text-xs font-bold text-white">Verifikasi</button></div>
+                </div>
+            @elseif($return->status === \App\Models\PortioningReturn::VERIFIED)
+                <p class="mt-3 text-xs text-emerald-700">Diterima aktual {{ number_format((float) $return->actual_quantity, 3, ',', '.') }} {{ $return->unit_snapshot }} · keputusan {{ str($return->warehouse_disposition)->title() }} · {{ $return->warehouse_notes ?: 'tanpa catatan tambahan' }}</p>
+            @elseif($return->warehouse_notes)
+                <p class="mt-3 text-xs text-rose-700">Alasan Gudang: {{ $return->warehouse_notes }}</p>
+            @endif
+        </div>
+    @endforeach
+
+    @if($returns->isEmpty() && $processingReturns->isEmpty() && $portioningReturns->isEmpty())
         <div class="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Belum ada retur dari divisi.</div>
     @endif
 </section>

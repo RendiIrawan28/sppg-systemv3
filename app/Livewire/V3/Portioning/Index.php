@@ -13,6 +13,7 @@ use App\Models\PortioningSession;
 use App\Models\PreparationOutputWithdrawal;
 use App\Models\ProcessingBatch;
 use App\Services\FieldOperationalPlanGenerator;
+use App\Services\PortioningReturnService;
 use App\Services\PortioningWorkflow;
 use App\Services\PreparationOutputService;
 use App\Services\ProcessingPortioningHandoverService;
@@ -64,6 +65,15 @@ class Index extends Component
 
     public string $cancellationReason = '';
 
+    /** @var array<int, string> */
+    public array $returnQuantities = [];
+
+    /** @var array<int, string> */
+    public array $returnReasons = [];
+
+    /** @var array<int, mixed> */
+    public array $returnPhotos = [];
+
     public function mount(): void
     {
         $this->currentUnit();
@@ -83,6 +93,9 @@ class Index extends Component
             $session->leftoverRecords->isNotEmpty() ? 'present' : ''
         ));
         $this->leftoverPhotos = [];
+        $this->returnQuantities = [];
+        $this->returnReasons = [];
+        $this->returnPhotos = [];
         $this->resetRouteForm();
 
         $this->routeRecords = $session->routeRecords
@@ -206,6 +219,55 @@ class Index extends Component
         $this->cancellationReason = '';
         $this->select($session->getKey());
         session()->flash('v3.status', 'Sesi Pemorsian berhasil dibatalkan.');
+    }
+
+    public function submitReturn(int $supplyId, PortioningReturnService $service): void
+    {
+        abort_unless($this->allowed('portioning.update'), 403);
+        $data = $this->validate([
+            "returnQuantities.$supplyId" => ['required', 'numeric', 'gt:0'],
+            "returnReasons.$supplyId" => ['required', 'string', 'max:1000'],
+            "returnPhotos.$supplyId" => ['nullable', 'image', 'max:5120'],
+        ], [], [
+            "returnQuantities.$supplyId" => 'jumlah retur',
+            "returnReasons.$supplyId" => 'alasan retur',
+            "returnPhotos.$supplyId" => 'foto barang retur',
+        ]);
+        $session = $this->record($this->selectedId);
+        $supply = $session->supplies()
+            ->where('source_type', 'warehouse_withdrawal')
+            ->findOrFail($supplyId);
+        $photoPath = null;
+        if (($this->returnPhotos[$supplyId] ?? null) instanceof TemporaryUploadedFile) {
+            $photoPath = FileNaming::upload(
+                $this->returnPhotos[$supplyId],
+                'portioning/returns/'.$session->portioning_date->format('Y/m/d'),
+                'pemorsian',
+                'retur',
+                $supply->supply_name,
+                $session->portioning_date,
+            );
+        }
+
+        try {
+            $service->submit(
+                $session,
+                $supply,
+                (float) $data['returnQuantities'][$supplyId],
+                (string) $data['returnReasons'][$supplyId],
+                $photoPath,
+                auth()->user(),
+            );
+        } catch (Throwable $exception) {
+            if ($photoPath) {
+                Storage::disk('public')->delete($photoPath);
+            }
+            throw $exception;
+        }
+
+        unset($this->returnQuantities[$supplyId], $this->returnReasons[$supplyId], $this->returnPhotos[$supplyId]);
+        $this->select($session->id);
+        session()->flash('v3.status', 'Retur Pemorsian diajukan dan menunggu pemeriksaan Gudang.');
     }
 
     public function saveRoute(): void
@@ -473,7 +535,8 @@ class Index extends Component
                 'routeAllocations',
                 'routeRecords',
                 'leftoverRecords',
-                'supplies',
+                'supplies.returns',
+                'returns',
                 'processingBatches',
                 'petugas',
             ])

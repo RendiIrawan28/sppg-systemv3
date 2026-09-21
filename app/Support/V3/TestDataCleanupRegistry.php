@@ -14,6 +14,7 @@ use App\Models\FieldIncident;
 use App\Models\MenuCycle;
 use App\Models\NutritionRequirementPlan;
 use App\Models\OpeningStock;
+use App\Models\PortioningReturn;
 use App\Models\PortioningSession;
 use App\Models\PreparationOutput;
 use App\Models\PreparationReturn;
@@ -52,6 +53,7 @@ final class TestDataCleanupRegistry
             'processing-batches' => $this->item('Pekerjaan pengolahan', ProcessingBatch::class, 'production_date', 'batch_number', 'product_name'),
             'processing-returns' => $this->item('Retur pengolahan', ProcessingReturn::class, 'return_date', 'return_number', 'reason'),
             'portioning-sessions' => $this->item('Pekerjaan pemorsian', PortioningSession::class, 'portioning_date', 'session_number', 'menu_name_snapshot'),
+            'portioning-returns' => $this->item('Retur pemorsian', PortioningReturn::class, 'return_date', 'return_number', 'reason'),
             'distribution-runs' => $this->item('Perjalanan distribusi', DistributionRun::class, 'distribution_date', 'run_number', 'route_name'),
             'container-collections' => $this->item('Pengambilan ompreng', ContainerCollectionRun::class, 'collection_date', 'run_number', 'notes'),
             'washing-sessions' => $this->item('Pekerjaan pencucian', WashingSession::class, 'washing_date', 'session_number', 'menu_name_snapshot'),

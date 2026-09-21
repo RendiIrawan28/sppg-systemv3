@@ -177,6 +177,7 @@ final class ModuleDataResetService
                 ->orWhere(fn (Builder $query) => $query->where('source_type', 'warehouse_withdrawal')->whereIn('source_item_id', $withdrawalItems())),
             'Retur Persiapan' => DB::table('preparation_returns')->whereIn('source_inventory_lot_id', $lots())->orWhereIn('destination_inventory_lot_id', $lots()),
             'Retur Pengolahan' => DB::table('processing_returns')->whereIn('source_inventory_lot_id', $lots())->orWhereIn('destination_inventory_lot_id', $lots()),
+            'Retur Pemorsian' => DB::table('portioning_returns')->whereIn('source_inventory_lot_id', $lots())->orWhereIn('destination_inventory_lot_id', $lots()),
         ];
     }
 }

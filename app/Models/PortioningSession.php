@@ -149,6 +149,11 @@ class PortioningSession extends Model
         return $this->hasMany(PortioningSupply::class)->orderBy('sort_order')->orderBy('id');
     }
 
+    public function returns(): HasMany
+    {
+        return $this->hasMany(PortioningReturn::class);
+    }
+
     public function histories(): HasMany
     {
         return $this->hasMany(PortioningHistory::class)->latest();
@@ -265,5 +270,4 @@ class PortioningSession extends Model
     {
         return $this->hasMany(ProcessingBatch::class);
     }
-
 }

@@ -2,12 +2,14 @@
 
 namespace App\Livewire\V3\Warehouse\Controls;
 
-use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Livewire\V3\Concerns\FiltersByWorkDate;
+use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\InventoryLot;
+use App\Models\PortioningReturn;
 use App\Models\PreparationReturn;
 use App\Models\ProcessingReturn;
 use App\Models\StockAdjustment;
+use App\Services\PortioningReturnService;
 use App\Services\PreparationReturnService;
 use App\Services\ProcessingReturnService;
 use App\Services\StockControlService;
@@ -15,7 +17,7 @@ use Livewire\Component;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell, FiltersByWorkDate;
+    use FiltersByWorkDate, InteractsWithV3Shell;
 
     public string $lotId = '';
 
@@ -42,6 +44,12 @@ class Index extends Component
     public array $processingReturnDispositions = [];
 
     public array $processingReturnNotes = [];
+
+    public array $portioningReturnActualQuantities = [];
+
+    public array $portioningReturnDispositions = [];
+
+    public array $portioningReturnNotes = [];
 
     public function mount(): void
     {
@@ -137,6 +145,40 @@ class Index extends Component
         session()->flash('v3.status', 'Retur Pengolahan ditolak tanpa mengubah stok.');
     }
 
+    public function verifyPortioningReturn(int $id, PortioningReturnService $service): void
+    {
+        abort_unless($this->allowed('stock.approve'), 403);
+        $return = PortioningReturn::query()
+            ->where('sppg_unit_id', $this->currentUnit()->id)
+            ->findOrFail($id);
+        $this->validate([
+            "portioningReturnActualQuantities.$id" => ['required', 'numeric', 'gt:0'],
+            "portioningReturnDispositions.$id" => ['required', 'in:available,quarantine,rejected'],
+            "portioningReturnNotes.$id" => ['nullable', 'string', 'max:2000'],
+        ]);
+        $service->verify(
+            $return,
+            (float) $this->portioningReturnActualQuantities[$id],
+            $this->portioningReturnDispositions[$id],
+            $this->portioningReturnNotes[$id] ?? null,
+            auth()->user(),
+        );
+        session()->flash('v3.status', 'Retur Pemorsian diverifikasi dan kartu stok diperbarui.');
+    }
+
+    public function rejectPortioningReturn(int $id, PortioningReturnService $service): void
+    {
+        abort_unless($this->allowed('stock.approve'), 403);
+        $this->validate([
+            "portioningReturnNotes.$id" => ['required', 'string', 'max:2000'],
+        ]);
+        $return = PortioningReturn::query()
+            ->where('sppg_unit_id', $this->currentUnit()->id)
+            ->findOrFail($id);
+        $service->reject($return, $this->portioningReturnNotes[$id], auth()->user());
+        session()->flash('v3.status', 'Retur Pemorsian ditolak tanpa mengubah stok.');
+    }
+
     public function render()
     {
         $unit = $this->currentUnit();
@@ -172,10 +214,25 @@ class Index extends Component
                 ? 'available'
                 : 'quarantine';
         }
+        $portioningReturns = PortioningReturn::query()
+            ->with(['session', 'returner', 'sourceLot'])
+            ->where('sppg_unit_id', $unit->id)
+            ->where(fn ($query) => $query->where('status', PortioningReturn::WAITING)
+                ->orWhereDate('return_date', $this->selectedWorkDate()))
+            ->latest()
+            ->limit(50)
+            ->get();
+        foreach ($portioningReturns->where('status', PortioningReturn::WAITING) as $return) {
+            $this->portioningReturnActualQuantities[$return->id] ??= (string) $return->requested_quantity;
+            $this->portioningReturnDispositions[$return->id] ??= $return->condition_status === 'good'
+                ? 'available'
+                : 'quarantine';
+        }
 
         return view('livewire.v3.warehouse.controls.index', [...$this->shellData($unit), 'lots' => $lots,
             'returns' => $returns,
             'processingReturns' => $processingReturns,
+            'portioningReturns' => $portioningReturns,
             'adjustments' => StockAdjustment::with(['lot.ingredient', 'creator'])
                 ->where('sppg_unit_id', $unit->id)
                 ->where(fn ($query) => $query->where('status', StockAdjustment::DRAFT)
