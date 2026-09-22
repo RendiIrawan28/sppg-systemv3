@@ -318,7 +318,7 @@
                         @endif
 
                         <section class="rounded-2xl border border-slate-200 bg-white p-5">
-                            <h3 class="font-bold text-slate-900">2. Rute yang sudah disimpan</h3>
+                            <h3 class="font-bold text-slate-900">2. Rekap jumlah per rute</h3>
                             <div class="mt-4 space-y-3">
                                 @forelse($routeRecords as $route)
                                     <article wire:key="saved-route-{{ $route['id'] }}" class="flex flex-col justify-between gap-4 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 sm:flex-row sm:items-center">
@@ -327,7 +327,7 @@
                                                 <h4 class="font-bold text-slate-900">{{ $route['route_name'] }}</h4>
                                                 <span class="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-bold text-emerald-700">Tersimpan {{ $route['completed_at'] }}</span>
                                             </div>
-                                            <p class="mt-1 text-sm text-slate-600">Kecil {{ number_format($route['small_portions'], 0, ',', '.') }} · Besar {{ number_format($route['large_portions'], 0, ',', '.') }}</p>
+                                            <p class="mt-1 text-sm text-slate-600">{{ number_format((int) $route['small_portions'] + (int) $route['large_portions'], 0, ',', '.') }} porsi diporsikan</p>
                                             @if($route['notes'])<p class="mt-1 text-xs text-slate-500">{{ $route['notes'] }}</p>@endif
                                         </div>
                                         <div class="flex flex-wrap items-center gap-2">

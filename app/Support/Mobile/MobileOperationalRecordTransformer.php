@@ -85,7 +85,7 @@ class MobileOperationalRecordTransformer
         return [
             ...$this->summary($slug, $definition, $record),
             'fields' => $fields->values()->all(),
-            'sections' => collect($definition['relations'] ?? [])->map(function (array $relation, string $name) use ($record, $unitId): array {
+            'sections' => collect($definition['relations'] ?? [])->map(function (array $relation, string $name) use ($record, $unitId, $slug): array {
                 $value = $record->getRelation($name);
                 $items = $value instanceof Collection || $value instanceof EloquentCollection
                     ? $value
@@ -97,7 +97,21 @@ class MobileOperationalRecordTransformer
                     'items' => $items->map(fn (Model $item): array => [
                         'id' => $item->getKey(),
                         'title' => $this->relationTitle($item, $relation['fields']),
-                        'fields' => $this->fields($item, $relation['fields'], $unitId),
+                        'fields' => $slug === 'pemorsian' && $name === 'routeRecords'
+                            ? array_values([
+                                [
+                                    'key' => 'total_portions',
+                                    'label' => 'Jumlah diporsikan',
+                                    'value' => number_format((int) $item->getAttribute('small_portions') + (int) $item->getAttribute('large_portions'), 0, ',', '.').' porsi',
+                                    'type' => 'text',
+                                    'file_url' => null,
+                                ],
+                                ...array_filter(
+                                    $this->fields($item, $relation['fields'], $unitId),
+                                    fn (array $field): bool => ! in_array($field['key'], ['small_portions', 'large_portions'], true),
+                                ),
+                            ])
+                            : $this->fields($item, $relation['fields'], $unitId),
                     ])->values(),
                 ];
             })->values(),

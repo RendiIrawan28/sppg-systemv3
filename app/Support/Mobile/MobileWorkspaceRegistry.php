@@ -164,6 +164,7 @@ class MobileWorkspaceRegistry
             if ($slug === 'pemorsian') {
                 $definition['allow_create'] = true;
                 $definition['description'] = 'Pilih rencana distribusi aktif dan mulai Pemorsian. Setelah berjalan, ambil barang dari Gudang atau hasil Persiapan.';
+                unset($definition['relations']['routeAllocations']);
                 $definition['fields'] = collect($definition['fields'])
                     ->map(function (array $field): array {
                         $field['detail_only'] = true;
@@ -200,7 +201,7 @@ class MobileWorkspaceRegistry
                     'editable' => false,
                     'detail_only' => true,
                 ];
-                $definition['relations']['routeRecords']['label'] = 'Ompreng yang sudah diporsikan per rute';
+                $definition['relations']['routeRecords']['label'] = 'Rekap jumlah per rute';
                 $definition['relations']['routeRecords']['fields'] = collect($definition['relations']['routeRecords']['fields'])
                     ->map(function (array $field): array {
                         $field['label'] = match ($field['name']) {

@@ -102,11 +102,16 @@ it('starts mobile portioning from an active distribution plan before taking mate
         ->assertOk()
         ->assertJsonPath('data.is_history', false);
     $fields = collect($detail->json('data.fields'));
-    $routes = collect($detail->json('data.sections'))->firstWhere('key', 'routeRecords');
+    $sections = collect($detail->json('data.sections'));
+    $routes = $sections->firstWhere('key', 'routeRecords');
     expect($fields->firstWhere('key', 'actual_small_portions')['value'])->toBe('25')
         ->and($fields->firstWhere('key', 'actual_large_portions')['value'])->toBe('15')
-        ->and($routes['title'])->toBe('Ompreng yang sudah diporsikan per rute')
-        ->and($routes['items'])->toHaveCount(1);
+        ->and($sections->firstWhere('key', 'routeAllocations'))->toBeNull()
+        ->and($routes['title'])->toBe('Rekap jumlah per rute')
+        ->and($routes['items'])->toHaveCount(1)
+        ->and(collect($routes['items'][0]['fields'])->firstWhere('key', 'total_portions')['value'])->toBe('40 porsi')
+        ->and(collect($routes['items'][0]['fields'])->firstWhere('key', 'small_portions'))->toBeNull()
+        ->and(collect($routes['items'][0]['fields'])->firstWhere('key', 'large_portions'))->toBeNull();
 
     $moduleResponse = $this->getJson('/api/mobile/operational-modules')
         ->assertOk()
