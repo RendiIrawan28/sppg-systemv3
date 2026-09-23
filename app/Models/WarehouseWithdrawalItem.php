@@ -16,7 +16,7 @@ class WarehouseWithdrawalItem extends Model
 
     public function withdrawal(): BelongsTo
     {
-        return $this->belongsTo(WarehouseWithdrawal::class);
+        return $this->belongsTo(WarehouseWithdrawal::class, 'warehouse_withdrawal_id');
     }
 
     public function ingredient(): BelongsTo
@@ -24,7 +24,10 @@ class WarehouseWithdrawalItem extends Model
         return $this->belongsTo(Ingredient::class);
     }
 
-    public function nonFoodItem(): BelongsTo { return $this->belongsTo(NonFoodItem::class); }
+    public function nonFoodItem(): BelongsTo
+    {
+        return $this->belongsTo(NonFoodItem::class);
+    }
 
     public function lot(): BelongsTo
     {

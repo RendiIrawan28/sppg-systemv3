@@ -32,6 +32,7 @@ final class AccessControl
             'audit_logs' => ['view'],
             'notifications' => ['view', 'manage'],
             'reports' => ['view', 'export'],
+            'monitoring_operasional' => ['view'],
 
             'schools' => [...$crud, 'import', 'export'],
             'posyandus' => [...$crud, 'import', 'export'],
@@ -133,6 +134,7 @@ final class AccessControl
             'notifications.manage',
             'reports.view',
             'reports.export',
+            'monitoring_operasional.view',
 
             // Master penerima hanya untuk pemantauan. Kepala SPPG tidak melakukan CRUD teknis.
             ...self::module('schools', ['view']),
@@ -190,7 +192,7 @@ final class AccessControl
             'users.view', 'users.create', 'users.update', 'users.delete', 'users.assign_role',
             'divisions.view', 'divisions.manage',
             'settings.manage', 'audit_logs.view', 'notifications.view', 'notifications.manage',
-            'reports.view', 'reports.export',
+            'reports.view', 'reports.export', 'monitoring_operasional.view',
             ...self::module('schools', ['view', 'create', 'update', 'delete', 'import', 'export']),
             ...self::module('posyandus', ['view', 'create', 'update', 'delete', 'import', 'export']),
             ...self::module('beneficiaries', ['view', 'create', 'update', 'delete', 'import', 'export']),
@@ -222,7 +224,7 @@ final class AccessControl
     private static function fieldAssistantPermissions(): array
     {
         return [
-            'dashboard.view', 'reports.view', 'reports.export',
+            'dashboard.view', 'reports.view', 'reports.export', 'monitoring_operasional.view',
             ...self::module('schools', ['view', 'create', 'update', 'delete', 'import', 'export']),
             ...self::module('posyandus', ['view', 'create', 'update', 'delete', 'import', 'export']),
             ...self::module('beneficiaries', ['view', 'create', 'update', 'delete', 'import', 'export']),
@@ -245,7 +247,7 @@ final class AccessControl
     private static function nutritionistPermissions(): array
     {
         return [
-            'dashboard.view', 'reports.view', 'reports.export',
+            'dashboard.view', 'reports.view', 'reports.export', 'monitoring_operasional.view',
             ...self::module('beneficiaries', ['view']),
             ...self::module('beneficiary_periods', ['view']),
             ...self::module('menus', ['view', 'create', 'update', 'delete', 'submit', 'export']),
@@ -269,7 +271,7 @@ final class AccessControl
     private static function financeSupervisorPermissions(): array
     {
         return [
-            'dashboard.view', 'reports.view', 'reports.export',
+            'dashboard.view', 'reports.view', 'reports.export', 'monitoring_operasional.view',
             ...self::module('finance', ['view', 'verify', 'approve', 'export']),
             ...self::module('attendance', ['view', 'manage', 'correct', 'export', 'devices', 'schedules']),
             ...self::module('procurement', ['view', 'update', 'price_input', 'approve', 'export', 'submit']),

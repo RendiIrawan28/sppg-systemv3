@@ -14,6 +14,15 @@ final class Navigation
             $this->standalone('dashboard', 'Dashboard', 'home', [
                 $this->item('Dashboard', 'home', route('v3.dashboard'), request()->routeIs('v3.dashboard'), $this->allowed($user, 'dashboard.view')),
             ]),
+            $this->standalone('monitoring-operasional', 'Monitoring Operasional', 'clipboard', [
+                $this->item(
+                    'Monitoring Operasional',
+                    'clipboard',
+                    route('v3.monitoring.operational'),
+                    request()->routeIs('v3.monitoring.*'),
+                    $this->allowed($user, 'monitoring_operasional.view'),
+                ),
+            ]),
             $this->module('penerima', 'Penerima Manfaat', 'users', [
                 $this->item('Data penerima', 'users', route('v3.beneficiaries.index'), request()->routeIs('v3.beneficiaries.*'), $this->allowed($user, 'beneficiaries.view')),
                 $this->item('Jumlah penerima', 'calendar', route('v3.beneficiary-periods.index'), request()->routeIs('v3.beneficiary-periods.*'), $this->allowed($user, 'beneficiary_periods.view')),

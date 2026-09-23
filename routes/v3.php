@@ -30,6 +30,7 @@ use App\Livewire\V3\MasterData\Catalog as MasterDataCatalog;
 use App\Livewire\V3\MasterData\Hub as MasterDataHub;
 use App\Livewire\V3\MasterData\Organization as MasterDataOrganization;
 use App\Livewire\V3\MasterData\Users as MasterDataUsers;
+use App\Livewire\V3\Monitoring\Operational as OperationalMonitoring;
 use App\Livewire\V3\Notifications\Broadcast as NotificationBroadcast;
 use App\Livewire\V3\Nutrition\DailyEvaluation;
 use App\Livewire\V3\Nutrition\MenuMatrix;
@@ -75,6 +76,7 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
     Route::middleware(SetV3UnitContext::class)
         ->group(function (): void {
             Route::get('/dashboard', Dashboard::class)->name('dashboard');
+            Route::get('/monitoring-operasional', OperationalMonitoring::class)->name('monitoring.operational');
             Route::get('/penerima-manfaat', BeneficiaryIndex::class)->name('beneficiaries.index');
             Route::get('/penerima-manfaat/tambah', BeneficiaryForm::class)->name('beneficiaries.create');
             Route::get('/penerima-manfaat/impor', BeneficiaryImport::class)->name('beneficiaries.import');
