@@ -24,13 +24,11 @@ class Landing extends Component
         abort_unless($this->allowed('monitoring_operasional.view'), 403);
 
         $this->normalizeDate();
-        $this->lastRefreshedAt = now()->format('H:i:s');
     }
 
     public function refreshData(): void
     {
         $this->normalizeDate();
-        $this->lastRefreshedAt = now()->format('H:i:s');
     }
 
     public function useToday(): void
@@ -62,9 +60,12 @@ class Landing extends Component
         $shell = $this->shellData($unit);
         $shell['navigation'] = app(MonitoringNavigation::class)->for($this->workDate, landing: true);
 
+        $data = $service->summaryFor($unit, $this->workDate);
+        $this->lastRefreshedAt = now()->format('H:i:s');
+
         return view('livewire.v3.monitoring.landing', [
             ...$shell,
-            ...$service->summaryFor($unit, $this->workDate),
+            ...$data,
         ])->layout('layouts.v3', ['title' => 'Monitoring Operasional']);
     }
 

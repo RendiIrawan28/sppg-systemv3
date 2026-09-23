@@ -31,6 +31,21 @@ use Illuminate\Support\Facades\Storage;
 
 final class OperationalMonitoringService
 {
+    use ReadsFinalMonitoring;
+
+    /** Load only the selected detail; the landing uses summaryFor(). */
+    public function forTab(SppgUnit $unit, string $date, string $tab): array
+    {
+        $date = Carbon::parse($date)->toDateString();
+        if (in_array($tab, ['washing', 'cleaning', 'field-assistant', 'attendance'], true)) {
+            return ['finalModule' => $this->finalModule((int) $unit->id, $date, $tab)];
+        }
+        if (in_array($tab, ['warehouse', 'preparation', 'processing', 'portioning', 'distribution'], true)) {
+            return [$tab => $this->{$tab}((int) $unit->id, $date)];
+        }
+
+        return $this->summaryFor($unit, $date);
+    }
     /** @return array<string, mixed> */
     public function for(SppgUnit $unit, string $date): array
     {
@@ -61,6 +76,10 @@ final class OperationalMonitoringService
         $progress = $this->progress($unitId, $date);
         $overview = $this->overview($unitId, $date, $progress);
         $moduleSummaries = $this->moduleSummaries($unitId, $date);
+        foreach (['washing', 'cleaning', 'field-assistant', 'attendance'] as $tab) {
+            $cards = $this->finalSummary($unitId, $date, $tab);
+            $moduleSummaries[$tab] = ['primary' => $cards[0]['value'].' '.$cards[0]['label'], 'secondary' => $cards[1]['value'].' '.$cards[1]['label']];
+        }
 
         return compact('overview', 'progress', 'moduleSummaries');
     }
@@ -135,7 +154,6 @@ final class OperationalMonitoringService
                     ];
                 })->all();
             })
-            ->take(200)
             ->values()
             ->all();
 
@@ -214,7 +232,7 @@ final class OperationalMonitoringService
                 'handover_tone' => $handoverTone,
                 'photos' => $photos->all(),
             ];
-        })->take(200)->values()->all();
+        })->values()->all();
 
         return [
             'cards' => [
@@ -284,14 +302,14 @@ final class OperationalMonitoringService
                     'photo_url' => $record->photo_path ? Storage::disk('public')->url($record->photo_path) : null,
                 ])->values()->all(),
             ];
-        })->take(150)->values()->all();
+        })->values()->all();
 
         $leftoverRows = $sessions->flatMap(fn (PortioningSession $session): array => $session->leftoverRecords
             ->map(fn ($leftover): array => [
                 'session' => $session->session_number ?: '-',
                 'time' => $leftover->checked_at?->format('H:i') ?? '-',
                 'food_type' => $leftover->food_type ?: '-',
-                'quantity' => $this->quantityLabel($leftover->quantity, $leftover->unit_name),
+                'quantity' => $this->numberLabel($leftover->quantity),
                 'unit' => $leftover->unit_name ?: '-',
                 'notes' => $leftover->notes ?: '-',
                 'photo_url' => $leftover->photo_path ? Storage::disk('public')->url($leftover->photo_path) : null,
@@ -355,7 +373,7 @@ final class OperationalMonitoringService
                 'stops' => $run->stops->map(function ($stop): array {
                     $deliveredSmall = (int) $stop->delivered_small_portions;
                     $deliveredLarge = (int) $stop->delivered_large_portions;
-                    $hasActual = ($deliveredSmall + $deliveredLarge) > 0;
+                    $hasActual = $stop->status?->isTerminal() ?? false;
 
                     return [
                         'sequence' => (int) $stop->sequence_order,
@@ -363,8 +381,10 @@ final class OperationalMonitoringService
                         'type' => $stop->destination_type ? str($stop->destination_type)->replace('_', ' ')->title()->toString() : '-',
                         'planned_small' => (int) $stop->small_portions,
                         'planned_large' => (int) $stop->large_portions,
+                        'planned_total' => (int) $stop->small_portions + (int) $stop->large_portions,
                         'actual_small' => $hasActual ? $deliveredSmall : null,
                         'actual_large' => $hasActual ? $deliveredLarge : null,
+                        'actual_total' => $hasActual ? $deliveredSmall + $deliveredLarge : null,
                         'planned_at' => $stop->planned_arrival_at?->format('H:i') ?? '-',
                         'arrived_at' => $stop->arrived_at?->format('H:i') ?? '-',
                         'recipient' => collect([$stop->recipient_name, $stop->recipient_position])->filter()->implode(' · ') ?: '-',
@@ -382,7 +402,7 @@ final class OperationalMonitoringService
                         'photo_url' => Storage::disk('public')->url($documentation->photo_path),
                     ])->values()->all(),
             ];
-        })->take(150)->values()->all();
+        })->values()->all();
 
         return [
             'cards' => [
@@ -403,11 +423,7 @@ final class OperationalMonitoringService
     {
         $plans = FieldDistributionPlan::query()
             ->where('sppg_unit_id', $unitId)
-            ->where('status', '!=', 'cancelled')
-            ->where(function (Builder $query) use ($date): void {
-                $query->whereDate('service_date', $date)
-                    ->orWhereDate('distribution_date', $date);
-            })
+            ->whereDate('distribution_date', $date)
             ->get();
 
         $planIds = $plans->pluck('id');
@@ -415,15 +431,10 @@ final class OperationalMonitoringService
             ? 0
             : FieldDistributionPlanDestination::query()
                 ->whereIn('field_distribution_plan_id', $planIds)
-                ->where('total_portions', '>', 0)
-                ->get(['destination_type', 'destination_id', 'destination_code_snapshot', 'destination_name_snapshot'])
-                ->unique(function (FieldDistributionPlanDestination $destination): string {
-                    return implode(':', [
-                        $destination->destination_type ?: 'unknown',
-                        $destination->destination_id ?: $destination->destination_code_snapshot ?: $destination->destination_name_snapshot,
-                    ]);
-                })
                 ->count();
+
+        $confirmedRecipients = FieldDistributionPlanDestination::query()->whereIn('field_distribution_plan_id', $planIds)
+            ->whereIn('confirmation_status', ['confirmed', 'changed'])->sum('confirmed_beneficiaries');
 
         $withdrawalSummary = WarehouseWithdrawalItem::query()
             ->whereHas('withdrawal', fn (Builder $query) => $query
@@ -479,8 +490,8 @@ final class OperationalMonitoringService
             'cards' => [
                 $this->card(
                     'Penerima Hari Ini',
-                    (int) $plans->sum('confirmed_beneficiaries'),
-                    'Penerima terkonfirmasi pada rencana distribusi',
+                    (int) $confirmedRecipients,
+                    'Penerima pada tujuan yang telah dikonfirmasi; tanggal distribusi terpilih',
                     'users',
                     'sky',
                     route('v3.field.plans.index'),
@@ -498,7 +509,7 @@ final class OperationalMonitoringService
                 $this->card(
                     'Tujuan Distribusi',
                     $destinationCount,
-                    'Sekolah dan posyandu dengan porsi di atas nol',
+                    'Seluruh tujuan/kunjungan, termasuk yang belum mempunyai rute',
                     'route',
                     'violet',
                     route('v3.field.plans.index'),
@@ -569,10 +580,7 @@ final class OperationalMonitoringService
 
         $plans = FieldDistributionPlan::query()
             ->where('sppg_unit_id', $unitId)
-            ->where('status', '!=', 'cancelled')
-            ->where(function (Builder $query) use ($date): void {
-                $query->whereDate('service_date', $date)->orWhereDate('distribution_date', $date);
-            });
+            ->whereDate('distribution_date', $date);
 
         $preparations = PreparationSession::query()
             ->where('sppg_unit_id', $unitId)
@@ -773,7 +781,6 @@ final class OperationalMonitoringService
 
         return $rows
             ->sortByDesc(fn (array $row) => $row['timestamp']?->getTimestamp() ?? 0)
-            ->take(200)
             ->values()
             ->map(function (array $row): array {
                 $row['time'] = $row['timestamp']?->format('H:i') ?? '-';
@@ -923,6 +930,15 @@ final class OperationalMonitoringService
         }
 
         return rtrim(rtrim(number_format($value, 3, ',', '.'), '0'), ',').' '.($unit ?: '-');
+    }
+
+    private function numberLabel(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '—';
+        }
+
+        return rtrim(rtrim(number_format((float) $value, 3, ',', '.'), '0'), ',');
     }
 
     private function kilogramLabel(float $value): string

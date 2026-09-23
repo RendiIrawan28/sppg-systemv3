@@ -80,6 +80,8 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/dashboard', Dashboard::class)->name('dashboard');
             Route::get('/monitoring-operasional', MonitoringLanding::class)->name('monitoring.index');
             Route::get('/monitoring-operasional/harian', OperationalMonitoring::class)->name('monitoring.operational');
+            Route::get('/monitoring-operasional/foto/{module}/{record}/{kind}/{item}', \App\Http\Controllers\MonitoringPhotoController::class)
+                ->whereNumber('record')->whereNumber('item')->name('monitoring.photo');
             Route::get('/penerima-manfaat', BeneficiaryIndex::class)->name('beneficiaries.index');
             Route::get('/penerima-manfaat/tambah', BeneficiaryForm::class)->name('beneficiaries.create');
             Route::get('/penerima-manfaat/impor', BeneficiaryImport::class)->name('beneficiaries.import');

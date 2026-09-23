@@ -18,6 +18,12 @@
         ];
     @endphp
 
+    @php
+        foreach (\App\Support\V3\MonitoringNavigation::FINAL_MODULES as $key => $definition) {
+            $monitoringModules[] = [...$definition, 'tab' => $key, 'stage' => $definition['label'], 'summary' => $key];
+        }
+    @endphp
+
     <div class="mx-auto max-w-[1550px] space-y-6">
         <section class="relative overflow-hidden rounded-[28px] bg-[#081d3a] p-6 text-white shadow-xl shadow-slate-900/10 sm:p-7">
             <div class="absolute inset-0 opacity-30 [background-image:radial-gradient(circle_at_88%_12%,#22d3ee_0,transparent_24%),radial-gradient(circle_at_72%_125%,#84cc16_0,transparent_29%)]"></div>

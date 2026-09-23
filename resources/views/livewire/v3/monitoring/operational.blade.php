@@ -116,11 +116,20 @@
             >
                 Distribusi
             </button>
+            @foreach (\App\Support\V3\MonitoringNavigation::FINAL_MODULES as $key => $definition)
+                <button type="button" wire:click="selectTab('{{ $key }}')" @class(['rounded-xl px-4 py-2.5 text-xs font-bold transition', 'bg-[#081d3a] text-white' => $activeTab === $key, 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800' => $activeTab !== $key])>{{ $definition['label'] }}</button>
+            @endforeach
             <div class="ml-auto hidden items-center gap-2 pr-2 text-[10px] font-semibold text-slate-400 sm:flex">
                 <span class="size-2 rounded-full bg-emerald-500"></span>
                 Read-only monitoring
             </div>
         </div>
+
+        @if (isset(\App\Support\V3\MonitoringNavigation::FINAL_MODULES[$activeTab]))
+            <div wire:key="monitoring-{{ $activeTab }}-{{ $workDate }}-{{ $finalModule['pagination']->currentPage() }}" class="min-w-0 space-y-5">
+                @include('livewire.v3.monitoring.partials.final-module')
+            </div>
+        @endif
 
         @if ($activeTab === 'overview')
             <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

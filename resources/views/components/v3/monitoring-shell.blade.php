@@ -7,9 +7,13 @@
 ])
 
 <div
-    x-data="{ sidebarOpen: false, profileOpen: false, documentationUrl: null, documentationTitle: '', documentationLoading: false, documentationError: false }"
-    x-on:open-documentation.window="documentationLoading = true; documentationError = false; documentationUrl = $event.detail.url; documentationTitle = $event.detail.title || 'Dokumentasi'"
-    x-on:keydown.escape.window="documentationUrl = null; documentationLoading = false; documentationError = false; sidebarOpen = false"
+    x-data="{ sidebarOpen: false, profileOpen: false, documentationUrl: null, documentationTitle: '', documentationLoading: false, documentationError: false, photoTrigger: null, photoList: [], photoIndex: 0,
+        closePhoto() { this.documentationUrl = null; this.documentationLoading = false; this.documentationError = false; if (this.photoTrigger?.isConnected) this.photoTrigger.focus(); },
+        showPhoto(index) { if (!this.photoList[index]) return; this.photoIndex = index; this.documentationLoading = true; this.documentationError = false; this.documentationUrl = this.photoList[index].url; this.documentationTitle = this.photoList[index].title; }
+    }"
+    x-on:open-documentation.window="photoTrigger = document.activeElement; photoList = Array.from(photoTrigger?.closest('article')?.querySelectorAll('[data-documentation-url]') || []).map(el => ({ url: el.dataset.documentationUrl, title: el.dataset.documentationTitle })); if (!photoList.length) photoList = [$event.detail]; showPhoto(Math.max(0, photoList.findIndex(photo => photo.url === $event.detail.url))); $nextTick(() => $refs.photoClose.focus())"
+    x-on:close-monitoring-documentation.window="closePhoto()"
+    x-on:keydown.escape.window="closePhoto(); sidebarOpen = false"
     class="min-h-screen overflow-x-hidden bg-[#f4f7fb] text-slate-950 dark:bg-[#07111f] dark:text-slate-100"
 >
     <div x-cloak x-show="sidebarOpen" x-transition.opacity class="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm lg:hidden" x-on:click="sidebarOpen = false"></div>
@@ -118,17 +122,22 @@
         </main>
     </div>
 
-    <div x-cloak x-show="documentationUrl" x-transition.opacity class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Pratinjau dokumentasi">
-        <button type="button" x-on:click="documentationUrl = null; documentationLoading = false; documentationError = false" class="absolute inset-0 cursor-default" aria-label="Tutup modal"></button>
+    <div x-cloak x-show="documentationUrl" x-trap.inert.noscroll="documentationUrl" x-transition.opacity class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Pratinjau dokumentasi">
+        <button type="button" x-on:click="closePhoto()" tabindex="-1" class="absolute inset-0 cursor-default" aria-label="Tutup modal"></button>
         <div x-show="documentationUrl" x-transition.scale class="relative z-10 flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900">
             <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
                 <div><p class="text-sm font-bold text-slate-900 dark:text-slate-100">Dokumentasi</p><p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400" x-text="documentationTitle"></p></div>
-                <button type="button" x-on:click="documentationUrl = null; documentationLoading = false; documentationError = false" class="grid size-9 place-items-center rounded-xl bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700" aria-label="Tutup">×</button>
+                <button x-ref="photoClose" type="button" x-on:click="closePhoto()" class="grid size-9 place-items-center rounded-xl bg-slate-100 text-lg font-bold text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700" aria-label="Tutup">×</button>
             </div>
             <div class="relative flex min-h-[240px] flex-1 items-center justify-center overflow-auto bg-slate-100 p-4 dark:bg-slate-950">
                 <div x-show="documentationLoading && ! documentationError" class="absolute inset-0 grid place-items-center"><div class="flex flex-col items-center gap-3 text-sm font-semibold text-slate-600 dark:text-slate-300"><span class="size-9 animate-spin rounded-full border-4 border-slate-300 border-t-sky-600 dark:border-slate-700 dark:border-t-sky-400"></span>Memuat dokumentasi…</div></div>
                 <div x-show="documentationError" class="max-w-sm rounded-2xl bg-white p-6 text-center shadow-sm dark:bg-slate-900"><p class="font-bold text-slate-900 dark:text-slate-100">Foto tidak dapat ditampilkan</p><p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Pastikan file masih tersedia dan koneksi perangkat stabil.</p></div>
                 <img x-show="! documentationError" x-bind:src="documentationUrl" x-bind:alt="`Dokumentasi ${documentationTitle}`" x-on:load="documentationLoading = false" x-on:error="documentationLoading = false; documentationError = true" class="max-h-[76vh] max-w-full rounded-xl object-contain shadow-sm" x-bind:class="documentationLoading ? 'invisible' : 'visible'">
+            </div>
+            <div x-show="photoList.length > 1" class="flex items-center justify-between gap-3 border-t border-slate-200 p-3 text-sm dark:border-slate-700">
+                <button type="button" x-on:click="showPhoto(photoIndex - 1)" :disabled="photoIndex === 0" class="rounded-lg bg-slate-100 px-3 py-2 disabled:opacity-40 dark:bg-slate-800">Sebelumnya</button>
+                <span x-text="(photoIndex + 1) + ' / ' + photoList.length"></span>
+                <button type="button" x-on:click="showPhoto(photoIndex + 1)" :disabled="photoIndex >= photoList.length - 1" class="rounded-lg bg-slate-100 px-3 py-2 disabled:opacity-40 dark:bg-slate-800">Berikutnya</button>
             </div>
         </div>
     </div>

@@ -4,6 +4,12 @@ namespace App\Support\V3;
 
 final class MonitoringNavigation
 {
+    public const FINAL_MODULES = [
+        'washing' => ['label' => 'Pencucian', 'icon' => 'droplets', 'description' => 'Ompreng, checklist, limbah, dan dokumentasi.', 'permission' => 'washing.view', 'module' => 'pencucian'],
+        'cleaning' => ['label' => 'Kebersihan', 'icon' => 'sparkles', 'description' => 'Area, seluruh pemeriksaan, dan temuan kebersihan.', 'permission' => 'cleaning.view', 'module' => 'kebersihan'],
+        'field-assistant' => ['label' => 'Asisten Lapangan', 'icon' => 'route', 'description' => 'Rencana, konfirmasi penerima, tujuan, dan rute.', 'permission' => 'field_planning.view', 'module' => null],
+        'attendance' => ['label' => 'Presensi', 'icon' => 'users', 'description' => 'Tanggal kerja, sesi masuk, dan sesi keluar.', 'permission' => 'attendance.view', 'module' => null],
+    ];
     /** @return array<int, array<string, mixed>> */
     public function for(string $date, ?string $activeTab = null, bool $landing = false): array
     {
@@ -15,6 +21,7 @@ final class MonitoringNavigation
             $this->item('processing', 'Pengolahan', 'nutrition', $this->detailUrl('processing', $date), ! $landing && $activeTab === 'processing'),
             $this->item('portioning', 'Pemorsian', 'calculator', $this->detailUrl('portioning', $date), ! $landing && $activeTab === 'portioning'),
             $this->item('distribution', 'Distribusi', 'truck', $this->detailUrl('distribution', $date), ! $landing && $activeTab === 'distribution'),
+            ...collect(self::FINAL_MODULES)->map(fn ($module, $key) => $this->item($key, $module['label'], $module['icon'], $this->detailUrl($key, $date), ! $landing && $activeTab === $key))->values()->all(),
         ];
     }
 
