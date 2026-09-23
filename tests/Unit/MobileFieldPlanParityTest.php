@@ -1,5 +1,7 @@
 <?php
 
+use App\Enums\UserRole;
+use App\Support\AccessControl;
 use App\Support\Mobile\MobileWorkspaceRegistry;
 use Illuminate\Support\Facades\Route;
 
@@ -19,15 +21,49 @@ it('exposes the complete mobile distribution plan workflow', function (): void {
         ->toContain('GET|HEAD api/mobile/field-plans/{fieldDistributionPlan}/document');
 });
 
-it('limits the field assistant operational registry to reports and incidents', function (): void {
-    $source = file_get_contents(app_path('Support/Mobile/MobileWorkspaceRegistry.php'));
+it('lets the field assistant inspect every division module from mobile', function (): void {
+    $constant = (new ReflectionClass(MobileWorkspaceRegistry::class))
+        ->getReflectionConstant('ROLE_MODULES');
+    expect($constant)->not->toBeFalse();
 
-    expect($source)
-        ->toContain("UserRole::AsistenLapangan->value => ['lapangan-insiden', 'lapangan-laporan']")
-        ->not->toContain("UserRole::AsistenLapangan->value => ['lapangan-konfirmasi'");
+    $modules = $constant->getValue()[UserRole::AsistenLapangan->value] ?? [];
+    expect($modules)->toContain(
+        'persiapan',
+        'pengolahan',
+        'pemorsian',
+        'distribusi',
+        'pencucian',
+        'kebersihan',
+        'ba-limbah-persiapan',
+        'ba-limbah-pencucian',
+        'ba-limbah-kebersihan',
+        'keamanan',
+        'lapangan-insiden',
+        'lapangan-laporan',
+    )->not->toContain('lapangan-konfirmasi');
 
-    $definitions = app(MobileWorkspaceRegistry::class)->definitions();
-    expect($definitions)->toHaveKeys(['lapangan-insiden', 'lapangan-laporan']);
+    $permissions = AccessControl::permissionsForRole(
+        UserRole::AsistenLapangan->value,
+    );
+    expect($permissions)
+        ->toContain(
+            'preparation.view',
+            'processing.view',
+            'portioning.view',
+            'distribution.view',
+            'washing.view',
+            'cleaning.view',
+            'security.view',
+        )
+        ->not->toContain(
+            'preparation.update',
+            'processing.update',
+            'portioning.update',
+            'distribution.update',
+            'washing.update',
+            'cleaning.update',
+            'security.update',
+        );
 });
 
 it('keeps obsolete departure and arrival confirmation out of mobile planning', function (): void {

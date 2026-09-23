@@ -165,7 +165,7 @@ final class AccessControl
             // tetapi tidak boleh membuat atau mengubah transaksi operasional.
             ...self::module('preparation', ['view', 'approve', 'export']),
             ...self::module('processing', ['view', 'approve', 'export']),
-            ...self::module('portioning', ['view', 'approve']),
+            ...self::module('portioning', ['view', 'approve', 'export']),
             ...self::module('distribution', ['view', 'approve', 'export']),
             ...self::module('washing', ['view', 'approve', 'export']),
             ...self::module('cleaning', ['view', 'approve', 'export']),
@@ -208,6 +208,7 @@ final class AccessControl
             ...self::module('non_food_procurement', ['view']),
             ...self::module('non_food_stock', ['view']),
             ...self::operationalViewPermissions(),
+            ...self::module('portioning', ['export']),
             ...self::module('field_planning', ['view']),
             ...self::module('field_daily_reports', ['view']),
             ...self::module('field_incidents', ['view']),
@@ -260,6 +261,7 @@ final class AccessControl
             ...self::module('procurement', ['view', 'create', 'update', 'submit', 'price_input', 'export']),
             ...self::module('stock', ['view']),
             ...self::operationalViewPermissions(),
+            ...self::module('portioning', ['export']),
         ];
     }
 
@@ -318,6 +320,7 @@ final class AccessControl
             'menus.view', 'nutrition.view', 'measurement_units.view', 'ingredients.view', 'allergens.view',
             'suppliers.view', 'procurement.view', 'stock.view',
             ...self::operationalViewPermissions(),
+            'portioning.export',
             'field_planning.view', 'field_daily_reports.view', 'field_incidents.view', 'incidents.view',
             'food_safety.view', 'sanitation.view', 'security.view', 'finance.view',
         ];
@@ -327,9 +330,6 @@ final class AccessControl
     private static function divisionHeadPermissions(string $prefix): array
     {
         $actions = ['view', 'create', 'update', 'delete', 'submit', 'approve', 'export'];
-        if ($prefix === 'portioning') {
-            $actions = array_values(array_diff($actions, ['export']));
-        }
 
         return [
             'dashboard.view', 'reports.view', 'reports.export',
@@ -346,9 +346,6 @@ final class AccessControl
     private static function divisionStaffPermissions(string $prefix): array
     {
         $actions = ['view', 'create', 'update', 'delete', 'submit', 'export'];
-        if ($prefix === 'portioning') {
-            $actions = array_values(array_diff($actions, ['export']));
-        }
 
         return [
             'dashboard.view', 'reports.view',

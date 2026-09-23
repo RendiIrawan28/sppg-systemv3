@@ -21,6 +21,11 @@ class PreparationSessionItem extends Model
         return $this->belongsTo(PreparationSession::class, 'preparation_session_id');
     }
 
+    public function ingredient(): BelongsTo
+    {
+        return $this->belongsTo(Ingredient::class, 'ingredient_id');
+    }
+
     public function returns(): HasMany
     {
         return $this->hasMany(PreparationReturn::class);

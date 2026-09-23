@@ -6,6 +6,7 @@ use App\Enums\DistributionIncidentStatus;
 use App\Enums\FieldIncidentStatus;
 use App\Enums\NutritionRecordStatus;
 use App\Enums\OperationalReportStatus;
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\CleaningSession;
 use App\Models\ContainerCollectionRun;
@@ -1771,7 +1772,9 @@ class MobileOperationalController extends Controller
 
     private function applyDistributionActorScope(Builder $query, string $module, $actor): void
     {
-        if ($module !== 'distribusi' || $actor->can('distribution.approve')) {
+        if ($module !== 'distribusi'
+            || $actor->can('distribution.approve')
+            || $actor->hasRole(UserRole::AsistenLapangan->value)) {
             return;
         }
 
@@ -1783,7 +1786,9 @@ class MobileOperationalController extends Controller
 
     private function assertDistributionRecordAccess(string $module, Model $item, $actor): void
     {
-        if ($module !== 'distribusi' || $actor->can('distribution.approve')) {
+        if ($module !== 'distribusi'
+            || $actor->can('distribution.approve')
+            || $actor->hasRole(UserRole::AsistenLapangan->value)) {
             return;
         }
 

@@ -50,7 +50,12 @@ class MobileWorkspaceRegistry
             'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan',
             'lapangan-insiden', 'lapangan-laporan',
         ],
-        UserRole::AsistenLapangan->value => ['lapangan-insiden', 'lapangan-laporan'],
+        UserRole::AsistenLapangan->value => [
+            'persiapan', 'pengolahan', 'pemorsian', 'distribusi', 'pencucian', 'kebersihan',
+            'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan',
+            'keamanan',
+            'lapangan-insiden', 'lapangan-laporan',
+        ],
         UserRole::StafGudang->value => ['gudang', 'gudang-non-pangan', 'gudang-pengambilan', 'gudang-pengambilan-non-pangan', 'gudang-retur', 'gudang-retur-pengolahan', 'gudang-retur-pemorsian', 'gudang-stok', 'gudang-stok-non-pangan', 'gudang-stok-awal', 'gudang-stok-awal-non-pangan', 'gudang-penyesuaian', 'gudang-penyesuaian-non-pangan'],
         UserRole::KepalaDivisiPersiapan->value => ['pengambilan-gudang-persiapan', 'pengambilan-non-pangan', 'persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
         UserRole::PetugasPersiapan->value => ['pengambilan-gudang-persiapan', 'pengambilan-non-pangan', 'persiapan', 'ba-limbah-persiapan', 'lapangan-insiden'],
