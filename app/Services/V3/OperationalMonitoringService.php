@@ -40,8 +40,144 @@ final class OperationalMonitoringService
         $progress = $this->progress($unitId, $date);
         $overview = $this->overview($unitId, $date, $progress);
         $warehouse = $this->warehouse($unitId, $date);
+        $preparation = $this->preparation($unitId, $date);
+        $processing = $this->processing($unitId, $date);
 
-        return compact('overview', 'progress', 'warehouse');
+        return compact('overview', 'progress', 'warehouse', 'preparation', 'processing');
+    }
+
+    /** @return array<string, mixed> */
+    private function preparation(int $unitId, string $date): array
+    {
+        $sessions = PreparationSession::query()
+            ->with(['items.resultDocumentation', 'petugas'])
+            ->where('sppg_unit_id', $unitId)
+            ->whereDate('preparation_date', $date)
+            ->latest('started_at')
+            ->latest('id')
+            ->get();
+
+        $items = $sessions->flatMap(fn (PreparationSession $session) => $session->items);
+        $receivedKg = (float) $items->sum(fn ($item): float => (float) ($item->received_weight_kg ?? 0));
+        $cleanKg = (float) $items->sum(fn ($item): float => (float) ($item->clean_weight_kg ?? 0));
+        $wasteKg = (float) $items->sum(fn ($item): float => (float) ($item->waste_weight_kg ?? 0));
+        $completed = $sessions->where('state', 'completed')->count();
+
+        $rows = $sessions
+            ->flatMap(function (PreparationSession $session): array {
+                [$status, $tone] = $this->preparationStatus($session);
+
+                return $session->items->map(function ($item) use ($session, $status, $tone): array {
+                    $photoPath = $item->resultDocumentation?->photo_path;
+
+                    return [
+                        'ingredient' => $item->ingredient_name_snapshot ?: '-',
+                        'received' => $this->quantityLabel($item->received_quantity, $item->unit_snapshot),
+                        'received_kg' => (float) ($item->received_weight_kg ?? 0),
+                        'result' => $this->quantityLabel($item->processed_quantity, $item->processed_unit_snapshot),
+                        'result_kg' => (float) ($item->clean_weight_kg ?? 0),
+                        'waste' => $this->quantityLabel($item->waste_quantity, $item->waste_unit_snapshot),
+                        'waste_kg' => (float) ($item->waste_weight_kg ?? 0),
+                        'officer' => $session->petugas?->name ?: '-',
+                        'time' => ($session->completed_at ?? $session->started_at ?? $session->created_at)?->format('H:i') ?? '-',
+                        'status' => $status,
+                        'status_tone' => $tone,
+                        'photo_url' => $photoPath ? Storage::disk('public')->url($photoPath) : null,
+                    ];
+                })->all();
+            })
+            ->take(200)
+            ->values()
+            ->all();
+
+        return [
+            'cards' => [
+                $this->miniCard('Bahan Diproses', $items->count(), 'Jumlah item bahan pada sesi Persiapan', 'clipboard', 'sky'),
+                $this->miniCard('Total Diterima', $this->kilogramLabel($receivedKg), $receivedKg > 0 ? 'Bobot kanonik dari '.$items->count().' item' : 'Bobot kanonik belum tersedia', 'box', 'violet'),
+                $this->miniCard('Total Hasil', $this->kilogramLabel($cleanKg), 'Hasil bersih Persiapan', 'check-badge', 'emerald'),
+                $this->miniCard('Total Limbah', $this->kilogramLabel($wasteKg), 'Limbah/sisa yang tercatat', 'recycle', $wasteKg > 0 ? 'amber' : 'slate'),
+                $this->miniCard('Status Sesi', $completed.'/'.$sessions->count(), 'Sesi selesai pada tanggal terpilih', 'settings', $sessions->isNotEmpty() && $completed === $sessions->count() ? 'emerald' : 'amber'),
+            ],
+            'rows' => $rows,
+            'detail_url' => route('v3.preparation.index', ['tanggal' => $date]),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function processing(int $unitId, string $date): array
+    {
+        $batches = ProcessingBatch::query()
+            ->with(['materialUsages', 'temperatureLogs', 'documentations', 'petugas'])
+            ->where('sppg_unit_id', $unitId)
+            ->whereDate('production_date', $date)
+            ->latest('started_at')
+            ->latest('id')
+            ->get();
+
+        $running = $batches->filter(fn (ProcessingBatch $batch): bool => $batch->state?->value === 'in_progress')->count();
+        $completed = $batches->filter(fn (ProcessingBatch $batch): bool => $batch->state?->value === 'completed')->count();
+        $handedOver = $batches->whereNotNull('portioning_handed_over_at')->count();
+        [$outputValue, $outputDetail] = $this->summarizeQuantities(
+            $batches->map(fn (ProcessingBatch $batch): array => [
+                'quantity' => (float) ($batch->actual_output_quantity ?? 0),
+                'unit' => $batch->actual_output_unit ?: '-',
+            ])->all(),
+        );
+
+        $rows = $batches->map(function (ProcessingBatch $batch): array {
+            [$status, $tone] = $this->processingStatus($batch);
+            [$handoverStatus, $handoverTone] = $this->handoverStatus($batch);
+            $temperature = $batch->temperatureLogs->sortByDesc('checked_at')->first();
+            $photos = $batch->documentations
+                ->filter(fn ($documentation): bool => filled($documentation->photo_path))
+                ->map(fn ($documentation): array => [
+                    'url' => Storage::disk('public')->url($documentation->photo_path),
+                    'title' => $documentation->documentation_type === 'finished_output'
+                        ? 'Foto hasil akhir'
+                        : ($documentation->caption ?: 'Dokumentasi produksi'),
+                ])
+                ->concat($batch->temperatureLogs
+                    ->filter(fn ($temperature): bool => filled($temperature->photo_path))
+                    ->map(fn ($temperature): array => [
+                        'url' => Storage::disk('public')->url($temperature->photo_path),
+                        'title' => 'Foto suhu · '.($temperature->product_name ?: 'Pangan matang'),
+                    ]))
+                ->unique('url')
+                ->values();
+
+            return [
+                'product' => $batch->product_name ?: $batch->menu_name_snapshot ?: '-',
+                'batch' => $batch->batch_number ?: '-',
+                'materials' => $batch->materialUsages->map(fn ($usage): array => [
+                    'name' => $usage->material_name ?: '-',
+                    'quantity' => $this->quantityLabel($usage->quantity, $usage->unit_name),
+                ])->values()->all(),
+                'started_at' => $batch->started_at?->format('H:i') ?? '-',
+                'completed_at' => $batch->completed_at?->format('H:i') ?? '-',
+                'temperature' => $temperature?->temperature_celsius !== null
+                    ? number_format((float) $temperature->temperature_celsius, 1, ',', '.').' °C'
+                    : '-',
+                'output' => $this->quantityLabel($batch->actual_output_quantity, $batch->actual_output_unit),
+                'officer' => $batch->petugas?->name ?: $batch->petugas_name_snapshot ?: '-',
+                'status' => $status,
+                'status_tone' => $tone,
+                'handover_status' => $handoverStatus,
+                'handover_tone' => $handoverTone,
+                'photos' => $photos->all(),
+            ];
+        })->take(200)->values()->all();
+
+        return [
+            'cards' => [
+                $this->miniCard('Total Batch', $batches->count(), 'Batch produksi pada tanggal terpilih', 'nutrition', 'sky'),
+                $this->miniCard('Sedang Berjalan', $running, 'Batch yang sedang diproses', 'settings', $running > 0 ? 'amber' : 'slate'),
+                $this->miniCard('Produksi Selesai', $completed, 'Batch dengan produksi selesai', 'check-badge', 'emerald'),
+                $this->miniCard('Hasil Produksi', $outputValue, $outputDetail, 'calculator', 'violet'),
+                $this->miniCard('Diserahkan', $handedOver.'/'.$batches->count(), 'Hasil diserahkan ke Pemorsian', 'arrow-up-right', $batches->isNotEmpty() && $handedOver === $batches->count() ? 'emerald' : 'amber'),
+            ],
+            'rows' => $rows,
+            'detail_url' => route('v3.processing.index', ['tanggal' => $date]),
+        ];
     }
 
     /** @param array<int, array<string, mixed>> $progress
@@ -462,6 +598,100 @@ final class OperationalMonitoringService
             'photo_url' => $return->photo_path ? Storage::disk('public')->url($return->photo_path) : null,
             'detail_url' => route('v3.warehouse.controls.index'),
         ];
+    }
+
+    /** @return array{0: string, 1: string} */
+    private function preparationStatus(PreparationSession $session): array
+    {
+        if ($session->status?->value === 'verified') {
+            return ['Diverifikasi', 'emerald'];
+        }
+
+        return match ($session->state) {
+            'completed' => ['Selesai', 'sky'],
+            'in_progress' => ['Berjalan', 'amber'],
+            default => ['Belum Mulai', 'slate'],
+        };
+    }
+
+    /** @return array{0: string, 1: string} */
+    private function processingStatus(ProcessingBatch $batch): array
+    {
+        if ($batch->status?->value === 'verified') {
+            return ['Diverifikasi', 'emerald'];
+        }
+
+        return match ($batch->state?->value) {
+            'completed' => ['Selesai', 'sky'],
+            'in_progress' => ['Berjalan', 'amber'],
+            'cancelled' => ['Dibatalkan', 'rose'],
+            default => ['Belum Mulai', 'slate'],
+        };
+    }
+
+    /** @return array{0: string, 1: string} */
+    private function handoverStatus(ProcessingBatch $batch): array
+    {
+        if ($batch->portioning_received_at) {
+            return ['Diterima Pemorsian', 'emerald'];
+        }
+        if ($batch->portioning_handed_over_at) {
+            return ['Sudah Diserahkan', 'sky'];
+        }
+        if ($batch->state?->value === 'completed') {
+            return ['Siap Diserahkan', 'amber'];
+        }
+
+        return ['Belum Diserahkan', 'slate'];
+    }
+
+    private function quantityLabel(mixed $quantity, ?string $unit): string
+    {
+        $value = (float) ($quantity ?? 0);
+        if ($value <= 0) {
+            return '—';
+        }
+
+        return rtrim(rtrim(number_format($value, 3, ',', '.'), '0'), ',').' '.($unit ?: '-');
+    }
+
+    private function kilogramLabel(float $value): string
+    {
+        return rtrim(rtrim(number_format($value, 3, ',', '.'), '0'), ',').' kg';
+    }
+
+    /**
+     * @param  array<int, array{quantity: float, unit: string}>  $quantities
+     * @return array{0: string, 1: string}
+     */
+    private function summarizeQuantities(array $quantities): array
+    {
+        $groups = collect($quantities)
+            ->filter(fn (array $row): bool => $row['quantity'] > 0)
+            ->groupBy(fn (array $row): string => str($row['unit'] ?: '-')->lower()->trim()->toString())
+            ->map(function ($rows): array {
+                $first = $rows->first();
+
+                return [
+                    'quantity' => (float) $rows->sum('quantity'),
+                    'unit' => $first['unit'] ?: '-',
+                ];
+            })
+            ->values();
+
+        if ($groups->isEmpty()) {
+            return ['0', 'Belum ada hasil produksi tercatat'];
+        }
+
+        $labels = $groups
+            ->map(fn (array $row): string => $this->quantityLabel($row['quantity'], $row['unit']))
+            ->all();
+
+        if ($groups->count() === 1) {
+            return [$labels[0], 'Total hasil akhir seluruh batch'];
+        }
+
+        return [$groups->count().' satuan', implode(' · ', $labels)];
     }
 
     /** @param Builder<Model> $query

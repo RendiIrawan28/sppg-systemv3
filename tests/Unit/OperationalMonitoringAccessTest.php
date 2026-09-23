@@ -30,3 +30,20 @@ it('uses the actual warehouse withdrawal foreign key for monitoring queries', fu
     expect((new WarehouseWithdrawalItem)->withdrawal()->getForeignKeyName())
         ->toBe('warehouse_withdrawal_id');
 });
+
+it('keeps stage two monitoring tabs date filtered and read only', function (): void {
+    $component = file_get_contents(app_path('Livewire/V3/Monitoring/Operational.php'));
+    $service = file_get_contents(app_path('Services/V3/OperationalMonitoringService.php'));
+
+    expect($component)
+        ->toContain("['overview', 'warehouse', 'preparation', 'processing']")
+        ->and($service)
+        ->toContain("whereDate('preparation_date', \$date)")
+        ->toContain("whereDate('production_date', \$date)")
+        ->toContain('received_weight_kg')
+        ->toContain('clean_weight_kg')
+        ->toContain('waste_weight_kg')
+        ->not->toContain('->save(')
+        ->not->toContain('->update(')
+        ->not->toContain('->create(');
+});

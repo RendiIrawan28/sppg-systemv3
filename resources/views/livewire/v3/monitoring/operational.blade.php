@@ -72,6 +72,28 @@
             >
                 Gudang
             </button>
+            <button
+                type="button"
+                wire:click="selectTab('preparation')"
+                @class([
+                    'rounded-xl px-4 py-2.5 text-xs font-bold transition',
+                    'bg-[#081d3a] text-white shadow-sm' => $activeTab === 'preparation',
+                    'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100' => $activeTab !== 'preparation',
+                ])
+            >
+                Persiapan
+            </button>
+            <button
+                type="button"
+                wire:click="selectTab('processing')"
+                @class([
+                    'rounded-xl px-4 py-2.5 text-xs font-bold transition',
+                    'bg-[#081d3a] text-white shadow-sm' => $activeTab === 'processing',
+                    'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100' => $activeTab !== 'processing',
+                ])
+            >
+                Pengolahan
+            </button>
             <div class="ml-auto hidden items-center gap-2 pr-2 text-[10px] font-semibold text-slate-400 sm:flex">
                 <span class="size-2 rounded-full bg-emerald-500"></span>
                 Read-only monitoring
@@ -244,6 +266,144 @@
                 @if (count($warehouse['rows']) >= 200)
                     <div class="border-t border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-900 px-5 py-3 text-center text-[11px] font-semibold text-slate-500 dark:text-slate-400">Menampilkan maksimal 200 baris terbaru agar halaman monitoring tetap ringan.</div>
                 @endif
+            </section>
+        @endif
+
+        @if ($activeTab === 'preparation')
+            <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                @foreach ($preparation['cards'] as $card)
+                    <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:shadow-none">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0">
+                                <p class="text-xs font-semibold text-slate-500 dark:text-slate-400">{{ $card['label'] }}</p>
+                                <p class="mt-2 truncate text-2xl font-bold tracking-[-.04em] text-slate-950 dark:text-slate-50">{{ is_numeric($card['value']) ? number_format($card['value'], 0, ',', '.') : $card['value'] }}</p>
+                            </div>
+                            <span class="grid size-10 shrink-0 place-items-center rounded-xl ring-1 {{ $toneClasses[$card['tone']] ?? $toneClasses['slate'] }}">
+                                <x-v3.icon :name="$card['icon']" class="size-5" />
+                            </span>
+                        </div>
+                        <p class="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{{ $card['detail'] }}</p>
+                    </article>
+                @endforeach
+            </section>
+
+            <section class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:shadow-none">
+                <div class="flex flex-col gap-3 border-b border-slate-200 px-5 py-5 dark:border-slate-800 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+                    <div>
+                        <p class="text-[10px] font-bold uppercase tracking-[.17em] text-sky-700 dark:text-sky-300">Persiapan</p>
+                        <h3 class="mt-1 text-lg font-bold text-slate-950 dark:text-slate-50">Hasil bahan pada tanggal terpilih</h3>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Angka kg menggunakan bobot kanonik tersimpan; angka dan satuan asli tetap ditampilkan sebagai referensi.</p>
+                    </div>
+                    @if (auth()->user()->is_super_admin || auth()->user()->can('preparation.view'))
+                        <a href="{{ $preparation['detail_url'] }}" wire:navigate class="inline-flex h-10 items-center gap-2 self-start rounded-xl bg-slate-100 px-4 text-xs font-bold text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 sm:self-auto">
+                            Buka modul Persiapan
+                            <x-v3.icon name="arrow-up-right" class="size-4" />
+                        </a>
+                    @endif
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full min-w-[1180px] text-left">
+                        <thead class="bg-slate-50 text-[10px] font-bold uppercase tracking-[.12em] text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                            <tr>
+                                <th class="px-5 py-3">Bahan</th>
+                                <th class="px-4 py-3">Diterima</th>
+                                <th class="px-4 py-3">Hasil</th>
+                                <th class="px-4 py-3">Limbah</th>
+                                <th class="px-4 py-3">Petugas</th>
+                                <th class="px-4 py-3">Waktu</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-5 py-3 text-right">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+                            @forelse ($preparation['rows'] as $row)
+                                <tr class="transition hover:bg-slate-50/70 dark:hover:bg-slate-900/70">
+                                    <td class="px-5 py-4 align-top font-bold text-slate-900 dark:text-slate-100">{{ $row['ingredient'] }}</td>
+                                    <td class="px-4 py-4 align-top">
+                                        <p class="font-bold text-slate-800 dark:text-slate-200">{{ $row['received'] }}</p>
+                                        @if ($row['received_kg'] > 0)<p class="mt-1 text-[10px] text-slate-400">{{ number_format($row['received_kg'], 3, ',', '.') }} kg kanonik</p>@endif
+                                    </td>
+                                    <td class="px-4 py-4 align-top">
+                                        <p class="font-bold text-emerald-700 dark:text-emerald-300">{{ $row['result'] }}</p>
+                                        @if ($row['result_kg'] > 0)<p class="mt-1 text-[10px] text-slate-400">{{ number_format($row['result_kg'], 3, ',', '.') }} kg kanonik</p>@endif
+                                    </td>
+                                    <td class="px-4 py-4 align-top">
+                                        <p class="font-bold text-amber-700 dark:text-amber-300">{{ $row['waste'] }}</p>
+                                        @if ($row['waste_kg'] > 0)<p class="mt-1 text-[10px] text-slate-400">{{ number_format($row['waste_kg'], 3, ',', '.') }} kg kanonik</p>@endif
+                                    </td>
+                                    <td class="px-4 py-4 align-top text-xs text-slate-600 dark:text-slate-300">{{ $row['officer'] }}</td>
+                                    <td class="px-4 py-4 align-top text-xs font-semibold text-slate-600 dark:text-slate-300">{{ $row['time'] }}</td>
+                                    <td class="px-4 py-4 align-top"><span class="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 {{ $badgeClasses[$row['status_tone']] ?? $badgeClasses['slate'] }}">{{ $row['status'] }}</span></td>
+                                    <td class="px-5 py-4 align-top">
+                                        <div class="flex justify-end gap-2">
+                                            @if ($row['photo_url'])
+                                                <x-v3.documentation-button :url="$row['photo_url']" :title="'Hasil Persiapan · '.$row['ingredient']" label="Foto" class="!px-2.5 !py-1.5" />
+                                            @endif
+                                            @if (auth()->user()->is_super_admin || auth()->user()->can('preparation.view'))
+                                                <a href="{{ $preparation['detail_url'] }}" wire:navigate class="inline-flex items-center rounded-xl bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">Detail</a>
+                                            @endif
+                                        </div>
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="8" class="px-6 py-14 text-center"><p class="text-sm font-bold text-slate-700 dark:text-slate-200">Belum ada pekerjaan Persiapan</p><p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Tidak ditemukan sesi pada {{ \Carbon\Carbon::parse($workDate)->translatedFormat('d F Y') }}.</p></td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        @endif
+
+        @if ($activeTab === 'processing')
+            <section class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+                @foreach ($processing['cards'] as $card)
+                    <article class="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:shadow-none">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="min-w-0"><p class="text-xs font-semibold text-slate-500 dark:text-slate-400">{{ $card['label'] }}</p><p class="mt-2 truncate text-2xl font-bold tracking-[-.04em] text-slate-950 dark:text-slate-50">{{ is_numeric($card['value']) ? number_format($card['value'], 0, ',', '.') : $card['value'] }}</p></div>
+                            <span class="grid size-10 shrink-0 place-items-center rounded-xl ring-1 {{ $toneClasses[$card['tone']] ?? $toneClasses['slate'] }}"><x-v3.icon :name="$card['icon']" class="size-5" /></span>
+                        </div>
+                        <p class="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{{ $card['detail'] }}</p>
+                    </article>
+                @endforeach
+            </section>
+
+            <section class="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:shadow-none">
+                <div class="flex flex-col gap-3 border-b border-slate-200 px-5 py-5 dark:border-slate-800 sm:flex-row sm:items-end sm:justify-between sm:px-6">
+                    <div><p class="text-[10px] font-bold uppercase tracking-[.17em] text-sky-700 dark:text-sky-300">Pengolahan</p><h3 class="mt-1 text-lg font-bold text-slate-950 dark:text-slate-50">Produksi pada tanggal terpilih</h3><p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Bahan aktual, suhu matang, hasil akhir, dan status penyerahan dirangkum per batch.</p></div>
+                    @if (auth()->user()->is_super_admin || auth()->user()->can('processing.view'))
+                        <a href="{{ $processing['detail_url'] }}" wire:navigate class="inline-flex h-10 items-center gap-2 self-start rounded-xl bg-slate-100 px-4 text-xs font-bold text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 sm:self-auto">Buka modul Pengolahan<x-v3.icon name="arrow-up-right" class="size-4" /></a>
+                    @endif
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full min-w-[1480px] text-left">
+                        <thead class="bg-slate-50 text-[10px] font-bold uppercase tracking-[.12em] text-slate-500 dark:bg-slate-900 dark:text-slate-400"><tr><th class="px-5 py-3">Menu / Produk</th><th class="px-4 py-3">Batch</th><th class="px-4 py-3">Bahan Aktual</th><th class="px-4 py-3">Mulai / Selesai</th><th class="px-4 py-3">Suhu</th><th class="px-4 py-3">Hasil</th><th class="px-4 py-3">Petugas</th><th class="px-4 py-3">Status</th><th class="px-4 py-3">Penyerahan</th><th class="px-5 py-3 text-right">Aksi</th></tr></thead>
+                        <tbody class="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+                            @forelse ($processing['rows'] as $row)
+                                <tr class="transition hover:bg-slate-50/70 dark:hover:bg-slate-900/70">
+                                    <td class="px-5 py-4 align-top font-bold text-slate-900 dark:text-slate-100">{{ $row['product'] }}</td>
+                                    <td class="px-4 py-4 align-top text-xs font-semibold text-slate-600 dark:text-slate-300">{{ $row['batch'] }}</td>
+                                    <td class="px-4 py-4 align-top">
+                                        @if (count($row['materials']))
+                                            <details class="group"><summary class="cursor-pointer text-xs font-bold text-sky-700 dark:text-sky-300">{{ count($row['materials']) }} bahan digunakan</summary><div class="mt-2 space-y-1 rounded-xl bg-slate-50 p-2.5 dark:bg-slate-900">@foreach ($row['materials'] as $material)<p class="text-[11px] text-slate-600 dark:text-slate-300"><b>{{ $material['name'] }}</b> · {{ $material['quantity'] }}</p>@endforeach</div></details>
+                                        @else
+                                            <span class="text-xs text-slate-400">Belum dicatat</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-4 align-top text-xs text-slate-600 dark:text-slate-300"><p>Mulai {{ $row['started_at'] }}</p><p class="mt-1">Selesai {{ $row['completed_at'] }}</p></td>
+                                    <td class="px-4 py-4 align-top font-bold text-slate-800 dark:text-slate-200">{{ $row['temperature'] }}</td>
+                                    <td class="px-4 py-4 align-top font-bold text-violet-700 dark:text-violet-300">{{ $row['output'] }}</td>
+                                    <td class="px-4 py-4 align-top text-xs text-slate-600 dark:text-slate-300">{{ $row['officer'] }}</td>
+                                    <td class="px-4 py-4 align-top"><span class="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 {{ $badgeClasses[$row['status_tone']] ?? $badgeClasses['slate'] }}">{{ $row['status'] }}</span></td>
+                                    <td class="px-4 py-4 align-top"><span class="inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ring-1 {{ $badgeClasses[$row['handover_tone']] ?? $badgeClasses['slate'] }}">{{ $row['handover_status'] }}</span></td>
+                                    <td class="px-5 py-4 align-top"><div class="flex flex-wrap justify-end gap-2">@foreach ($row['photos'] as $photo)<x-v3.documentation-button :url="$photo['url']" :title="$photo['title'].' · '.$row['product']" :label="count($row['photos']) > 1 ? 'Foto '.($loop->index + 1) : 'Foto'" class="!px-2.5 !py-1.5" />@endforeach @if (auth()->user()->is_super_admin || auth()->user()->can('processing.view'))<a href="{{ $processing['detail_url'] }}" wire:navigate class="inline-flex items-center rounded-xl bg-slate-100 px-3 py-1.5 text-[11px] font-bold text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">Detail</a>@endif</div></td>
+                                </tr>
+                            @empty
+                                <tr><td colspan="10" class="px-6 py-14 text-center"><p class="text-sm font-bold text-slate-700 dark:text-slate-200">Belum ada produksi Pengolahan</p><p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Tidak ditemukan batch pada {{ \Carbon\Carbon::parse($workDate)->translatedFormat('d F Y') }}.</p></td></tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
             </section>
         @endif
 

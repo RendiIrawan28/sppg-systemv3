@@ -28,7 +28,7 @@ class Operational extends Component
 
     public function selectTab(string $tab): void
     {
-        abort_unless(in_array($tab, ['overview', 'warehouse'], true), 404);
+        abort_unless(in_array($tab, ['overview', 'warehouse', 'preparation', 'processing'], true), 404);
         $this->activeTab = $tab;
     }
 
