@@ -18,7 +18,7 @@
 
         @if (auth()->user()->is_super_admin || auth()->user()->can('monitoring_operasional.view'))
             <a
-                href="{{ route('v3.monitoring.operational') }}"
+                href="{{ route('v3.monitoring.index') }}"
                 wire:navigate
                 class="group flex flex-col gap-4 rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50 to-cyan-50 p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-lg hover:shadow-sky-900/5 sm:flex-row sm:items-center sm:justify-between dark:border-sky-400/20 dark:from-sky-500/10 dark:to-cyan-500/5"
             >
@@ -28,7 +28,7 @@
                     </span>
                     <div>
                         <p class="text-sm font-bold text-slate-950 dark:text-slate-50">Monitoring Operasional</p>
-                        <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-300">Pantau ringkasan lintas divisi, aktivitas Gudang, progres pekerjaan, distribusi, dan presensi pada halaman khusus.</p>
+                        <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-300">Pantau ringkasan lintas divisi, progres pekerjaan, distribusi, dan presensi dari ruang monitoring khusus.</p>
                     </div>
                 </div>
                 <span class="inline-flex items-center gap-2 self-start rounded-xl bg-white px-4 py-2 text-xs font-bold text-sky-700 ring-1 ring-sky-100 transition group-hover:bg-sky-600 group-hover:text-white dark:bg-slate-900 dark:text-sky-300 dark:ring-slate-700 sm:self-auto">

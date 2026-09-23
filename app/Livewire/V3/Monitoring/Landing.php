@@ -9,17 +9,12 @@ use Carbon\Carbon;
 use Livewire\Attributes\Url;
 use Livewire\Component;
 
-class Operational extends Component
+class Landing extends Component
 {
     use InteractsWithV3Shell;
 
-    private const VALID_TABS = ['overview', 'warehouse', 'preparation', 'processing', 'portioning', 'distribution'];
-
     #[Url(as: 'date', history: true)]
     public string $workDate = '';
-
-    #[Url(as: 'tab', history: true)]
-    public string $activeTab = 'overview';
 
     public string $lastRefreshedAt = '';
 
@@ -28,18 +23,13 @@ class Operational extends Component
         $this->currentUnit();
         abort_unless($this->allowed('monitoring_operasional.view'), 403);
 
-        $this->normalizeQueryState();
+        $this->normalizeDate();
         $this->lastRefreshedAt = now()->format('H:i:s');
-    }
-
-    public function selectTab(string $tab): void
-    {
-        $this->activeTab = in_array($tab, self::VALID_TABS, true) ? $tab : 'overview';
     }
 
     public function refreshData(): void
     {
-        $this->normalizeQueryState();
+        $this->normalizeDate();
         $this->lastRefreshedAt = now()->format('H:i:s');
     }
 
@@ -51,14 +41,14 @@ class Operational extends Component
 
     public function previousDay(): void
     {
-        $this->normalizeQueryState();
+        $this->normalizeDate();
         $this->workDate = Carbon::parse($this->workDate)->subDay()->toDateString();
         $this->refreshData();
     }
 
     public function nextDay(): void
     {
-        $this->normalizeQueryState();
+        $this->normalizeDate();
         $this->workDate = Carbon::parse($this->workDate)->addDay()->toDateString();
         $this->refreshData();
     }
@@ -67,24 +57,19 @@ class Operational extends Component
     {
         $unit = $this->currentUnit();
         abort_unless($this->allowed('monitoring_operasional.view'), 403);
-
-        $this->normalizeQueryState();
+        $this->normalizeDate();
 
         $shell = $this->shellData($unit);
-        $shell['navigation'] = app(MonitoringNavigation::class)->for($this->workDate, $this->activeTab);
+        $shell['navigation'] = app(MonitoringNavigation::class)->for($this->workDate, landing: true);
 
-        return view('livewire.v3.monitoring.operational', [
+        return view('livewire.v3.monitoring.landing', [
             ...$shell,
-            ...$service->for($unit, $this->workDate),
+            ...$service->summaryFor($unit, $this->workDate),
         ])->layout('layouts.v3', ['title' => 'Monitoring Operasional']);
     }
 
-    private function normalizeQueryState(): void
+    private function normalizeDate(): void
     {
-        $this->activeTab = in_array($this->activeTab, self::VALID_TABS, true)
-            ? $this->activeTab
-            : 'overview';
-
         try {
             $date = Carbon::createFromFormat('!Y-m-d', trim($this->workDate));
         } catch (\Throwable) {

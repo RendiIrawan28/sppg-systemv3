@@ -1,4 +1,4 @@
-<x-v3.shell :$unit :$navigation :$roleLabel title="Monitoring Operasional" eyebrow="Monitoring lintas divisi">
+<x-v3.monitoring-shell :$unit :$navigation :$roleLabel title="Monitoring Harian" eyebrow="Monitoring lintas divisi">
     @php
         $toneClasses = [
             'sky' => 'bg-sky-50 text-sky-700 ring-sky-100 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-400/20',
@@ -93,6 +93,28 @@
                 ])
             >
                 Pengolahan
+            </button>
+            <button
+                type="button"
+                wire:click="selectTab('portioning')"
+                @class([
+                    'rounded-xl px-4 py-2.5 text-xs font-bold transition',
+                    'bg-[#081d3a] text-white shadow-sm' => $activeTab === 'portioning',
+                    'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100' => $activeTab !== 'portioning',
+                ])
+            >
+                Pemorsian
+            </button>
+            <button
+                type="button"
+                wire:click="selectTab('distribution')"
+                @class([
+                    'rounded-xl px-4 py-2.5 text-xs font-bold transition',
+                    'bg-[#081d3a] text-white shadow-sm' => $activeTab === 'distribution',
+                    'text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100' => $activeTab !== 'distribution',
+                ])
+            >
+                Distribusi
             </button>
             <div class="ml-auto hidden items-center gap-2 pr-2 text-[10px] font-semibold text-slate-400 sm:flex">
                 <span class="size-2 rounded-full bg-emerald-500"></span>
@@ -407,6 +429,14 @@
             </section>
         @endif
 
+        @if ($activeTab === 'portioning')
+            @include('livewire.v3.monitoring.partials.portioning')
+        @endif
+
+        @if ($activeTab === 'distribution')
+            @include('livewire.v3.monitoring.partials.distribution')
+        @endif
+
         <div wire:loading.flex wire:target="workDate,previousDay,nextDay,useToday,refreshData,selectTab" class="fixed inset-0 z-[90] items-center justify-center bg-slate-950/10 backdrop-blur-[1px] dark:bg-black/30">
             <div class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-bold text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
                 <span class="size-5 animate-spin rounded-full border-2 border-slate-200 border-t-sky-600 dark:border-slate-700 dark:border-t-sky-400"></span>
@@ -414,4 +444,4 @@
             </div>
         </div>
     </div>
-</x-v3.shell>
+</x-v3.monitoring-shell>

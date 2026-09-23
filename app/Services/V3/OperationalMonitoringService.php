@@ -37,13 +37,62 @@ final class OperationalMonitoringService
         $date = Carbon::parse($date)->toDateString();
         $unitId = (int) $unit->getKey();
 
-        $progress = $this->progress($unitId, $date);
-        $overview = $this->overview($unitId, $date, $progress);
+        $summary = $this->summaryFor($unit, $date);
         $warehouse = $this->warehouse($unitId, $date);
         $preparation = $this->preparation($unitId, $date);
         $processing = $this->processing($unitId, $date);
+        $portioning = $this->portioning($unitId, $date);
+        $distribution = $this->distribution($unitId, $date);
 
-        return compact('overview', 'progress', 'warehouse', 'preparation', 'processing');
+        return [...$summary, ...compact('warehouse', 'preparation', 'processing', 'portioning', 'distribution')];
+    }
+
+    /**
+     * @return array{
+     *     overview: array<string, mixed>,
+     *     progress: array<int, array<string, mixed>>,
+     *     moduleSummaries: array<string, array<string, string>>
+     * }
+     */
+    public function summaryFor(SppgUnit $unit, string $date): array
+    {
+        $date = Carbon::parse($date)->toDateString();
+        $unitId = (int) $unit->getKey();
+        $progress = $this->progress($unitId, $date);
+        $overview = $this->overview($unitId, $date, $progress);
+        $moduleSummaries = $this->moduleSummaries($unitId, $date);
+
+        return compact('overview', 'progress', 'moduleSummaries');
+    }
+
+    /** @return array<string, array<string, string>> */
+    private function moduleSummaries(int $unitId, string $date): array
+    {
+        $portioning = PortioningSession::query()
+            ->where('sppg_unit_id', $unitId)
+            ->forDate($date)
+            ->selectRaw('COUNT(*) as session_count')
+            ->selectRaw('COALESCE(SUM(COALESCE(target_small_portions, 0) + COALESCE(target_large_portions, 0)), 0) as target_total')
+            ->selectRaw('COALESCE(SUM(COALESCE(actual_small_portions, 0) + COALESCE(actual_large_portions, 0)), 0) as actual_total')
+            ->first();
+
+        $distribution = DistributionRun::query()
+            ->where('sppg_unit_id', $unitId)
+            ->forDate($date)
+            ->selectRaw('COUNT(*) as route_count')
+            ->selectRaw("COALESCE(SUM(CASE WHEN state IN ('destinations_completed', 'returned') THEN 1 ELSE 0 END), 0) as completed_count")
+            ->first();
+
+        return [
+            'portioning' => [
+                'primary' => number_format((int) ($portioning?->session_count ?? 0), 0, ',', '.').' sesi',
+                'secondary' => number_format((int) ($portioning?->actual_total ?? 0), 0, ',', '.').' / '.number_format((int) ($portioning?->target_total ?? 0), 0, ',', '.').' porsi',
+            ],
+            'distribution' => [
+                'primary' => number_format((int) ($distribution?->route_count ?? 0), 0, ',', '.').' rute',
+                'secondary' => number_format((int) ($distribution?->completed_count ?? 0), 0, ',', '.').' selesai',
+            ],
+        ];
     }
 
     /** @return array<string, mixed> */
@@ -180,6 +229,173 @@ final class OperationalMonitoringService
         ];
     }
 
+    /** @return array<string, mixed> */
+    private function portioning(int $unitId, string $date): array
+    {
+        $sessions = PortioningSession::query()
+            ->with(['routeAllocations', 'routeRecords', 'leftoverRecords', 'petugas'])
+            ->where('sppg_unit_id', $unitId)
+            ->forDate($date)
+            ->latest('started_at')
+            ->latest('id')
+            ->get();
+
+        $leftovers = $sessions->flatMap(fn (PortioningSession $session) => $session->leftoverRecords);
+        [, $leftoverDetail] = $this->summarizeQuantities(
+            $leftovers->map(fn ($leftover): array => [
+                'quantity' => (float) ($leftover->quantity ?? 0),
+                'unit' => $leftover->unit_name ?: '-',
+            ])->all(),
+        );
+
+        $rows = $sessions->map(function (PortioningSession $session): array {
+            [$processStatus, $processTone] = $this->portioningStatus($session);
+            [$reportStatus, $reportTone] = $this->reportStatus($session->status);
+
+            return [
+                'number' => $session->session_number ?: '-',
+                'menu' => $session->menu_name_snapshot ?: '-',
+                'target_small' => (int) $session->target_small_portions,
+                'target_large' => (int) $session->target_large_portions,
+                'target_total' => $session->target_total,
+                'actual_small' => (int) $session->actual_small_portions,
+                'actual_large' => (int) $session->actual_large_portions,
+                'actual_total' => $session->actual_total,
+                'started_at' => $session->started_at?->format('H:i') ?? '-',
+                'completed_at' => $session->completed_at?->format('H:i') ?? '-',
+                'officer' => $session->petugas?->name ?: $session->petugas_name_snapshot ?: '-',
+                'process_status' => $processStatus,
+                'process_tone' => $processTone,
+                'report_status' => $reportStatus,
+                'report_tone' => $reportTone,
+                'allocations' => $session->routeAllocations->map(fn ($allocation): array => [
+                    'route' => $allocation->route_name ?: '-',
+                    'destination' => $allocation->destination_name ?: '-',
+                    'target_small' => (int) $allocation->target_small_portions,
+                    'target_large' => (int) $allocation->target_large_portions,
+                    'planned_at' => $allocation->planned_arrival_at?->format('H:i') ?? '-',
+                ])->values()->all(),
+                'route_records' => $session->routeRecords->map(fn ($record): array => [
+                    'route' => $record->route_name ?: '-',
+                    'actual_small' => (int) $record->small_portions,
+                    'actual_large' => (int) $record->large_portions,
+                    'completed_at' => $record->completed_at?->format('H:i') ?? '-',
+                    'notes' => $record->notes ?: null,
+                    'photo_url' => $record->photo_path ? Storage::disk('public')->url($record->photo_path) : null,
+                ])->values()->all(),
+            ];
+        })->take(150)->values()->all();
+
+        $leftoverRows = $sessions->flatMap(fn (PortioningSession $session): array => $session->leftoverRecords
+            ->map(fn ($leftover): array => [
+                'session' => $session->session_number ?: '-',
+                'time' => $leftover->checked_at?->format('H:i') ?? '-',
+                'food_type' => $leftover->food_type ?: '-',
+                'quantity' => $this->quantityLabel($leftover->quantity, $leftover->unit_name),
+                'unit' => $leftover->unit_name ?: '-',
+                'notes' => $leftover->notes ?: '-',
+                'photo_url' => $leftover->photo_path ? Storage::disk('public')->url($leftover->photo_path) : null,
+            ])->all())
+            ->values()
+            ->all();
+
+        return [
+            'cards' => [
+                $this->miniCard('Target Porsi', (int) $sessions->sum(fn (PortioningSession $session): int => $session->target_total), 'Porsi kecil + besar yang ditargetkan', 'calculator', 'sky'),
+                $this->miniCard('Porsi Aktual', (int) $sessions->sum(fn (PortioningSession $session): int => $session->actual_total), 'Porsi kecil + besar yang selesai', 'check-badge', 'emerald'),
+                $this->miniCard('Rute Pemorsian Selesai', $sessions->sum(fn (PortioningSession $session): int => $session->routeRecords->count()), 'Jumlah pencatatan rute yang selesai', 'route', 'violet'),
+                $this->miniCard('Sisa Makanan', $leftovers->count(), $leftovers->isEmpty() ? 'Tidak ada data sisa makanan' : $leftoverDetail, 'recycle', $leftovers->isEmpty() ? 'slate' : 'amber'),
+            ],
+            'rows' => $rows,
+            'leftovers' => $leftoverRows,
+            'detail_url' => route('v3.portioning.index', ['tanggal' => $date]),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function distribution(int $unitId, string $date): array
+    {
+        $runs = DistributionRun::query()
+            ->with(['stops', 'documentations', 'petugas'])
+            ->where('sppg_unit_id', $unitId)
+            ->forDate($date)
+            ->latest('actual_departure_at')
+            ->latest('id')
+            ->get();
+
+        $completed = $runs->filter(fn (DistributionRun $run): bool => in_array($run->state?->value, ['destinations_completed', 'returned'], true))->count();
+
+        $rows = $runs->map(function (DistributionRun $run): array {
+            [$processStatus, $processTone] = $this->distributionStatus($run);
+            [$reportStatus, $reportTone] = $this->reportStatus($run->status);
+
+            return [
+                'number' => $run->run_number ?: '-',
+                'route' => $run->route_name ?: '-',
+                'menu' => $run->menu_name_snapshot ?: '-',
+                'small' => (int) $run->loaded_small_portions,
+                'large' => (int) $run->loaded_large_portions,
+                'total' => $run->loaded_total,
+                'departed_at' => $run->actual_departure_at?->format('H:i') ?? '-',
+                'destinations_completed_at' => $run->destinations_completed_at?->format('H:i') ?? '-',
+                'returned_at' => $run->returned_at?->format('H:i') ?? '-',
+                'officer' => $run->petugas?->name ?: $run->petugas_name_snapshot ?: '-',
+                'driver' => $run->driver_name ?: '-',
+                'vehicle' => collect([$run->vehicle_name, $run->vehicle_plate])->filter()->implode(' · ') ?: '-',
+                'process_status' => $processStatus,
+                'process_tone' => $processTone,
+                'report_status' => $reportStatus,
+                'report_tone' => $reportTone,
+                'return_summary' => [
+                    'portions' => $run->returned_total,
+                    'containers' => (int) $run->containers_returned,
+                    'damaged' => (int) $run->containers_damaged,
+                    'lost' => (int) $run->containers_lost,
+                ],
+                'stops' => $run->stops->map(function ($stop): array {
+                    $deliveredSmall = (int) $stop->delivered_small_portions;
+                    $deliveredLarge = (int) $stop->delivered_large_portions;
+                    $hasActual = ($deliveredSmall + $deliveredLarge) > 0;
+
+                    return [
+                        'sequence' => (int) $stop->sequence_order,
+                        'destination' => $stop->destination_name ?: '-',
+                        'type' => $stop->destination_type ? str($stop->destination_type)->replace('_', ' ')->title()->toString() : '-',
+                        'planned_small' => (int) $stop->small_portions,
+                        'planned_large' => (int) $stop->large_portions,
+                        'actual_small' => $hasActual ? $deliveredSmall : null,
+                        'actual_large' => $hasActual ? $deliveredLarge : null,
+                        'planned_at' => $stop->planned_arrival_at?->format('H:i') ?? '-',
+                        'arrived_at' => $stop->arrived_at?->format('H:i') ?? '-',
+                        'recipient' => collect([$stop->recipient_name, $stop->recipient_position])->filter()->implode(' · ') ?: '-',
+                        'status' => $stop->status?->label() ?? '-',
+                        'status_tone' => $this->distributionStopTone($stop->status?->value),
+                        'photo_url' => $stop->handover_photo_path ? Storage::disk('public')->url($stop->handover_photo_path) : null,
+                    ];
+                })->values()->all(),
+                'documentations' => $run->documentations
+                    ->filter(fn ($documentation): bool => filled($documentation->photo_path))
+                    ->map(fn ($documentation): array => [
+                        'phase' => $documentation->phase ? str($documentation->phase)->replace('_', ' ')->title()->toString() : 'Dokumentasi',
+                        'caption' => $documentation->caption ?: '-',
+                        'time' => $documentation->captured_at?->format('H:i') ?? '-',
+                        'photo_url' => Storage::disk('public')->url($documentation->photo_path),
+                    ])->values()->all(),
+            ];
+        })->take(150)->values()->all();
+
+        return [
+            'cards' => [
+                $this->miniCard('Total Rute', $runs->count(), 'Rute distribusi pada tanggal terpilih', 'route', 'sky'),
+                $this->miniCard('Rute Selesai', $completed, 'Semua tujuan selesai atau kembali ke SPPG', 'check-badge', 'emerald'),
+                $this->miniCard('Porsi Dibawa', (int) $runs->sum(fn (DistributionRun $run): int => $run->loaded_total), 'Porsi kecil + besar yang dimuat', 'truck', 'violet'),
+                $this->miniCard('Porsi Terkirim', (int) $runs->sum(fn (DistributionRun $run): int => $run->delivered_total), 'Porsi aktual yang diterima tujuan', 'users', 'amber'),
+            ],
+            'rows' => $rows,
+            'detail_url' => route('v3.operations.index', ['module' => 'distribusi', 'tanggal' => $date]),
+        ];
+    }
+
     /** @param array<int, array<string, mixed>> $progress
      * @return array<string, mixed>
      */
@@ -209,11 +425,13 @@ final class OperationalMonitoringService
                 })
                 ->count();
 
-        $withdrawalItems = WarehouseWithdrawalItem::query()
+        $withdrawalSummary = WarehouseWithdrawalItem::query()
             ->whereHas('withdrawal', fn (Builder $query) => $query
                 ->where('sppg_unit_id', $unitId)
                 ->whereDate('withdrawal_date', $date))
-            ->get(['id', 'taken_quantity_kg', 'verified_quantity_kg']);
+            ->selectRaw('COUNT(*) as total_count')
+            ->selectRaw('COALESCE(SUM(CASE WHEN COALESCE(verified_quantity_kg, 0) > 0 THEN verified_quantity_kg ELSE COALESCE(taken_quantity_kg, 0) END), 0) as total_kg')
+            ->first();
 
         $batchQuery = ProcessingBatch::query()
             ->where('sppg_unit_id', $unitId)
@@ -254,11 +472,8 @@ final class OperationalMonitoringService
             ? 0
             : (int) round(($finishedStages / count($progress)) * 100);
 
-        $outKg = (float) $withdrawalItems->sum(function (WarehouseWithdrawalItem $item): float {
-            $verified = (float) ($item->verified_quantity_kg ?? 0);
-
-            return $verified > 0 ? $verified : (float) ($item->taken_quantity_kg ?? 0);
-        });
+        $outKg = (float) ($withdrawalSummary?->total_kg ?? 0);
+        $withdrawalItemCount = (int) ($withdrawalSummary?->total_count ?? 0);
 
         return [
             'cards' => [
@@ -298,10 +513,10 @@ final class OperationalMonitoringService
                 ),
                 $this->card(
                     'Bahan Keluar Gudang',
-                    $withdrawalItems->count(),
+                    $withdrawalItemCount,
                     $outKg > 0
-                        ? number_format($outKg, 2, ',', '.').' kg tercatat pada '.$withdrawalItems->count().' baris bahan'
-                        : $withdrawalItems->count().' baris bahan diambil dari gudang',
+                        ? number_format($outKg, 2, ',', '.').' kg tercatat pada '.$withdrawalItemCount.' baris bahan'
+                        : $withdrawalItemCount.' baris bahan diambil dari gudang',
                     'box',
                     'amber',
                     route('v3.warehouse.withdrawals.index'),
@@ -598,6 +813,61 @@ final class OperationalMonitoringService
             'photo_url' => $return->photo_path ? Storage::disk('public')->url($return->photo_path) : null,
             'detail_url' => route('v3.warehouse.controls.index'),
         ];
+    }
+
+    /** @return array{0: string, 1: string} */
+    private function portioningStatus(PortioningSession $session): array
+    {
+        return [
+            $session->state?->label() ?? 'Belum Mulai',
+            match ($session->state?->value) {
+                'completed' => 'emerald',
+                'in_progress' => 'amber',
+                'cancelled' => 'rose',
+                default => 'slate',
+            },
+        ];
+    }
+
+    /** @return array{0: string, 1: string} */
+    private function distributionStatus(DistributionRun $run): array
+    {
+        return [
+            $run->state?->label() ?? 'Belum Mulai',
+            match ($run->state?->value) {
+                'returned' => 'emerald',
+                'destinations_completed', 'departed' => 'amber',
+                'assigned', 'loaded' => 'sky',
+                'cancelled' => 'rose',
+                default => 'slate',
+            },
+        ];
+    }
+
+    /** @return array{0: string, 1: string} */
+    private function reportStatus(mixed $status): array
+    {
+        return [
+            $status?->label() ?? 'Draft',
+            match ($status?->value) {
+                'verified' => 'emerald',
+                'division_approved' => 'sky',
+                'submitted' => 'amber',
+                'revision_required' => 'rose',
+                default => 'slate',
+            },
+        ];
+    }
+
+    private function distributionStopTone(?string $status): string
+    {
+        return match ($status) {
+            'delivered' => 'emerald',
+            'arrived', 'partial' => 'sky',
+            'in_transit' => 'amber',
+            'failed' => 'rose',
+            default => 'slate',
+        };
     }
 
     /** @return array{0: string, 1: string} */

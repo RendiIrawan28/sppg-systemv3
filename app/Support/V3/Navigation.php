@@ -18,7 +18,7 @@ final class Navigation
                 $this->item(
                     'Monitoring Operasional',
                     'clipboard',
-                    route('v3.monitoring.operational'),
+                    route('v3.monitoring.index'),
                     request()->routeIs('v3.monitoring.*'),
                     $this->allowed($user, 'monitoring_operasional.view'),
                 ),

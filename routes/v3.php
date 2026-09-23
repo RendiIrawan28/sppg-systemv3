@@ -6,6 +6,7 @@ use App\Http\Controllers\CleaningWarehouseChecklistPdfController;
 use App\Http\Controllers\SecurityShiftReportController;
 use App\Http\Controllers\V3\EntryController;
 use App\Http\Controllers\V3\LogoutController;
+use App\Http\Controllers\WarehouseStockCardExportController;
 use App\Http\Controllers\WasteHandoverPdfController;
 use App\Http\Middleware\SetV3UnitContext;
 use App\Livewire\V3\Administration\ModuleDataReset;
@@ -30,6 +31,7 @@ use App\Livewire\V3\MasterData\Catalog as MasterDataCatalog;
 use App\Livewire\V3\MasterData\Hub as MasterDataHub;
 use App\Livewire\V3\MasterData\Organization as MasterDataOrganization;
 use App\Livewire\V3\MasterData\Users as MasterDataUsers;
+use App\Livewire\V3\Monitoring\Landing as MonitoringLanding;
 use App\Livewire\V3\Monitoring\Operational as OperationalMonitoring;
 use App\Livewire\V3\Notifications\Broadcast as NotificationBroadcast;
 use App\Livewire\V3\Nutrition\DailyEvaluation;
@@ -76,7 +78,8 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
     Route::middleware(SetV3UnitContext::class)
         ->group(function (): void {
             Route::get('/dashboard', Dashboard::class)->name('dashboard');
-            Route::get('/monitoring-operasional', OperationalMonitoring::class)->name('monitoring.operational');
+            Route::get('/monitoring-operasional', MonitoringLanding::class)->name('monitoring.index');
+            Route::get('/monitoring-operasional/harian', OperationalMonitoring::class)->name('monitoring.operational');
             Route::get('/penerima-manfaat', BeneficiaryIndex::class)->name('beneficiaries.index');
             Route::get('/penerima-manfaat/tambah', BeneficiaryForm::class)->name('beneficiaries.create');
             Route::get('/penerima-manfaat/impor', BeneficiaryImport::class)->name('beneficiaries.import');
@@ -98,7 +101,7 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/gudang/penerimaan/manual', StockReceiptCreateManual::class)->name('warehouse.receipts.manual');
             Route::get('/gudang/penerimaan/{receipt}', StockReceiptShow::class)->name('warehouse.receipts.show');
             Route::get('/gudang/stok', StockIndex::class)->name('warehouse.stock.index');
-            Route::get('/gudang/stok/ekspor', \App\Http\Controllers\WarehouseStockCardExportController::class)->name('warehouse.stock.export');
+            Route::get('/gudang/stok/ekspor', WarehouseStockCardExportController::class)->name('warehouse.stock.export');
             Route::get('/gudang/stok-awal', OpeningStockIndex::class)->name('warehouse.opening-stocks.index');
             Route::get('/gudang/non-pangan', NonFoodItemIndex::class)->name('warehouse.non-food-items.index');
             Route::get('/gudang/pengambilan', WarehouseWithdrawalIndex::class)->name('warehouse.withdrawals.index');
