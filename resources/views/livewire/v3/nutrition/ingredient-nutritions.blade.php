@@ -1,0 +1,35 @@
+<x-v3.shell :$unit :$navigation :$roleLabel title="Nilai Gizi Bahan" eyebrow="Referensi bahan Ahli Gizi">
+    <div class="mx-auto max-w-[1500px] space-y-5">
+        <div><h2 class="text-2xl font-bold text-slate-950 dark:text-slate-50">Nilai Gizi Bahan</h2><p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Lihat kandungan gizi, basis referensi, dan kelengkapan data bahan aktif tanpa mengubah master.</p></div>
+        <section class="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:grid-cols-2 xl:grid-cols-4">
+            <label><span class="mb-1 block text-xs font-semibold">Cari bahan</span><input wire:model.live.debounce.350ms="search" placeholder="Kode atau nama bahan" class="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"></label>
+            <label><span class="mb-1 block text-xs font-semibold">Sumber</span><select wire:model.live="source" class="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"><option value="">Semua sumber</option>@foreach($sourceOptions as $option)<option value="{{ $option }}">{{ $option }}</option>@endforeach</select></label>
+            <label><span class="mb-1 block text-xs font-semibold">Satuan</span><select wire:model.live="unitFilter" class="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"><option value="">Semua satuan</option>@foreach($unitOptions as $option)<option value="{{ $option->id }}">{{ $option->name }}</option>@endforeach</select></label>
+            <label><span class="mb-1 block text-xs font-semibold">Status data</span><select wire:model.live="statusFilter" class="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"><option value="">Semua status</option><option value="complete">Lengkap</option><option value="incomplete">Belum lengkap</option><option value="check_basis">Periksa basis</option></select></label>
+        </section>
+        <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div class="max-w-full overflow-x-auto max-md:hidden">
+                <table class="min-w-[1120px] w-full text-left text-sm"><thead class="bg-slate-50 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"><tr><th class="px-4 py-3">Kode</th><th class="px-4 py-3">Nama bahan</th><th class="px-4 py-3">Satuan</th><th class="px-4 py-3">Basis gizi</th>@foreach(\App\Services\IngredientNutritionReferenceService::PRIMARY_CODES as $code)<th class="px-4 py-3">{{ $primaryComponents[$code]?->name ?? ucfirst($code) }}</th>@endforeach<th class="px-4 py-3">Sumber</th><th class="px-4 py-3">Status data</th><th class="px-4 py-3">Aksi</th></tr></thead>
+                    <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+                        @forelse($ingredients as $ingredient)
+                            @php($values = $reference->primaryNutritionRows($ingredient))
+                            <tr><td class="whitespace-nowrap px-4 py-3">{{ $ingredient->code }}</td><td class="min-w-48 px-4 py-3 font-semibold">{{ $ingredient->name }}</td><td class="px-4 py-3">{{ $ingredient->measurementUnit?->symbol ?: $ingredient->measurementUnit?->name ?: '–' }}</td><td class="whitespace-nowrap px-4 py-3">{{ $reference->basisLabel($ingredient) }}</td>@foreach(\App\Services\IngredientNutritionReferenceService::PRIMARY_CODES as $code)@php($value = $values->get($code)?->value_per_100g)<td class="whitespace-nowrap px-4 py-3">{{ $value === null ? '–' : number_format((float) $value, 2, ',', '.').' '.($primaryComponents[$code]?->unit ?? '') }}</td>@endforeach<td class="max-w-44 break-words px-4 py-3">{{ $ingredient->nutrition_source ?: ($ingredient->nutritions->pluck('source')->filter()->unique()->implode(', ') ?: '–') }}</td><td class="px-4 py-3">@foreach($reference->statusFlags($ingredient) as $flag)<span class="mb-1 inline-block rounded-full px-2 py-1 text-[11px] font-bold {{ $flag === 'Lengkap' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200' : 'bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200' }}">{{ $flag }}</span>@endforeach</td><td class="px-4 py-3"><button type="button" wire:click="showIngredient({{ $ingredient->id }})" class="whitespace-nowrap rounded-lg bg-sky-700 px-3 py-2 text-xs font-bold text-white hover:bg-sky-800">Lihat Nilai Gizi</button></td></tr>
+                        @empty
+                            <tr><td colspan="12" class="px-4 py-10 text-center text-slate-500 dark:text-slate-400">Belum ada data nilai gizi bahan.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+            <div class="divide-y divide-slate-100 dark:divide-slate-800 md:hidden">
+                @forelse($ingredients as $ingredient)
+                    @php($values = $reference->primaryNutritionRows($ingredient))
+                    <article class="space-y-3 p-4"><div class="flex justify-between gap-2"><div><p class="text-xs text-slate-500 dark:text-slate-400">{{ $ingredient->code }}</p><h3 class="font-bold">{{ $ingredient->name }}</h3></div><span class="text-xs font-semibold">{{ $ingredient->measurementUnit?->symbol ?: $ingredient->measurementUnit?->name ?: '–' }}</span></div><p class="text-xs">{{ $reference->basisLabel($ingredient) }} · {{ $ingredient->nutrition_source ?: 'Sumber belum diisi' }}</p><div class="grid grid-cols-2 gap-2 text-xs">@foreach(\App\Services\IngredientNutritionReferenceService::PRIMARY_CODES as $code)@php($value = $values->get($code)?->value_per_100g)<div class="rounded-lg bg-slate-50 p-2 dark:bg-slate-800"><span class="block text-slate-500 dark:text-slate-400">{{ $primaryComponents[$code]?->name ?? ucfirst($code) }}</span><strong>{{ $value === null ? '–' : number_format((float) $value, 2, ',', '.').' '.($primaryComponents[$code]?->unit ?? '') }}</strong></div>@endforeach</div><div class="flex flex-wrap gap-1">@foreach($reference->statusFlags($ingredient) as $flag)<span class="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-900 dark:bg-amber-500/15 dark:text-amber-200">{{ $flag }}</span>@endforeach</div><button type="button" wire:click="showIngredient({{ $ingredient->id }})" class="h-10 w-full rounded-xl bg-sky-700 px-3 text-xs font-bold text-white">Lihat Nilai Gizi</button></article>
+                @empty
+                    <p class="p-8 text-center text-sm text-slate-500">Belum ada data nilai gizi bahan.</p>
+                @endforelse
+            </div>
+            <div class="border-t border-slate-100 px-4 py-3 dark:border-slate-800">{{ $ingredients->links() }}</div>
+        </div>
+    </div>
+    @include('livewire.v3.nutrition.partials.ingredient-nutrition-modal', ['detail' => $selectedDetail, 'closeAction' => 'closeIngredient'])
+</x-v3.shell>

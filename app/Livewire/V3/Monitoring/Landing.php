@@ -18,6 +18,8 @@ class Landing extends Component
 
     public string $lastRefreshedAt = '';
 
+    public bool $loadError = false;
+
     public function mount(): void
     {
         $this->currentUnit();
@@ -60,8 +62,15 @@ class Landing extends Component
         $shell = $this->shellData($unit);
         $shell['navigation'] = app(MonitoringNavigation::class)->for($this->workDate, landing: true);
 
-        $data = $service->summaryFor($unit, $this->workDate);
-        $this->lastRefreshedAt = now()->format('H:i:s');
+        try {
+            $data = $service->summaryFor($unit, $this->workDate);
+            $this->loadError = false;
+            $this->lastRefreshedAt = now()->format('H:i:s');
+        } catch (\Throwable $exception) {
+            report($exception);
+            $data = [];
+            $this->loadError = true;
+        }
 
         return view('livewire.v3.monitoring.landing', [
             ...$shell,

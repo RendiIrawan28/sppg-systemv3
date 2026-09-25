@@ -43,11 +43,14 @@
                         <button wire:click="useToday" type="button" class="h-10 rounded-xl bg-white/[.1] px-4 text-xs font-bold transition hover:bg-white/[.16]">Hari ini</button>
                         <button wire:click="refreshData" type="button" class="inline-flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/[.07] px-4 text-xs font-bold transition hover:bg-white/[.13]"><span wire:loading.remove wire:target="refreshData">↻</span><span wire:loading wire:target="refreshData" class="size-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>Refresh</button>
                     </div>
-                    <p class="mt-2 px-1 text-[10px] text-slate-400">Terakhir diperbarui {{ $lastRefreshedAt }}</p>
+                    <p class="mt-2 px-1 text-[10px] text-slate-400">{{ $lastRefreshedAt ? 'Terakhir diperbarui '.$lastRefreshedAt : 'Belum berhasil dimuat' }}</p>
                 </div>
             </div>
         </section>
 
+        @if($loadError)
+            <div role="alert" class="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">Ringkasan monitoring belum dapat dimuat. Pilih tanggal atau tekan Refresh untuk mencoba lagi; waktu pembaruan terakhir tidak berubah.</div>
+        @else
         <section>
             <div class="mb-4"><p class="text-[10px] font-bold uppercase tracking-[.18em] text-sky-700 dark:text-sky-300">Snapshot layanan</p><h3 class="mt-1 text-xl font-bold text-slate-950 dark:text-slate-50">Kondisi pada tanggal terpilih</h3></div>
             <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -87,6 +90,7 @@
             </div>
         </section>
 
+        @endif
         <div wire:loading.flex wire:target="workDate,previousDay,nextDay,useToday,refreshData" class="fixed inset-0 z-[90] items-center justify-center bg-slate-950/10 backdrop-blur-[1px] dark:bg-black/30"><div class="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm font-bold text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"><span class="size-5 animate-spin rounded-full border-2 border-slate-200 border-t-sky-600 dark:border-slate-700 dark:border-t-sky-400"></span>Memuat monitoring…</div></div>
     </div>
 </x-v3.monitoring-shell>

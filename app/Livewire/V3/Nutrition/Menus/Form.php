@@ -12,6 +12,8 @@ use App\Models\Ingredient;
 use App\Models\IngredientPortionStandard;
 use App\Models\MeasurementUnit;
 use App\Models\Menu;
+use App\Models\NutritionComponent;
+use App\Services\IngredientNutritionReferenceService;
 use App\Services\MenuApprovalService;
 use App\Services\MenuDayRevisionService;
 use App\Services\MenuNutritionCalculator;
@@ -40,6 +42,8 @@ class Form extends Component
     public ?string $actionMessage = null;
 
     public bool $showSpecialGramasi = false;
+
+    public ?array $nutritionPreview = null;
 
     public function toggleSpecialGramasi(): void
     {
@@ -155,6 +159,24 @@ class Form extends Component
         unset($this->items[$itemIndex]['ingredients'][$ingredientIndex]);
         $this->items[$itemIndex]['ingredients'] = array_values($this->items[$itemIndex]['ingredients']);
         $this->refreshItemWeights($itemIndex);
+    }
+
+    public function showIngredientNutrition(int $itemIndex, int $ingredientIndex, IngredientNutritionReferenceService $reference): void
+    {
+        abort_unless($this->allowed('menus.view') && $this->allowed('nutrition.view'), 403);
+        $row = $this->items[$itemIndex]['ingredients'][$ingredientIndex] ?? null;
+        abort_unless(is_array($row) && (int) ($row['ingredient_id'] ?? 0) > 0, 404);
+        $unitId = $this->currentUnit()->getKey();
+        $ingredient = Ingredient::query()->where('sppg_unit_id', $unitId)->where('is_active', true)
+            ->with(['measurementUnit', 'nutritions.component'])->findOrFail((int) $row['ingredient_id']);
+        $recipeUnit = MeasurementUnit::query()->find((int) ($row['measurement_unit_id'] ?? 0));
+        $components = NutritionComponent::query()->orderBy('sort_order')->orderBy('id')->get();
+        $this->nutritionPreview = $reference->details($ingredient, $components, $row, $recipeUnit);
+    }
+
+    public function closeIngredientNutrition(): void
+    {
+        $this->nutritionPreview = null;
     }
 
     public function save(): void

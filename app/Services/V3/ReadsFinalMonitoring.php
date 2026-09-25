@@ -6,10 +6,13 @@ use App\Models\AttendanceSession;
 use App\Models\AttendanceWorkSchedule;
 use App\Models\AttendanceWorkScheduleAssignment;
 use App\Models\CleaningSession;
+use App\Models\CleaningWasteRecord;
+use App\Models\DistributionRun;
 use App\Models\FieldDistributionPlan;
 use App\Models\FieldDistributionPlanDestination;
 use App\Models\User;
 use App\Models\WashingSession;
+use App\Models\WashingWasteRecord;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -49,7 +52,7 @@ trait ReadsFinalMonitoring
                 $cards[] = $card('Area dilaporkan', (clone $query)->distinct()->count('cleaning_area_id'), 'Area unik pada tanggal ini');
             }
 
-            $wasteModel = $tab === 'washing' ? \App\Models\WashingWasteRecord::class : \App\Models\CleaningWasteRecord::class;
+            $wasteModel = $tab === 'washing' ? WashingWasteRecord::class : CleaningWasteRecord::class;
             $parent = $tab === 'washing' ? 'washingSession' : 'cleaningSession';
             $dateColumn = $tab === 'washing' ? 'washing_date' : 'scheduled_date';
             $waste = $wasteModel::query()->whereHas($parent, fn ($q) => $q->where('sppg_unit_id', $unitId)->whereDate($dateColumn, $date))
@@ -62,6 +65,9 @@ trait ReadsFinalMonitoring
             $destinations = FieldDistributionPlanDestination::query()->whereHas('plan', fn ($q) => $q->where('sppg_unit_id', $unitId)->whereDate('distribution_date', $date));
             $confirmed = (clone $destinations)->whereIn('confirmation_status', ['confirmed', 'changed']);
             $statuses = (clone $destinations)->selectRaw('confirmation_status, COUNT(*) as total')->groupBy('confirmation_status')->get();
+            $routes = DistributionRun::query()->where('sppg_unit_id', $unitId)
+                ->whereHas('fieldDistributionPlan', fn ($q) => $q->where('sppg_unit_id', $unitId)->whereDate('distribution_date', $date));
+            $routeStates = (clone $routes)->selectRaw('state, COUNT(*) as total')->groupBy('state')->get();
 
             return [
                 $card('Rencana', (clone $query)->count(), 'Termasuk rencana dibatalkan, dengan status aslinya'),
@@ -69,6 +75,8 @@ trait ReadsFinalMonitoring
                 $card('Penerima terkonfirmasi', (clone $confirmed)->sum('confirmed_beneficiaries'), 'Hanya tujuan berstatus dikonfirmasi / berubah'),
                 $card('Porsi kecil rencana', (clone $destinations)->sum('small_portions')),
                 $card('Porsi besar rencana', (clone $destinations)->sum('large_portions')),
+                $card('Total porsi rencana', (clone $destinations)->sum('total_portions'), 'Bukan jumlah penerima terkonfirmasi'),
+                $card('Rute terkait', (clone $routes)->count(), $routeStates->map(fn ($row) => ($row->state?->label() ?? 'Status belum diisi').': '.$row->total)->implode(' · ')),
             ];
         }
 
@@ -127,7 +135,15 @@ trait ReadsFinalMonitoring
             'attendance' => $this->attendanceRow($record),
         })->all();
 
-        return ['cards' => $this->finalSummary($unitId, $date, $tab), 'rows' => $rows, 'pagination' => $records];
+        $result = ['cards' => $this->finalSummary($unitId, $date, $tab), 'rows' => $rows, 'pagination' => $records];
+        if ($tab === 'attendance') {
+            $roster = $this->monitoringRoster($unitId, $date);
+            $recorded = $this->finalQuery($unitId, $date, 'attendance')->distinct()->pluck('user_id')->all();
+            $result['notRecorded'] = User::query()->whereIn('id', array_diff($roster, $recorded))
+                ->orderBy('name')->orderBy('id')->paginate(15, ['id', 'name'], 'monitoringAbsentPage');
+        }
+
+        return $result;
     }
 
     private function hygieneRow($session, string $tab): array
@@ -156,7 +172,9 @@ trait ReadsFinalMonitoring
             'Wajib' => $item->is_mandatory ? 'Ya' : 'Tidak',
             'Hasil' => $washing
                 ? ($item->checked_at === null ? 'Belum diperiksa' : ($item->is_passed === null ? 'Belum diisi' : ($item->is_passed ? 'Terpenuhi' : 'Tidak terpenuhi')))
-                : match ($item->result) { 'pass' => 'Terpenuhi', 'fail' => 'Tidak terpenuhi', 'na' => 'Tidak berlaku', null, '', 'pending' => 'Belum diisi', default => $item->result },
+                : match ($item->result) {
+                    'pass' => 'Terpenuhi', 'fail' => 'Tidak terpenuhi', 'na' => 'Tidak berlaku', null, '', 'pending' => 'Belum diisi', default => $item->result
+                },
             'Catatan' => $item->notes, 'Petugas' => $item->checker?->name, 'Waktu' => $item->checked_at?->format('d-m-Y H:i'),
         ])->all();
         $waste = $session->wasteRecords->map(fn ($item) => [

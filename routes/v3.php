@@ -35,6 +35,7 @@ use App\Livewire\V3\Monitoring\Landing as MonitoringLanding;
 use App\Livewire\V3\Monitoring\Operational as OperationalMonitoring;
 use App\Livewire\V3\Notifications\Broadcast as NotificationBroadcast;
 use App\Livewire\V3\Nutrition\DailyEvaluation;
+use App\Livewire\V3\Nutrition\IngredientNutritions;
 use App\Livewire\V3\Nutrition\MenuMatrix;
 use App\Livewire\V3\Nutrition\Menus\Form as MenuRecipeForm;
 use App\Livewire\V3\Nutrition\Menus\Nutrition as MenuNutrition;
@@ -92,6 +93,7 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/periode-penerima/{period}/ubah', BeneficiaryPeriodForm::class)->name('beneficiary-periods.edit');
             Route::get('/gizi/evaluasi-harian', DailyEvaluation::class)->name('nutrition.daily-evaluation');
             Route::get('/gizi/standar', Standards::class)->name('nutrition.standards');
+            Route::get('/gizi/nilai-gizi-bahan', IngredientNutritions::class)->name('nutrition.ingredient-nutritions');
             Route::get('/gizi/perencanaan-menu', MenuMatrix::class)->name('nutrition.menu-matrix');
             Route::get('/gizi/resep/{menu}', MenuRecipeForm::class)->name('nutrition.menus.show');
             Route::get('/gizi/resep/{menu}/nilai-gizi', MenuNutrition::class)->name('nutrition.menus.nutrition');

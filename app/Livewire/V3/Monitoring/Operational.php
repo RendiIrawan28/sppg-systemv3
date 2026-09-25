@@ -25,6 +25,8 @@ class Operational extends Component
 
     public string $lastRefreshedAt = '';
 
+    public bool $loadError = false;
+
     public function updatedWorkDate(): void
     {
         $this->refreshData();
@@ -41,13 +43,13 @@ class Operational extends Component
         abort_unless($this->allowed('monitoring_operasional.view'), 403);
 
         $this->normalizeQueryState();
-        $this->lastRefreshedAt = now()->format('H:i:s');
     }
 
     public function selectTab(string $tab): void
     {
         $this->activeTab = in_array($tab, [...self::VALID_TABS, ...array_keys(MonitoringNavigation::FINAL_MODULES)], true) ? $tab : 'overview';
         $this->resetPage('monitoringPage');
+        $this->resetPage('monitoringAbsentPage');
         $this->dispatch('close-monitoring-documentation');
     }
 
@@ -55,6 +57,7 @@ class Operational extends Component
     {
         $this->normalizeQueryState();
         $this->resetPage('monitoringPage');
+        $this->resetPage('monitoringAbsentPage');
         $this->dispatch('close-monitoring-documentation');
     }
 
@@ -88,8 +91,15 @@ class Operational extends Component
         $shell = $this->shellData($unit);
         $shell['navigation'] = app(MonitoringNavigation::class)->for($this->workDate, $this->activeTab);
 
-        $data = $service->forTab($unit, $this->workDate, $this->activeTab);
-        $this->lastRefreshedAt = now()->format('H:i:s');
+        try {
+            $data = $service->forTab($unit, $this->workDate, $this->activeTab);
+            $this->loadError = false;
+            $this->lastRefreshedAt = now()->format('H:i:s');
+        } catch (\Throwable $exception) {
+            report($exception);
+            $data = [];
+            $this->loadError = true;
+        }
 
         return view('livewire.v3.monitoring.operational', [
             ...$shell,

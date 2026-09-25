@@ -44,7 +44,7 @@
                             Refresh
                         </button>
                     </div>
-                    <p class="mt-2 px-1 text-[10px] text-slate-400 dark:text-slate-500">Terakhir diperbarui {{ $lastRefreshedAt }}</p>
+                    <p class="mt-2 px-1 text-[10px] text-slate-400 dark:text-slate-500">{{ $lastRefreshedAt ? 'Terakhir diperbarui '.$lastRefreshedAt : 'Belum berhasil dimuat' }}</p>
                 </div>
             </div>
         </section>
@@ -125,6 +125,9 @@
             </div>
         </div>
 
+        @if($loadError)
+            <div role="alert" class="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">Data monitoring belum dapat dimuat. Tanggal dan tab tetap tersimpan; tekan Refresh untuk mencoba lagi. Waktu pembaruan terakhir tidak berubah.</div>
+        @else
         @if (isset(\App\Support\V3\MonitoringNavigation::FINAL_MODULES[$activeTab]))
             <div wire:key="monitoring-{{ $activeTab }}-{{ $workDate }}-{{ $finalModule['pagination']->currentPage() }}" class="min-w-0 space-y-5">
                 @include('livewire.v3.monitoring.partials.final-module')
@@ -294,9 +297,6 @@
                     </table>
                 </div>
 
-                @if (count($warehouse['rows']) >= 200)
-                    <div class="border-t border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-900 px-5 py-3 text-center text-[11px] font-semibold text-slate-500 dark:text-slate-400">Menampilkan maksimal 200 baris terbaru agar halaman monitoring tetap ringan.</div>
-                @endif
             </section>
         @endif
 
@@ -444,6 +444,7 @@
 
         @if ($activeTab === 'distribution')
             @include('livewire.v3.monitoring.partials.distribution')
+        @endif
         @endif
 
         <div wire:loading.flex wire:target="workDate,previousDay,nextDay,useToday,refreshData,selectTab" class="fixed inset-0 z-[90] items-center justify-center bg-slate-950/10 backdrop-blur-[1px] dark:bg-black/30">

@@ -32,6 +32,7 @@ final class Navigation
                 $this->item('Kebutuhan bahan', 'calculator', route('v3.nutrition.requirements.index'), request()->routeIs('v3.nutrition.requirements.*'), $this->allowed($user, 'nutrition.view')),
                 $this->item('Evaluasi gizi harian', 'clipboard', route('v3.nutrition.daily-evaluation'), request()->routeIs('v3.nutrition.daily-evaluation'), $this->allowed($user, 'nutrition.view')),
                 $this->item('Referensi gizi & bahan', 'settings', route('v3.nutrition.standards'), request()->routeIs('v3.nutrition.standards'), $this->allowed($user, 'nutrition.view') || $this->allowed($user, 'measurement_units.view')),
+                $this->item('Nilai Gizi Bahan', 'nutrition', route('v3.nutrition.ingredient-nutritions'), request()->routeIs('v3.nutrition.ingredient-nutritions'), $this->allowed($user, 'nutrition.view')),
             ]),
             $this->module('pengadaan', 'Pengadaan', 'cart', [
                 $this->item('Pengadaan bahan', 'clipboard', route('v3.procurement.index'), request()->routeIs('v3.procurement.*'), $this->allowed($user, 'procurement.view')),

@@ -1,10 +1,12 @@
 <?php
 
+use App\Http\Controllers\MonitoringPhotoController;
 use App\Models\AttendanceSession;
 use App\Models\AttendanceWorkSchedule;
 use App\Models\AttendanceWorkScheduleAssignment;
 use App\Models\CleaningArea;
 use App\Models\CleaningChecklistItem;
+use App\Models\CleaningChemicalUsage;
 use App\Models\CleaningDocumentation;
 use App\Models\CleaningFinding;
 use App\Models\CleaningSession;
@@ -17,25 +19,32 @@ use App\Models\FieldDistributionPlanDestination;
 use App\Models\SppgUnit;
 use App\Models\User;
 use App\Models\WashingChecklistItem;
+use App\Models\WashingChemicalUsage;
 use App\Models\WashingDeviation;
 use App\Models\WashingDocumentation;
 use App\Models\WashingMeasurement;
 use App\Models\WashingSession;
 use App\Models\WashingWasteRecord;
 use App\Services\V3\OperationalMonitoringService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 beforeEach(function () {
     // Dedicated memory-only connection. No application migrations, resets, or seeders.
+    $this->monitoringOriginalConnection = DB::getDefaultConnection();
     config(['database.connections.monitoring_test' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => false]]);
     DB::purge('monitoring_test');
     DB::setDefaultConnection('monitoring_test');
     expect(DB::connection()->getConfig('database'))->toBe(':memory:');
     foreach ([SppgUnit::class, User::class, Division::class, AttendanceSession::class, AttendanceWorkSchedule::class, AttendanceWorkScheduleAssignment::class,
-        WashingSession::class, WashingChecklistItem::class, WashingWasteRecord::class, WashingDocumentation::class, WashingMeasurement::class, WashingDeviation::class, App\Models\WashingChemicalUsage::class,
-        CleaningArea::class, CleaningSession::class, CleaningChecklistItem::class, CleaningWasteRecord::class, CleaningDocumentation::class, CleaningFinding::class, App\Models\CleaningChemicalUsage::class,
+        WashingSession::class, WashingChecklistItem::class, WashingWasteRecord::class, WashingDocumentation::class, WashingMeasurement::class, WashingDeviation::class, WashingChemicalUsage::class,
+        CleaningArea::class, CleaningSession::class, CleaningChecklistItem::class, CleaningWasteRecord::class, CleaningDocumentation::class, CleaningFinding::class, CleaningChemicalUsage::class,
         FieldDistributionPlan::class, FieldDistributionPlanDestination::class, DistributionRun::class, DistributionStop::class] as $modelClass) {
         $model = new $modelClass;
         Schema::create($model->getTable(), function (Blueprint $table) use ($model) {
@@ -53,14 +62,18 @@ beforeEach(function () {
     }
     Schema::create('division_user', function (Blueprint $table) {
         $table->id();
-        foreach (['user_id', 'division_id', 'sppg_unit_id', 'is_active', 'is_primary'] as $column) { $table->integer($column); }
-        $table->string('position')->nullable(); $table->timestamps();
+        foreach (['user_id', 'division_id', 'sppg_unit_id', 'is_active', 'is_primary'] as $column) {
+            $table->integer($column);
+        }
+        $table->string('position')->nullable();
+        $table->timestamps();
     });
     $this->service = app(OperationalMonitoringService::class);
 });
 
 afterEach(function () {
     DB::purge('monitoring_test');
+    DB::setDefaultConnection($this->monitoringOriginalConnection);
 });
 
 function monitoringFixture(string $model, array $data): int
@@ -86,10 +99,10 @@ it('paginates all washing reports while preserving summary scope and every check
         ->and($data['rows'][0]['sections']['Checklist'])->toHaveCount(3)
         ->and(collect($data['rows'][0]['sections']['Checklist'])->pluck('Hasil')->all())->toBe(['Terpenuhi', 'Tidak terpenuhi', 'Belum diperiksa']);
     expect(collect($queries)->every(fn ($query) => str_starts_with(strtolower($query['query']), 'select')))->toBeTrue();
-    Illuminate\Pagination\Paginator::currentPageResolver(fn () => 2);
+    Paginator::currentPageResolver(fn () => 2);
     $pageTwo = $this->service->finalModule(1, '2026-09-23', 'washing');
     expect($pageTwo['rows'])->toHaveCount(3)->and((int) $pageTwo['cards'][2]['value'])->toBe(180);
-    Illuminate\Pagination\Paginator::currentPageResolver(fn () => 1);
+    Paginator::currentPageResolver(fn () => 1);
 });
 
 it('preserves cleaning answers and report status independently', function () {
@@ -108,9 +121,13 @@ it('keeps unconfirmed and unrouted destinations without substituting planned ben
     foreach (['pending', 'confirmed'] as $status) {
         monitoringFixture(FieldDistributionPlanDestination::class, ['field_distribution_plan_id' => $plan, 'destination_name_snapshot' => 'Sekolah sama', 'confirmation_status' => $status, 'registered_beneficiaries' => 100, 'confirmed_beneficiaries' => 90, 'small_portions' => 40, 'large_portions' => 50]);
     }
+    $route = monitoringFixture(DistributionRun::class, ['sppg_unit_id' => 1, 'field_distribution_plan_id' => $plan, 'route_name' => 'Rute 1', 'state' => 'departed']);
+    monitoringFixture(DistributionStop::class, ['distribution_run_id' => $route, 'destination_name' => 'Sekolah sama', 'arrived_at' => '2026-09-23 09:20:00', 'status' => 'arrived']);
     $data = $this->service->finalModule(1, '2026-09-23', 'field-assistant');
     expect($data['cards'][1]['value'])->toBe(2)->and((int) $data['cards'][2]['value'])->toBe(90)
+        ->and($data['cards'][6]['value'])->toBe(1)->and($data['cards'][6]['detail'])->toContain('Dalam Pengantaran')
         ->and($data['rows'][0]['sections']['Tujuan / kunjungan'])->toHaveCount(2)
+        ->and($data['rows'][0]['sections']['Kedatangan aktual per tujuan'])->toHaveCount(1)
         ->and($data['rows'][0]['sections']['Tujuan / kunjungan'][0]['Penerima terkonfirmasi'])->toBe('Belum dikonfirmasi')
         ->and($data['rows'][0]['sections']['Tujuan / kunjungan'][0]['Rute'])->toBe('Belum ditentukan');
 });
@@ -137,7 +154,8 @@ it('counts scheduled people and preserves multiple overnight and open sessions',
 it('does not grow queries with the number of cleaning checklists', function () {
     $id = monitoringFixture(CleaningSession::class, ['sppg_unit_id' => 1, 'scheduled_date' => '2026-09-23', 'state' => 'ready', 'status' => 'draft']);
     monitoringFixture(CleaningChecklistItem::class, ['cleaning_session_id' => $id, 'item_name' => 'Item 1', 'result' => 'pass']);
-    DB::enableQueryLog(); DB::flushQueryLog();
+    DB::enableQueryLog();
+    DB::flushQueryLog();
     $this->service->finalModule(1, '2026-09-23', 'cleaning');
     $smallCount = count(DB::getQueryLog());
     for ($i = 2; $i <= 30; $i++) {
@@ -146,6 +164,9 @@ it('does not grow queries with the number of cleaning checklists', function () {
     DB::flushQueryLog();
     $data = $this->service->finalModule(1, '2026-09-23', 'cleaning');
     $largeCount = count(DB::getQueryLog());
+    if (getenv('MONITORING_QUERY_AUDIT')) {
+        fwrite(STDERR, "Monitoring cleaning query count: 1 item={$smallCount}, 30 items={$largeCount}\n");
+    }
     expect($largeCount)->toBe($smallCount)->and($data['rows'][0]['sections']['Checklist'])->toHaveCount(30);
 });
 
@@ -159,14 +180,14 @@ it('authorizes monitoring photos and rejects other tenants and unrelated child i
     $user->is_active = true;
     $user->is_super_admin = false;
     $user->shouldReceive('can')->with('monitoring_operasional.view')->andReturn(true);
-    $request = Illuminate\Http\Request::create('/');
+    $request = Request::create('/');
     $request->setUserResolver(fn () => $user);
-    $controller = app(App\Http\Controllers\MonitoringPhotoController::class);
-    Illuminate\Support\Facades\Storage::fake('public');
-    Illuminate\Support\Facades\Storage::disk('public')->put('monitoring-test/photo.jpg', 'test image');
+    $controller = app(MonitoringPhotoController::class);
+    Storage::fake('public');
+    Storage::disk('public')->put('monitoring-test/photo.jpg', 'test image');
     expect($controller($request, 'washing', $first, 'documentation', $photo)->getStatusCode())->toBe(200);
-    expect(fn () => $controller($request, 'washing', $second, 'documentation', $foreignPhoto))->toThrow(Illuminate\Database\Eloquent\ModelNotFoundException::class);
-    expect(fn () => $controller($request, 'washing', $first, 'documentation', $foreignPhoto))->toThrow(Illuminate\Database\Eloquent\ModelNotFoundException::class);
+    expect(fn () => $controller($request, 'washing', $second, 'documentation', $foreignPhoto))->toThrow(ModelNotFoundException::class);
+    expect(fn () => $controller($request, 'washing', $first, 'documentation', $foreignPhoto))->toThrow(ModelNotFoundException::class);
     $denied = Mockery::mock(User::class)->makePartial();
     $denied->is_super_admin = false;
     $denied->shouldReceive('can')->andReturn(false);
@@ -174,7 +195,7 @@ it('authorizes monitoring photos and rejects other tenants and unrelated child i
     try {
         $controller($request, 'washing', $first, 'documentation', $photo);
         $this->fail('Unauthorized photo should be rejected');
-    } catch (Symfony\Component\HttpKernel\Exception\HttpException $exception) {
+    } catch (HttpException $exception) {
         expect($exception->getStatusCode())->toBe(403);
     }
 });
@@ -190,13 +211,25 @@ it('renders readable monitoring details without source permissions', function ()
     expect($html)->toContain('Bersihkan meja')->toContain('Belum diisi')->not->toContain('Buka modul sumber');
 });
 
+it('does not link operational edit forms as record details', function () {
+    $id = monitoringFixture(CleaningSession::class, ['sppg_unit_id' => 1, 'scheduled_date' => '2026-09-23', 'state' => 'ready', 'status' => 'draft', 'session_number' => 'CLN-test']);
+    $user = Mockery::mock(User::class)->makePartial();
+    $user->is_super_admin = false;
+    $user->shouldReceive('can')->with('cleaning.view')->andReturn(true);
+    auth()->setUser($user);
+    $html = view('livewire.v3.monitoring.partials.final-module', ['activeTab' => 'cleaning', 'workDate' => '2026-09-23', 'finalModule' => $this->service->finalModule(1, '2026-09-23', 'cleaning')])->render();
+    expect($html)->toContain('Buka modul sumber')->not->toContain('Lihat detail sumber');
+});
+
 it('keeps details isolated to the active tab and groups waste by unit', function () {
     $id = monitoringFixture(WashingSession::class, ['sppg_unit_id' => 1, 'washing_date' => '2026-09-23', 'state' => 'washing', 'status' => 'draft']);
     foreach ([['kg', 5], ['porsi', 20]] as [$unit, $quantity]) {
         monitoringFixture(WashingWasteRecord::class, ['washing_session_id' => $id, 'unit' => $unit, 'quantity' => $quantity]);
     }
-    $unit = new SppgUnit; $unit->id = 1;
-    DB::enableQueryLog(); DB::flushQueryLog();
+    $unit = new SppgUnit;
+    $unit->id = 1;
+    DB::enableQueryLog();
+    DB::flushQueryLog();
     $data = $this->service->forTab($unit, '2026-09-23', 'washing');
     $queries = implode(' ', array_column(DB::getQueryLog(), 'query'));
     expect($queries)->not->toContain('cleaning_sessions')->not->toContain('attendance_sessions')->not->toContain('field_distribution_plans')

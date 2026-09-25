@@ -66,3 +66,11 @@
     <div class="rounded-2xl border border-dashed border-slate-300 p-10 text-center dark:border-slate-700"><p class="font-bold">Belum ada laporan/data {{ $definition['label'] }}</p><p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Tidak ada catatan pada tanggal terpilih. Ini tidak berarti pekerjaan selesai atau pegawai tidak hadir.</p></div>
 @endforelse
 <div>{{ $finalModule['pagination']->links() }}</div>
+@if($activeTab === 'attendance' && $finalModule['notRecorded']->total())
+    <section class="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-950">
+        <h3 class="font-bold">Pegawai terjadwal tanpa catatan presensi</h3>
+        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Belum ada sesi/izin/sakit yang tercatat pada tanggal kerja ini. Keadaan ini bukan penetapan alpa.</p>
+        <ul class="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">@foreach($finalModule['notRecorded'] as $person)<li class="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-900">{{ $person->name }} · Belum presensi</li>@endforeach</ul>
+        <div class="mt-4">{{ $finalModule['notRecorded']->links() }}</div>
+    </section>
+@endif

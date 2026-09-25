@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Enums\MenuAudience;
+use App\Models\Ingredient;
+use App\Models\IngredientNutrition;
 use App\Models\Menu;
 use App\Models\NutritionComponent;
 use App\Models\NutritionStandard;
@@ -11,6 +13,12 @@ use Illuminate\Validation\ValidationException;
 
 class MenuNutritionCalculator
 {
+    public static function ingredientContribution(Ingredient $ingredient, IngredientNutrition $nutrition, float $effectiveGrams): float
+    {
+        return ((float) $nutrition->value_per_100g * $effectiveGrams)
+            / max(0.0001, (float) ($ingredient->nutrition_reference_grams ?: 100));
+    }
+
     public function __construct(
         private readonly MenuAllergenAnalyzer $allergenAnalyzer,
         private readonly MenuPortionProfileResolver $profileResolver,
@@ -71,8 +79,7 @@ class MenuNutritionCalculator
                         foreach ($ingredient->nutritions as $nutrition) {
                             $componentId = (int) $nutrition->nutrition_component_id;
                             $totals[$componentId] = ($totals[$componentId] ?? 0)
-                                + (((float) $nutrition->value_per_100g * $effectiveGrams)
-                                    / max(0.0001, (float) ($ingredient->nutrition_reference_grams ?: 100)));
+                                + self::ingredientContribution($ingredient, $nutrition, $effectiveGrams);
                         }
                     }
                 }

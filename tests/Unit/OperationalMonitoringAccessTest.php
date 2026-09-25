@@ -8,6 +8,7 @@ use App\Models\PortioningSession;
 use App\Models\WarehouseWithdrawalItem;
 use App\Services\V3\OperationalMonitoringService;
 use App\Support\AccessControl;
+use App\Support\V3\MonitoringNavigation;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 
@@ -163,6 +164,21 @@ it('accepts the stage four monitoring tabs', function (): void {
     $operational->activeTab = 'distribution';
     $operational->refreshData();
     expect($operational->activeTab)->toBe('distribution');
+});
+
+it('keeps the previous deep links and accepts all final monitoring tabs', function (): void {
+    $operational = new Operational;
+    $operational->workDate = '2026-09-23';
+
+    foreach (['preparation', 'washing', 'cleaning', 'field-assistant', 'attendance'] as $tab) {
+        $operational->activeTab = $tab;
+        $operational->refreshData();
+        expect($operational->activeTab)->toBe($tab)->and($operational->workDate)->toBe('2026-09-23');
+    }
+
+    $navigation = app(MonitoringNavigation::class)->for('2026-09-23', 'attendance');
+    expect(collect($navigation)->pluck('key')->all())->toContain('washing', 'cleaning', 'field-assistant', 'attendance');
+    expect(collect($navigation)->firstWhere('key', 'attendance')['url'])->toContain('date=2026-09-23')->toContain('tab=attendance');
 });
 
 it('uses the lightweight summary method on the monitoring landing', function (): void {
