@@ -1,6 +1,12 @@
 <x-v3.shell :$unit :$navigation :$roleLabel title="Penerima Manfaat" eyebrow="Data master">
+    @php
+        $canDelete = auth()->user()->is_super_admin || auth()->user()->can('beneficiaries.delete');
+        $pageIds = $beneficiaries->getCollection()->pluck('id')->map(fn ($id) => (string) $id)->all();
+        $selectedIds = array_map('strval', $selectedBeneficiaryIds);
+        $allPageSelected = $pageIds !== [] && count(array_intersect($pageIds, $selectedIds)) === count($pageIds);
+    @endphp
     <div class="mx-auto max-w-[1500px] space-y-5">
-        <x-v3.flash-alert />
+        <x-v3.flash-alert :include-errors="true" />
 
         <section class="flex flex-col justify-between gap-5 rounded-[24px] bg-[#081d3a] p-6 text-white shadow-xl shadow-slate-900/10 sm:flex-row sm:items-end sm:p-7">
             <div>
@@ -65,6 +71,23 @@
                 </div>
             </div>
 
+            @if ($canDelete)
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
+                    <div>
+                        <p class="text-sm font-semibold text-slate-700">{{ count($selectedBeneficiaryIds) }} penerima dipilih</p>
+                        <p class="text-xs text-slate-500">Centang satu per satu atau pilih semua pada halaman ini. Pilihan dari halaman lain tetap tersimpan.</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        @if (count($selectedBeneficiaryIds) > 0)
+                            <button type="button" wire:click="clearSelection" class="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-600 hover:bg-slate-100">Batalkan pilihan</button>
+                        @endif
+                        <button type="button" wire:click="deleteSelected" wire:confirm="Hapus permanen {{ count($selectedBeneficiaryIds) }} penerima yang dipilih? Data tidak dapat dipulihkan." wire:loading.attr="disabled" wire:target="deleteSelected" @disabled(count($selectedBeneficiaryIds) === 0) class="inline-flex h-10 items-center gap-2 rounded-xl bg-rose-600 px-4 text-xs font-bold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50">
+                            <x-v3.icon name="trash" class="size-4" /> Hapus terpilih
+                        </button>
+                    </div>
+                </div>
+            @endif
+
             <div class="relative overflow-x-auto">
                 <div wire:loading.flex wire:target="search,status,clearFilters" class="absolute inset-0 z-10 items-start justify-center bg-white/70 pt-20 backdrop-blur-[1px]">
                     <span class="rounded-full bg-[#081d3a] px-3 py-1.5 text-xs font-semibold text-white shadow-lg">Memuat data...</span>
@@ -73,6 +96,9 @@
                 <table class="w-full min-w-[860px] text-left">
                     <thead>
                         <tr class="border-b border-slate-100 bg-slate-50/70 text-[10px] font-bold uppercase tracking-[.12em] text-slate-400">
+                            @if ($canDelete)
+                                <th class="w-12 px-5 py-3.5"><input type="checkbox" wire:click="togglePageSelection" @checked($allPageSelected) @disabled($pageIds === []) aria-label="Pilih semua penerima pada halaman ini" class="size-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"></th>
+                            @endif
                             <th class="px-5 py-3.5">Penerima</th>
                             <th class="px-5 py-3.5">Kategori</th>
                             <th class="px-5 py-3.5">Tujuan / kelompok</th>
@@ -84,6 +110,9 @@
                     <tbody class="divide-y divide-slate-100">
                         @forelse ($beneficiaries as $beneficiary)
                             <tr wire:key="beneficiary-{{ $beneficiary->id }}" class="transition hover:bg-sky-50/30">
+                                @if ($canDelete)
+                                    <td class="px-5 py-4"><input type="checkbox" wire:model.live="selectedBeneficiaryIds" value="{{ $beneficiary->id }}" aria-label="Pilih {{ $beneficiary->name }}" class="size-4 rounded border-slate-300 text-sky-700 focus:ring-sky-500"></td>
+                                @endif
                                 <td class="px-5 py-4">
                                     <div class="flex items-center gap-3">
                                         <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-sky-50 text-sm font-bold text-sky-700 ring-1 ring-sky-100">{{ str($beneficiary->name)->substr(0, 1)->upper() }}</span>
@@ -126,7 +155,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="6" class="px-5 py-16 text-center">
+                                <td colspan="{{ $canDelete ? 7 : 6 }}" class="px-5 py-16 text-center">
                                     <span class="mx-auto grid size-12 place-items-center rounded-2xl bg-slate-100 text-slate-400">
                                         <x-v3.icon name="search" class="size-5" />
                                     </span>
