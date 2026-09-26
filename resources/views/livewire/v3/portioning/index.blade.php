@@ -71,6 +71,8 @@
             </section>
         @endif
 
+        @include('livewire.v3.partials.bulk-report-review')
+
         <div class="grid gap-5 xl:grid-cols-[350px_minmax(0,1fr)]">
             <aside class="h-fit rounded-2xl border border-slate-200 bg-white p-4">
                 <h3 class="font-bold">Sesi Pemorsian</h3>

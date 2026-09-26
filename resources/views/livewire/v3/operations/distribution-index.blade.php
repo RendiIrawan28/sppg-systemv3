@@ -17,6 +17,7 @@
         </div>
 
         <x-v3.date-filter label="Tanggal distribusi" />
+        @include('livewire.v3.partials.bulk-report-review')
         <x-v3.pending-work :records="$attentionRecords" module="distribusi" :definition="$definition" />
 
         @if ($activeRoute)

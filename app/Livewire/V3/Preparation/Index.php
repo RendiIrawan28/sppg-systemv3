@@ -8,6 +8,7 @@ use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\PortioningSession;
 use App\Models\PreparationSession;
 use App\Models\ProcessingBatch;
+use App\Services\BulkOperationalReportReviewService;
 use App\Services\PreparationOutputService;
 use App\Services\PreparationReturnService;
 use App\Services\PreparationSessionService;
@@ -209,6 +210,17 @@ class Index extends Component
         $this->select($this->selectedId);
     }
 
+    public function approveAll(BulkOperationalReportReviewService $bulk, PreparationSessionService $service): void
+    {
+        $count = $bulk->review(
+            PreparationSession::query()->where('sppg_unit_id', $this->currentUnit()->id)
+                ->whereDate('preparation_date', $this->selectedWorkDate()),
+            auth()->user(), 'preparation.approve',
+            fn (PreparationSession $session, $actor) => $service->approve($session, $actor, filled($this->reviewNotes) ? trim($this->reviewNotes) : null),
+        );
+        session()->flash('v3.status', "{$count} laporan Persiapan berhasil disetujui pada tahap ini.");
+    }
+
     public function requestRevision(PreparationSessionService $service): void
     {
         $this->validate(['reviewNotes' => ['required', 'string', 'max:2000']]);
@@ -219,6 +231,7 @@ class Index extends Component
     public function render()
     {
         $unit = $this->currentUnit();
+        $bulk = app(BulkOperationalReportReviewService::class);
         $records = PreparationSession::with(['items.returns', 'items.resultDocumentation', 'items.outputs', 'withdrawal.taker', 'wasteHandoverReport'])
             ->where('sppg_unit_id', $unit->id)
             ->whereDate('preparation_date', $this->selectedWorkDate())
@@ -243,6 +256,10 @@ class Index extends Component
             'canEdit' => $this->allowed('preparation.update'),
             'canSubmit' => $this->allowed('preparation.submit'),
             'canApprove' => $this->allowed('preparation.approve'),
+            'bulkReviewCount' => $bulk->pendingCount(
+                PreparationSession::query()->where('sppg_unit_id', $unit->id)->whereDate('preparation_date', $this->selectedWorkDate()),
+                auth()->user(), 'preparation.approve',
+            ),
             'canExport' => $this->allowed('preparation.export'),
             'statusLabels' => OperationalReportStatus::options(),
             'preparationUnits' => app(PreparationUnitConversionService::class)->selectableUnits(),

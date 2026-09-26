@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AttendanceDeviceController;
 use App\Http\Controllers\Api\FieldPlanController;
 use App\Http\Controllers\Api\MobileAuthController;
+use App\Http\Controllers\Api\MobileBulkOperationalReviewController;
 use App\Http\Controllers\Api\MobileDeviceTokenController;
 use App\Http\Controllers\Api\MobileDocumentController;
 use App\Http\Controllers\Api\MobileNotificationController;
@@ -48,6 +49,7 @@ Route::prefix('mobile')->group(function (): void {
         Route::get('/field-plans/{fieldDistributionPlan}/document', [MobileDocumentController::class, 'fieldPlan']);
         Route::get('/operational-modules', [MobileOperationalController::class, 'modules']);
         Route::get('/operational-modules/{module}/records', [MobileOperationalController::class, 'index']);
+        Route::post('/operational-modules/{module}/bulk-review', MobileBulkOperationalReviewController::class);
         Route::post('/operational-modules/{module}/records', [MobileOperationalController::class, 'store']);
         Route::get('/operational-modules/{module}/records/{record}', [MobileOperationalController::class, 'show'])
             ->whereNumber('record');

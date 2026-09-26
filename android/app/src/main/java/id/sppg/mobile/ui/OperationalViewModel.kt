@@ -8,6 +8,7 @@ import id.sppg.mobile.data.OperationalRepository
 import id.sppg.mobile.data.remote.OperationalModule
 import id.sppg.mobile.data.remote.OperationalFormField
 import id.sppg.mobile.data.remote.OperationalRecord
+import id.sppg.mobile.data.remote.BulkReviewCapability
 import id.sppg.mobile.data.remote.MobileDailySummary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ data class OperationalUiState(
     val modules: List<OperationalModule> = emptyList(),
     val dailySummary: MobileDailySummary? = null,
     val records: List<OperationalRecord> = emptyList(),
+    val bulkReview: BulkReviewCapability? = null,
     val currentPage: Int = 1,
     val lastPage: Int = 1,
     val statusFilter: String? = null,
@@ -80,6 +82,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                     isLoading = true,
                     activeModule = module,
                     records = if (it.activeModule == module && !force) it.records else emptyList(),
+                    bulkReview = null,
                     currentPage = 1,
                     lastPage = 1,
                     statusFilter = status,
@@ -87,6 +90,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                     searchFilter = search,
                     isLoadingMore = false,
                     selectedRecord = null,
+                    successMessage = if (it.activeModule == module) it.successMessage else null,
                     errorMessage = null,
                 )
             }
@@ -96,6 +100,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                     _uiState.update {
                         it.copy(
                             records = page.records,
+                            bulkReview = page.bulkReview,
                             currentPage = page.currentPage,
                             lastPage = page.lastPage,
                         )
@@ -133,6 +138,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                     _uiState.update { state ->
                         state.copy(
                             records = (state.records + page.records).distinctBy { it.id },
+                            bulkReview = page.bulkReview,
                             currentPage = page.currentPage,
                             lastPage = page.lastPage,
                         )
@@ -159,6 +165,20 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
             date = current.dateFilter,
             search = current.searchFilter,
         )
+    }
+
+    fun bulkReviewReports(module: String, date: String) {
+        if (_uiState.value.isSaving) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, errorMessage = null, successMessage = null) }
+            repository.bulkReviewReports(module, date)
+                .onSuccess { message ->
+                    _uiState.update { it.copy(successMessage = message) }
+                    refreshRecords()
+                }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
+            _uiState.update { it.copy(isSaving = false) }
+        }
     }
 
     fun filterRecords(status: String?, date: String?) {

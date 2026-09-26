@@ -12,6 +12,7 @@ use App\Models\PortioningRouteRecord;
 use App\Models\PortioningSession;
 use App\Models\PreparationOutputWithdrawal;
 use App\Models\ProcessingBatch;
+use App\Services\BulkOperationalReportReviewService;
 use App\Services\FieldOperationalPlanGenerator;
 use App\Services\PortioningReturnService;
 use App\Services\PortioningWorkflow;
@@ -495,6 +496,17 @@ class Index extends Component
         );
     }
 
+    public function approveAll(BulkOperationalReportReviewService $bulk, PortioningWorkflow $workflow): void
+    {
+        $count = $bulk->review(
+            PortioningSession::query()->where('sppg_unit_id', $this->currentUnit()->id)
+                ->whereDate('portioning_date', $this->selectedWorkDate()),
+            auth()->user(), 'portioning.approve',
+            fn (PortioningSession $session, $actor) => $workflow->verify($session, $actor, filled($this->reviewNotes) ? trim($this->reviewNotes) : null),
+        );
+        session()->flash('v3.status', "{$count} laporan Pemorsian berhasil disetujui pada tahap ini.");
+    }
+
     public function requestRevision(PortioningWorkflow $workflow): void
     {
         $this->validate(['reviewNotes' => ['required', 'string', 'max:2000']]);
@@ -509,6 +521,7 @@ class Index extends Component
     public function render()
     {
         $unit = $this->currentUnit();
+        $bulk = app(BulkOperationalReportReviewService::class);
         $productionPlans = FieldDistributionPlan::query()
             ->with(['destinations', 'portioningSession'])
             ->where('sppg_unit_id', $unit->id)
@@ -586,6 +599,10 @@ class Index extends Component
             'canEdit' => $this->allowed('portioning.update'),
             'canSubmit' => $this->allowed('portioning.submit'),
             'canApprove' => $this->canReview($selected),
+            'bulkReviewCount' => $bulk->pendingCount(
+                PortioningSession::query()->where('sppg_unit_id', $unit->id)->whereDate('portioning_date', $this->selectedWorkDate()),
+                auth()->user(), 'portioning.approve',
+            ),
             'canExport' => $this->allowed('portioning.export'),
         ])->layout('layouts.v3', ['title' => 'Pemorsian']);
     }

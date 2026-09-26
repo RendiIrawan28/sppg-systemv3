@@ -116,6 +116,13 @@ interface MobileApi {
         @Query("page") page: Int = 1,
     ): Response<OperationalRecordsResponse>
 
+    @POST("operational-modules/{module}/bulk-review")
+    suspend fun bulkReviewOperationalReports(
+        @Header("Authorization") authorization: String,
+        @Path("module") module: String,
+        @Body request: BulkReviewRequest,
+    ): Response<MessageResponse>
+
     @GET("operational-modules/{module}/records/{id}")
     suspend fun operationalRecord(
         @Header("Authorization") authorization: String,
@@ -481,7 +488,12 @@ data class OperationalModule(
 data class OperationalRecordsResponse(
     val data: List<OperationalRecord>,
     val meta: PaginationMeta?,
+    @SerializedName("bulk_review") val bulkReview: BulkReviewCapability? = null,
 )
+
+data class BulkReviewCapability(val date: String, val count: Int)
+
+data class BulkReviewRequest(val date: String)
 
 data class OperationalRecordResponse(val data: OperationalRecord)
 

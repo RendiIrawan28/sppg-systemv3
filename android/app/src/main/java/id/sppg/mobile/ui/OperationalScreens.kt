@@ -112,6 +112,7 @@ fun OperationalRecordListScreen(
     onLoadMore: () -> Unit,
     onRecordClick: (Long) -> Unit,
     onCreate: () -> Unit,
+    onBulkReview: (String, String) -> Unit,
 ) {
     LaunchedEffect(module) {
         // Keep the selected cleaning date when returning from a checklist.
@@ -128,12 +129,36 @@ fun OperationalRecordListScreen(
         )
     }
     var stockSearch by remember(module) { mutableStateOf("") }
+    var showBulkReviewConfirmation by remember(module) { mutableStateOf(false) }
     val isStockCard = module in setOf("gudang-stok", "gudang-stok-non-pangan")
     val displayedRecords = state.records.filter { it.visibleInWorkHistory(module, showHistory) }
     val selectedDateLabel = operationalDateDisplay(
         (state.dateFilter ?: LocalDate.now().format(apiDateFormatter)),
         "date",
     )
+    val bulkReview = state.bulkReview?.takeIf { state.activeModule == module && it.count > 0 }
+
+    if (showBulkReviewConfirmation && bulkReview != null) {
+        AlertDialog(
+            onDismissRequest = { showBulkReviewConfirmation = false },
+            title = { Text("Setujui ${bulkReview.count} laporan?") },
+            text = {
+                Text(
+                    "Semua laporan yang siap diverifikasi pada ${operationalDateDisplay(bulkReview.date, "date")} " +
+                        "akan diproses sesuai tahap persetujuan akun Anda. Periksa datanya sebelum melanjutkan."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBulkReviewConfirmation = false
+                    onBulkReview(module, bulkReview.date)
+                }) { Text("Ya, setujui semua") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBulkReviewConfirmation = false }) { Text("Batal") }
+            },
+        )
+    }
 
     LaunchedEffect(module, stockSearch) {
         if (!isStockCard) return@LaunchedEffect
@@ -200,6 +225,56 @@ fun OperationalRecordListScreen(
                         label = if (showHistory) "Riwayat · $selectedDateLabel" else moduleLabel,
                         count = displayedRecords.size,
                     )
+                }
+                if (state.successMessage != null) {
+                    item {
+                        SppgCard(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Text(
+                                state.successMessage,
+                                modifier = Modifier.padding(16.dp),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
+                    }
+                }
+                if (state.errorMessage != null) {
+                    item {
+                        SppgCard(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            shape = RoundedCornerShape(16.dp),
+                        ) {
+                            Text(
+                                userFriendlyUiMessage(state.errorMessage),
+                                modifier = Modifier.padding(16.dp),
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                            )
+                        }
+                    }
+                }
+                if (bulkReview != null) {
+                    item {
+                        SppgCard(shape = RoundedCornerShape(16.dp)) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text("Verifikasi laporan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "${bulkReview.count} laporan siap disetujui pada ${operationalDateDisplay(bulkReview.date, "date")}",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                SppgPrimaryButton(
+                                    label = if (state.isSaving) "Memproses laporan..." else "Setujui semua laporan",
+                                    onClick = { showBulkReviewConfirmation = true },
+                                    enabled = !state.isSaving,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
                 }
                 if (!showHistory && state.modules.firstOrNull { it.slug == module }?.canCreate == true) {
                     item {

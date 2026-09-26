@@ -12,6 +12,8 @@
             <p class="mt-2 max-w-3xl text-sm text-slate-300">Sesi muncul otomatis setelah pengambilan dicatat. Lengkapi kondisi, hasil siap, limbah, tujuan, dan foto setiap bahan.</p>
         </section>
 
+        @include('livewire.v3.partials.bulk-report-review')
+
         <div class="grid gap-5 xl:grid-cols-[350px_minmax(0,1fr)]">
             <section class="space-y-2">
                 @forelse($records as $record)

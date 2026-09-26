@@ -305,6 +305,11 @@ class MobileOperationalController extends Controller
             'data' => collect($records->items())->map(
                 fn ($record): array => $transformer->summary($module, $definition, $record),
             ),
+            'bulk_review' => app(MobileBulkOperationalReviewController::class)->capability(
+                $request, $module, $definition, (int) $systemUnit->id(),
+                ($filters['date_from'] ?? null) && ($filters['date_from'] ?? null) === ($filters['date_to'] ?? null)
+                    ? $filters['date_from'] : now()->toDateString(),
+            ),
             'meta' => [
                 'current_page' => $records->currentPage(),
                 'last_page' => $records->lastPage(),

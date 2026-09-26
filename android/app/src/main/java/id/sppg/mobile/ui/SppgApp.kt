@@ -472,6 +472,7 @@ private fun AuthenticatedContent(
             onFilterChange = operationalViewModel::filterRecords,
             onSearchChange = operationalViewModel::searchRecords,
             onLoadMore = operationalViewModel::loadMoreRecords,
+            onBulkReview = operationalViewModel::bulkReviewReports,
             onRecordClick = {
                 screen = AppScreen.OperationalDetail(current.slug, current.label, it)
             },

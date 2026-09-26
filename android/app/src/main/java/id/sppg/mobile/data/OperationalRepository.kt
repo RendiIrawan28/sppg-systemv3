@@ -2,6 +2,8 @@ package id.sppg.mobile.data
 
 import android.content.Context
 import id.sppg.mobile.data.remote.ApiErrorHandler
+import id.sppg.mobile.data.remote.BulkReviewCapability
+import id.sppg.mobile.data.remote.BulkReviewRequest
 import id.sppg.mobile.data.remote.MobileApi
 import id.sppg.mobile.data.remote.OperationalActionRequest
 import id.sppg.mobile.data.remote.OperationalModule
@@ -21,6 +23,7 @@ data class OperationalPage(
     val records: List<OperationalRecord>,
     val currentPage: Int,
     val lastPage: Int,
+    val bulkReview: BulkReviewCapability? = null,
 )
 
 data class OperationalWorkspace(
@@ -64,7 +67,14 @@ class OperationalRepository(
             records = body.data,
             currentPage = body.meta?.currentPage ?: page,
             lastPage = body.meta?.lastPage ?: page,
+            bulkReview = body.bulkReview,
         )
+    }
+
+    suspend fun bulkReviewReports(module: String, date: String): Result<String> = safeApiCall(errorHandler) {
+        val response = api.bulkReviewOperationalReports(authorization(), module, BulkReviewRequest(date))
+        if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
+        response.body()?.message ?: throw IOException("Verifikasi laporan belum berhasil.")
     }
 
     suspend fun getRecord(module: String, id: Long): Result<OperationalRecord> = safeApiCall(errorHandler) {

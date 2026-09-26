@@ -3,11 +3,15 @@
 namespace App\Livewire\V3\Operations;
 
 use App\Enums\DistributionRunState;
-use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Livewire\V3\Concerns\FiltersByWorkDate;
+use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\CleaningArea;
 use App\Models\DistributionRun;
+use App\Services\BulkOperationalReportReviewService;
 use App\Services\CleaningScheduleService;
+use App\Services\CleaningWorkflow;
+use App\Services\DistributionWorkflow;
+use App\Services\WashingWorkflow;
 use App\Support\V3\OperationalModuleRegistry;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -15,8 +19,8 @@ use Livewire\WithPagination;
 
 class Index extends Component
 {
-    use InteractsWithV3Shell;
     use FiltersByWorkDate;
+    use InteractsWithV3Shell;
     use WithPagination;
 
     public string $module;
@@ -43,6 +47,25 @@ class Index extends Component
     public function updatedSearch(): void
     {
         $this->resetPage();
+    }
+
+    public function approveAll(OperationalModuleRegistry $registry, BulkOperationalReportReviewService $bulk): void
+    {
+        abort_unless(in_array($this->module, ['distribusi', 'pencucian', 'kebersihan'], true), 404);
+        $definition = $registry->get($this->module);
+        $model = $definition['model'];
+        $workflow = app(match ($this->module) {
+            'distribusi' => DistributionWorkflow::class,
+            'pencucian' => WashingWorkflow::class,
+            'kebersihan' => CleaningWorkflow::class,
+        });
+        $count = $bulk->review(
+            $model::query()->where('sppg_unit_id', $this->currentUnit()->getKey())
+                ->whereDate($definition['date'], $this->selectedWorkDate()),
+            auth()->user(), $definition['permission'].'.approve',
+            fn ($record, $actor) => $workflow->verify($record, $actor),
+        );
+        session()->flash('v3.status', "{$count} laporan {$definition['label']} berhasil disetujui pada tahap ini.");
     }
 
     public function render(OperationalModuleRegistry $registry)
@@ -175,6 +198,11 @@ class Index extends Component
             'periodEnd' => $this->periodEnd,
             'cleaningAreas' => $cleaningAreas,
             'selectedDate' => $selectedDate,
+            'bulkReviewCount' => in_array($this->module, ['distribusi', 'pencucian', 'kebersihan'], true)
+                ? app(BulkOperationalReportReviewService::class)->pendingCount(
+                    $model::query()->where('sppg_unit_id', $unit->getKey())->whereDate($definition['date'], $selectedDate),
+                    $actor, $definition['permission'].'.approve',
+                ) : 0,
         ])->layout('layouts.v3', ['title' => $definition['label']]);
     }
 }

@@ -10,6 +10,7 @@ use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\PreparationOutputWithdrawal;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingMaterialStock;
+use App\Services\BulkOperationalReportReviewService;
 use App\Services\PreparationOutputService;
 use App\Services\ProcessingMaterialStockService;
 use App\Services\ProcessingPortioningHandoverService;
@@ -443,6 +444,17 @@ class Index extends Component
         $this->select($batch->id);
     }
 
+    public function approveAll(BulkOperationalReportReviewService $bulk, ProcessingWorkflow $workflow): void
+    {
+        $count = $bulk->review(
+            ProcessingBatch::query()->where('sppg_unit_id', $this->currentUnit()->id)
+                ->whereDate('production_date', $this->selectedWorkDate()),
+            auth()->user(), 'processing.approve',
+            fn (ProcessingBatch $batch, $actor) => $workflow->verify($batch, $actor, filled($this->reviewNotes) ? trim($this->reviewNotes) : null),
+        );
+        session()->flash('v3.status', "{$count} laporan Pengolahan berhasil disetujui pada tahap ini.");
+    }
+
     public function requestRevision(ProcessingWorkflow $workflow): void
     {
         $this->validate(['reviewNotes' => ['required', 'string', 'max:2000']]);
@@ -457,6 +469,7 @@ class Index extends Component
     public function render()
     {
         $unit = $this->currentUnit();
+        $bulk = app(BulkOperationalReportReviewService::class);
         $records = ProcessingBatch::query()
             ->with([
                 'materialUsages.returns',
@@ -531,6 +544,10 @@ class Index extends Component
             'canEdit' => $this->allowed('processing.update'),
             'canSubmit' => $this->allowed('processing.submit'),
             'canApprove' => $this->allowed('processing.approve'),
+            'bulkReviewCount' => $bulk->pendingCount(
+                ProcessingBatch::query()->where('sppg_unit_id', $unit->id)->whereDate('production_date', $this->selectedWorkDate()),
+                auth()->user(), 'processing.approve',
+            ),
             'canExport' => $this->allowed('processing.export'),
             'statusLabels' => OperationalReportStatus::options(),
         ])->layout('layouts.v3', ['title' => 'Pengolahan']);

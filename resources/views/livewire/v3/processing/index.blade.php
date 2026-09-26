@@ -14,6 +14,8 @@
             </p>
         </section>
 
+        @include('livewire.v3.partials.bulk-report-review')
+
         @if($canEdit)
             <section class="rounded-2xl border border-sky-200 bg-white p-5 shadow-sm">
                 <div class="grid items-end gap-3 md:grid-cols-[220px_minmax(0,1fr)_auto]">

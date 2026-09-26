@@ -13,6 +13,7 @@
         </div>
 
         <x-v3.date-filter label="Tanggal pencucian" />
+        @include('livewire.v3.partials.bulk-report-review')
         <x-v3.pending-work :records="$attentionRecords" module="pencucian" :definition="$definition" />
 
         <div class="grid gap-3 sm:grid-cols-3">

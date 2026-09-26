@@ -3,6 +3,7 @@
         <x-v3.flash-alert />
         <div><p class="text-xs font-bold uppercase tracking-[.18em] text-sky-600">Divisi Kebersihan</p><h2 class="mt-2 text-2xl font-bold">Pekerjaan Kebersihan Harian</h2><p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Checklist hari ini dibuat otomatis dari master area. Format resmi periode dapat diekspor per Toilet, Produksi, Pemorsian, dan tiga Gudang.</p></div>
         <x-v3.date-filter label="Tanggal pekerjaan / riwayat Kebersihan" description="Pilih tanggal untuk melihat seluruh pekerjaan pada hari tersebut, termasuk yang belum selesai." />
+        @include('livewire.v3.partials.bulk-report-review')
         <h3 class="text-sm font-bold">Pekerjaan tanggal {{ \Carbon\Carbon::parse($selectedDate)->translatedFormat('d F Y') }}</h3>
         <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             @forelse($records as $record)

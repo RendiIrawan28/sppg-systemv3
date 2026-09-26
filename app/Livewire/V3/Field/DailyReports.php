@@ -3,9 +3,10 @@
 namespace App\Livewire\V3\Field;
 
 use App\Enums\FieldDailyReportStatus;
-use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Livewire\V3\Concerns\FiltersByWorkDate;
+use App\Livewire\V3\Concerns\InteractsWithV3Shell;
 use App\Models\FieldDailyReport;
+use App\Services\BulkOperationalReportReviewService;
 use App\Services\FieldDailyReportGenerator;
 use App\Services\FieldDailyReportWorkflow;
 use DomainException;
@@ -14,11 +15,12 @@ use Livewire\WithPagination;
 
 class DailyReports extends Component
 {
-    use InteractsWithV3Shell;
     use FiltersByWorkDate;
+    use InteractsWithV3Shell;
     use WithPagination;
 
     public ?int $selectedId = null;
+
     public array $form = [
         'operational_summary' => '',
         'obstacles' => '',
@@ -26,6 +28,7 @@ class DailyReports extends Component
         'follow_up' => '',
         'recommendations' => '',
     ];
+
     public string $reviewNotes = '';
 
     public function select(int $id): void
@@ -69,6 +72,7 @@ class DailyReports extends Component
             $workflow->submit($this->record($this->selectedId), auth()->user(), trim($this->reviewNotes) ?: null);
         } catch (DomainException $exception) {
             $this->addError('workflow', nl2br(e($exception->getMessage())));
+
             return;
         }
         $this->select($this->selectedId);
@@ -81,10 +85,24 @@ class DailyReports extends Component
             $workflow->approve($this->record($this->selectedId), auth()->user(), trim($this->reviewNotes) ?: null);
         } catch (DomainException $exception) {
             $this->addError('workflow', $exception->getMessage());
+
             return;
         }
         $this->select($this->selectedId);
         session()->flash('v3.status', 'Laporan harian disetujui.');
+    }
+
+    public function approveAll(BulkOperationalReportReviewService $bulk, FieldDailyReportWorkflow $workflow): void
+    {
+        $count = $bulk->review(
+            FieldDailyReport::query()->where('sppg_unit_id', $this->currentUnit()->getKey())
+                ->whereDate('report_date', $this->selectedWorkDate())
+                ->where('submitted_by', '!=', auth()->id()),
+            auth()->user(), 'field_daily_reports.approve',
+            fn (FieldDailyReport $report, $actor) => $workflow->approve($report, $actor),
+            FieldDailyReportStatus::Submitted->value,
+        );
+        session()->flash('v3.status', "{$count} laporan harian lapangan berhasil disetujui.");
     }
 
     public function requestRevision(FieldDailyReportWorkflow $workflow): void
@@ -94,6 +112,7 @@ class DailyReports extends Component
             $workflow->requestRevision($this->record($this->selectedId), auth()->user(), $this->reviewNotes);
         } catch (DomainException $exception) {
             $this->addError('workflow', $exception->getMessage());
+
             return;
         }
         $this->select($this->selectedId);
@@ -119,6 +138,12 @@ class DailyReports extends Component
             'canUpdate' => $this->allowed('field_daily_reports.update'),
             'canSubmit' => $this->allowed('field_daily_reports.submit'),
             'canApprove' => $this->allowed('field_daily_reports.approve'),
+            'bulkReviewCount' => app(BulkOperationalReportReviewService::class)->pendingCount(
+                FieldDailyReport::query()->where('sppg_unit_id', $unit->getKey())
+                    ->whereDate('report_date', $this->selectedWorkDate())
+                    ->where('submitted_by', '!=', auth()->id()),
+                auth()->user(), 'field_daily_reports.approve', FieldDailyReportStatus::Submitted->value,
+            ),
             'statusOptions' => FieldDailyReportStatus::options(),
         ])->layout('layouts.v3', ['title' => 'Laporan Harian Lapangan']);
     }
