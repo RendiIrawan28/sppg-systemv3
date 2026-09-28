@@ -13,6 +13,7 @@ use App\Models\ContainerCollectionTask;
 use App\Models\DistributionRun;
 use App\Models\DistributionStop;
 use App\Models\User;
+use App\Services\Mobile\OperationalReportTransitionNotifier;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -641,6 +642,11 @@ class DistributionWorkflow
                 );
             }
 
+            app(OperationalReportTransitionNotifier::class)->submitted(
+                $runs, 'distribution', 'Distribusi', $this->reportNotificationSummary($run, $runs->count()),
+                'distribution.approve', 'distribusi', 'distribusi', openList: true,
+            );
+
             return $runs->firstWhere('id', $run->getKey())?->refresh()
                 ?? $run->refresh();
         });
@@ -689,6 +695,11 @@ class DistributionWorkflow
                     $nextStatus->value,
                 );
             }
+
+            app(OperationalReportTransitionNotifier::class)->reviewed(
+                $runs, $nextStatus, 'distribution', 'Distribusi',
+                $this->reportNotificationSummary($run, $runs->count()), 'distribusi', openList: true,
+            );
 
             return $runs->firstWhere('id', $run->getKey())?->refresh()
                 ?? $run->refresh();
@@ -742,9 +753,19 @@ class DistributionWorkflow
                 );
             }
 
+            app(OperationalReportTransitionNotifier::class)->revisionRequired(
+                $runs, 'distribution', 'Distribusi',
+                $this->reportNotificationSummary($run, $runs->count()), 'distribusi', openList: true,
+            );
+
             return $runs->firstWhere('id', $run->getKey())?->refresh()
                 ?? $run->refresh();
         });
+    }
+
+    private function reportNotificationSummary(DistributionRun $run, int $routeCount): string
+    {
+        return 'Laporan Distribusi '.$run->distribution_date?->format('d-m-Y')." ({$routeCount} rute)";
     }
 
     public function submissionIssues(DistributionRun $run, bool $includeGroup = true): array

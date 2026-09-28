@@ -9,6 +9,7 @@ use App\Models\PreparationSession;
 use App\Models\User;
 use App\Models\WashingSession;
 use App\Models\WasteHandoverReport;
+use App\Services\Mobile\OperationalReportTransitionNotifier;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -16,7 +17,7 @@ use Illuminate\Validation\ValidationException;
 class WasteHandoverWorkflow
 {
     /** @param array<string, mixed> $data
-     *  @return array<string, mixed>
+     * @return array<string, mixed>
      */
     public function normalizeAndValidateSource(array $data, int $unitId, ?int $ignoreReportId = null): array
     {
@@ -92,6 +93,12 @@ class WasteHandoverWorkflow
 
             $this->writeHistory($report, $actor, 'submitted', $fromStatus, $report->status->value, $notes);
 
+            [$module, $label, $summary, $slug, $divisionCode] = $this->notificationDetails($report);
+            app(OperationalReportTransitionNotifier::class)->submitted(
+                collect([$report]), $module, $label, $summary,
+                $report->division_type->permissionPrefix().'.approve', $slug, $divisionCode,
+            );
+
             return $report->refresh();
         });
     }
@@ -121,6 +128,11 @@ class WasteHandoverWorkflow
             $report->update($updates);
             $this->writeHistory($report, $actor, $approval->reviewActionName($nextStatus), $previousStatus, $nextStatus->value, $notes);
 
+            [$module, $label, $summary, $slug] = $this->notificationDetails($report);
+            app(OperationalReportTransitionNotifier::class)->reviewed(
+                collect([$report]), $nextStatus, $module, $label, $summary, $slug,
+            );
+
             return $report->refresh();
         });
     }
@@ -145,8 +157,33 @@ class WasteHandoverWorkflow
 
             $this->writeHistory($report, $actor, 'revision_requested', $previousStatus, $report->status->value, $notes);
 
+            [$module, $label, $summary, $slug] = $this->notificationDetails($report);
+            app(OperationalReportTransitionNotifier::class)->revisionRequired(
+                collect([$report]), $module, $label, $summary, $slug,
+            );
+
             return $report->refresh();
         });
+    }
+
+    /** @return array{string, string, string, string, string} */
+    private function notificationDetails(WasteHandoverReport $report): array
+    {
+        $division = $report->division_type;
+        [$slugSuffix, $divisionCode] = match ($division) {
+            WasteDivision::Preparation => ['persiapan', 'persiapan'],
+            WasteDivision::Washing => ['pencucian', 'pencucian'],
+            WasteDivision::Cleaning => ['kebersihan', 'kebersihan'],
+        };
+        $label = 'Berita Acara Limbah '.$division->label();
+
+        return [
+            'waste_handover_'.$division->value,
+            $label,
+            $label.' '.$report->report_number,
+            'ba-limbah-'.$slugSuffix,
+            $divisionCode,
+        ];
     }
 
     public function validateBeforeSubmit(WasteHandoverReport $report): void

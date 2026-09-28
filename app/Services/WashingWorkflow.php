@@ -8,6 +8,7 @@ use App\Models\ContainerCollectionRun;
 use App\Models\ContainerCollectionTask;
 use App\Models\User;
 use App\Models\WashingSession;
+use App\Services\Mobile\OperationalReportTransitionNotifier;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -472,6 +473,11 @@ class WashingWorkflow
                 );
             }
 
+            app(OperationalReportTransitionNotifier::class)->submitted(
+                $sessions, 'washing', 'Pencucian', $this->reportNotificationSummary($reference, $sessions->count()),
+                'washing.approve', 'pencucian', 'pencucian', openList: true,
+            );
+
             return WashingSession::query()->findOrFail($reference->getKey());
         });
 
@@ -532,6 +538,11 @@ class WashingWorkflow
                 );
             }
 
+            app(OperationalReportTransitionNotifier::class)->reviewed(
+                $sessions, $nextStatus, 'washing', 'Pencucian',
+                $this->reportNotificationSummary($reference, $sessions->count()), 'pencucian', openList: true,
+            );
+
             return WashingSession::query()->findOrFail($reference->getKey());
         });
     }
@@ -574,8 +585,18 @@ class WashingWorkflow
                 );
             }
 
+            app(OperationalReportTransitionNotifier::class)->revisionRequired(
+                $sessions, 'washing', 'Pencucian',
+                $this->reportNotificationSummary($reference, $sessions->count()), 'pencucian', openList: true,
+            );
+
             return WashingSession::query()->findOrFail($reference->getKey());
         });
+    }
+
+    private function reportNotificationSummary(WashingSession $session, int $sessionCount): string
+    {
+        return 'Laporan Pencucian '.$session->washing_date?->format('d-m-Y')." ({$sessionCount} sesi)";
     }
 
     private function ensureEditable(WashingSession $session): void

@@ -8,6 +8,7 @@ use App\Enums\OperationalReportStatus;
 use App\Models\CleaningArea;
 use App\Models\CleaningSession;
 use App\Models\User;
+use App\Services\Mobile\OperationalReportTransitionNotifier;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -176,6 +177,11 @@ class CleaningWorkflow
                 $this->writeHistory($dailySession, $actor, 'submitted_daily', $dailySession->state->value, $dailySession->state->value, $notes, $previousStatus, $dailySession->status->value);
             }
 
+            app(OperationalReportTransitionNotifier::class)->submitted(
+                $sessions, 'cleaning', 'Kebersihan', $this->reportNotificationSummary($session, $sessions->count()),
+                'cleaning.approve', 'kebersihan', 'kebersihan', openList: true,
+            );
+
             return $session->refresh();
         });
     }
@@ -208,6 +214,11 @@ class CleaningWorkflow
                 $dailySession->update($updates);
                 $this->writeHistory($dailySession, $actor, $action.'_daily', $dailySession->state->value, $dailySession->state->value, $notes, $previousStatus, $nextStatus->value);
             }
+
+            app(OperationalReportTransitionNotifier::class)->reviewed(
+                $sessions, $nextStatus, 'cleaning', 'Kebersihan',
+                $this->reportNotificationSummary($session, $sessions->count()), 'kebersihan', openList: true,
+            );
 
             return $session->refresh();
         });
@@ -242,8 +253,18 @@ class CleaningWorkflow
                 $this->writeHistory($dailySession, $actor, 'revision_requested_daily', $dailySession->state->value, $dailySession->state->value, $notes, $previousStatus, $dailySession->status->value);
             }
 
+            app(OperationalReportTransitionNotifier::class)->revisionRequired(
+                $sessions, 'cleaning', 'Kebersihan',
+                $this->reportNotificationSummary($session, $sessions->count()), 'kebersihan', openList: true,
+            );
+
             return $session->refresh();
         });
+    }
+
+    private function reportNotificationSummary(CleaningSession $session, int $areaCount): string
+    {
+        return 'Laporan Kebersihan '.$session->scheduled_date?->format('d-m-Y')." ({$areaCount} area)";
     }
 
     private function completionIssues(CleaningSession $session, array $data): array

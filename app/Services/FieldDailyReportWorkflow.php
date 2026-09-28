@@ -6,6 +6,7 @@ use App\Enums\FieldDailyReportStatus;
 use App\Models\ContainerCollectionTask;
 use App\Models\FieldDailyReport;
 use App\Models\User;
+use App\Services\Mobile\OperationalReportTransitionNotifier;
 use App\Support\V3\SystemUnit;
 use DomainException;
 use Illuminate\Support\Facades\DB;
@@ -122,6 +123,12 @@ class FieldDailyReportWorkflow
                 'review_notes' => $notes,
             ])->save();
         });
+
+        app(OperationalReportTransitionNotifier::class)->submitted(
+            collect([$report->refresh()]), 'field_daily', 'Laporan Harian Lapangan',
+            'Laporan Harian Lapangan '.$report->report_date?->format('d-m-Y'),
+            'field_daily_reports.approve', 'lapangan-laporan',
+        );
     }
 
     public function approve(FieldDailyReport $report, User $actor, ?string $notes = null): void
@@ -140,6 +147,11 @@ class FieldDailyReportWorkflow
             'approved_at' => now(),
             'review_notes' => $notes,
         ])->save();
+
+        app(OperationalReportTransitionNotifier::class)->approved(
+            collect([$report->refresh()]), 'field_daily', 'Laporan Harian Lapangan',
+            'Laporan Harian Lapangan '.$report->report_date?->format('d-m-Y'), 'lapangan-laporan',
+        );
     }
 
     public function requestRevision(FieldDailyReport $report, User $actor, string $notes): void
@@ -158,6 +170,11 @@ class FieldDailyReportWorkflow
             'approved_at' => null,
             'review_notes' => trim($notes),
         ])->save();
+
+        app(OperationalReportTransitionNotifier::class)->revisionRequired(
+            collect([$report->refresh()]), 'field_daily', 'Laporan Harian Lapangan',
+            'Laporan Harian Lapangan '.$report->report_date?->format('d-m-Y'), 'lapangan-laporan',
+        );
     }
 
     private function ensureAccess(FieldDailyReport $report, User $actor, string $action): void
