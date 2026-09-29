@@ -83,6 +83,9 @@ it('starts mobile portioning from an active distribution plan before taking mate
 
     $session = PortioningSession::query()->sole();
     expect($session->field_distribution_plan_id)->toBe($plan->id)
+        ->and($session->processing_batch_id)->toBeNull()
+        ->and($plan->fresh()->processing_batch_id)->toBeNull()
+        ->and(ProcessingBatch::query()->count())->toBe(0)
         ->and($session->supplies()->count())->toBe(0)
         ->and($session->target_small_portions)->toBe(60)
         ->and($session->target_large_portions)->toBe(40)
@@ -126,7 +129,8 @@ it('starts mobile portioning from an active distribution plan before taking mate
 
     $sameSession = app(FieldOperationalPlanGenerator::class)->generatePortioningSession($plan, $user);
     expect($sameSession->id)->toBe($session->id)
-        ->and(PortioningSession::query()->count())->toBe(1);
+        ->and(PortioningSession::query()->count())->toBe(1)
+        ->and(ProcessingBatch::query()->count())->toBe(0);
 });
 
 it('starts the same portioning-first flow from the website', function (): void {
@@ -139,7 +143,33 @@ it('starts the same portioning-first flow from the website', function (): void {
         ->assertHasNoErrors()
         ->assertSet('selectedId', PortioningSession::query()->sole()->id);
 
-    expect(PortioningSession::query()->sole()->state)->toBe(PortioningSessionState::InProgress);
+    expect(PortioningSession::query()->sole()->state)->toBe(PortioningSessionState::InProgress)
+        ->and(PortioningSession::query()->sole()->processing_batch_id)->toBeNull()
+        ->and(ProcessingBatch::query()->count())->toBe(0);
+});
+
+it('does not clear an existing manually linked processing batch when reopening portioning', function (): void {
+    [$unit, $user, $plan] = portioningTestContext('MANUAL-LINK');
+    $batch = ProcessingBatch::query()->create([
+        'sppg_unit_id' => $unit->id,
+        'field_distribution_plan_id' => $plan->id,
+        'production_date' => today(),
+        'product_name' => 'Produksi manual',
+        'menu_name_snapshot' => 'Produksi manual',
+        'state' => 'in_progress',
+        'status' => 'draft',
+        'started_at' => now(),
+        'petugas_id' => $user->id,
+    ]);
+    $plan->update(['processing_batch_id' => $batch->id]);
+
+    $session = app(FieldOperationalPlanGenerator::class)->generatePortioningSession($plan, $user);
+    $session->update(['processing_batch_id' => $batch->id]);
+    app(FieldOperationalPlanGenerator::class)->generatePortioningSession($plan, $user);
+
+    expect(ProcessingBatch::query()->count())->toBe(1)
+        ->and($plan->fresh()->processing_batch_id)->toBe($batch->id)
+        ->and($session->fresh()->processing_batch_id)->toBe($batch->id);
 });
 
 it('blocks warehouse pickup before start and allows cancellation only while portioning is empty', function (): void {

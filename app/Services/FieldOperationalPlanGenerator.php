@@ -56,15 +56,15 @@ class FieldOperationalPlanGenerator
                 throw new RuntimeException('Rencana tidak memiliki tujuan distribusi.');
             }
 
-            $batch = $this->syncProcessingBatch($plan, $actor);
-            $session = $this->syncPortioningSession($plan, $batch, $actor);
+            // Pemorsian dimulai dari rencana aktif tanpa membuat pekerjaan Pengolahan.
+            // Hasil batch Pengolahan yang dibuat manual diterima melalui alur handover.
+            $session = $this->syncPortioningSession($plan, $actor);
 
             if (! $session) {
                 throw new RuntimeException('Modul Pemorsian belum tersedia.');
             }
 
             $plan->forceFill([
-                'processing_batch_id' => $batch?->getKey(),
                 'portioning_session_id' => $session->getKey(),
                 'updated_by' => $actor->getKey(),
             ])->save();
@@ -179,7 +179,6 @@ class FieldOperationalPlanGenerator
 
     private function syncPortioningSession(
         FieldDistributionPlan $plan,
-        ?ProcessingBatch $batch,
         User $actor,
     ): ?PortioningSession {
         if (! class_exists(PortioningSession::class)
@@ -201,7 +200,6 @@ class FieldOperationalPlanGenerator
         $attributes = [
             'sppg_unit_id' => $plan->sppg_unit_id,
             'field_distribution_plan_id' => $plan->getKey(),
-            'processing_batch_id' => $batch?->getKey(),
             'portioning_date' => $plan->distribution_date,
             'menu_name_snapshot' => $plan->menu_name_snapshot,
             'target_small_portions' => $plan->planned_small_portions,
