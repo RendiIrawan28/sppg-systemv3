@@ -86,10 +86,6 @@
         @if ($cycle->revision_notes)<div class="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"><strong>Catatan revisi:</strong> {{ $cycle->revision_notes }}</div>@endif
 
         @if ($cycle->isEditable() && (auth()->user()->is_super_admin || auth()->user()->can('menus.update')))
-        <details class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <summary class="cursor-pointer text-sm font-bold text-slate-800">Tempel beberapa baris dari Excel</summary>
-            <div class="mt-4 grid gap-3 lg:grid-cols-[130px_minmax(0,1fr)_180px]"><label><span class="mb-1.5 block text-xs font-semibold text-slate-600">Mulai hari ke-</span><input wire:model="pasteStartDayNumber" type="number" min="1" class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"></label><label><span class="mb-1.5 block text-xs font-semibold text-slate-600">Urutan kolom: Nama, Karbohidrat, Hewani, Nabati, Susu, Sayur, Buah, Catatan</span><textarea wire:model="pasteBuffer" rows="4" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm" placeholder="Tempel sel Excel di sini"></textarea>@error('pasteBuffer')<span class="text-xs text-rose-600">{{ $message }}</span>@enderror</label><button wire:click="pasteExcel" class="self-end rounded-xl bg-sky-50 px-4 py-3 text-xs font-bold text-sky-700 ring-1 ring-sky-100">Masukkan ke matriks</button></div>
-        </details>
         @endif
 
         <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
