@@ -321,7 +321,17 @@ data class FieldPlanResponse(val data: FieldPlan)
 
 data class FieldPlanOptionsResponse(
     val data: List<FieldPlanOption>,
+    @SerializedName("copy_sources") val copySources: List<FieldPlanCopySource>,
     @SerializedName("can_create") val canCreate: Boolean,
+)
+
+data class FieldPlanCopySource(
+    val day: String,
+    val label: String,
+    val date: String,
+    @SerializedName("plan_number") val planNumber: String,
+    @SerializedName("destination_count") val destinationCount: Int,
+    @SerializedName("beneficiary_count") val beneficiaryCount: Int,
 )
 
 data class FieldPlanOption(
@@ -345,6 +355,7 @@ data class CreateFieldPlanRequest(
     @SerializedName("menu_cycle_day_id") val menuCycleDayId: Long? = null,
     @SerializedName("confirmation_deadline_at") val confirmationDeadlineAt: String? = null,
     @SerializedName("general_notes") val generalNotes: String? = null,
+    @SerializedName("copy_source_day") val copySourceDay: String? = null,
 )
 
 data class FieldPlan(

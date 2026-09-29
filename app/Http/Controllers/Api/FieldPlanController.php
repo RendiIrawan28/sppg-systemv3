@@ -9,6 +9,7 @@ use App\Models\FieldDistributionPlan;
 use App\Services\FieldDistributionPlanWorkflow;
 use App\Services\ActiveFieldPlanRouteService;
 use App\Services\FieldPlanActualConfirmationService;
+use App\Services\FieldDistributionPlanCopyService;
 use App\Services\MobileFieldPlanCreationService;
 use App\Services\MobileFieldPlanUpdateService;
 use App\Support\V3\SystemUnit;
@@ -26,11 +27,13 @@ class FieldPlanController extends Controller
         Request $request,
         SystemUnit $systemUnit,
         MobileFieldPlanCreationService $creationService,
+        FieldDistributionPlanCopyService $copyService,
     ): JsonResponse {
         Gate::authorize('create', FieldDistributionPlan::class);
 
         return response()->json([
             'data' => $creationService->options($systemUnit->id()),
+            'copy_sources' => $copyService->availableSources($systemUnit->id()),
             'can_create' => true,
         ]);
     }
@@ -46,6 +49,7 @@ class FieldPlanController extends Controller
             'menu_cycle_day_id' => ['nullable', 'required_without:distribution_date', 'integer'],
             'confirmation_deadline_at' => ['nullable', 'date'],
             'general_notes' => ['nullable', 'string', 'max:5000'],
+            'copy_source_day' => ['nullable', 'in:today,yesterday'],
         ]);
 
         $plan = $creationService->create($systemUnit->id(), $request->user(), $data);

@@ -14,6 +14,24 @@
         @endif
 
         <form wire:submit="{{ $routeRevisionMode ? 'saveRouteRevision' : 'save' }}" class="space-y-5">
+            @if(!$plan)
+                <section class="rounded-2xl border border-sky-200 bg-sky-50 p-5 shadow-sm">
+                    <h3 class="font-bold text-slate-900">Gunakan rencana sebelumnya</h3>
+                    <p class="mt-1 text-sm text-slate-600">Opsional. Salin rute, urutan, jumlah aktual, dan catatan dari rencana hari ini atau kemarin ke tanggal distribusi yang Anda pilih. Hasilnya tetap draft.</p>
+                    <label class="mt-4 block max-w-md">
+                        <span class="mb-1 block text-xs font-semibold text-slate-700">Sumber rencana</span>
+                        <select wire:model="copySourceDay" class="h-11 w-full rounded-xl border border-sky-200 bg-white px-3 text-sm">
+                            <option value="">Buat baru dari periode penerima</option>
+                            @foreach($copySources as $source)
+                                <option value="{{ $source['day'] }}">{{ $source['label'] }} ({{ \Illuminate\Support\Carbon::parse($source['date'])->format('d-m-Y') }}) · {{ $source['plan_number'] }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    @if($copySources === [])<p class="mt-2 text-xs text-slate-500">Belum ada rencana hari ini atau kemarin yang dapat disalin.</p>@endif
+                    @error('copySourceDay')<p class="mt-2 text-xs text-rose-700">{{ $message }}</p>@enderror
+                    <p class="mt-3 text-xs text-sky-800">Sekolah/Posyandu tetap berasal dari periode penerima yang berlaku pada tanggal tujuan. Periksa kembali hasil salinan sebelum diaktifkan.</p>
+                </section>
+            @endif
             <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h3 class="font-bold text-slate-900">Menu dan jadwal</h3><div class="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><label><span class="mb-1 block text-xs font-semibold text-slate-600">Tanggal distribusi</span><input wire:model="distributionDate" type="date" @disabled(!$editable) class="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm"></label><label class="sm:col-span-2"><span class="mb-1 block text-xs font-semibold text-slate-600">Menu dari siklus aktif</span><select wire:model="menuCycleDayId" @disabled(!$editable) class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="">Pilih menu...</option>@foreach($cycleDays as $day)<option value="{{ $day->id }}">{{ ($day->delivery_date ?: $day->service_date)?->format('d/m/Y') }} · {{ $day->menu?->name ?: 'Menu' }} · {{ $day->cycle?->name }}</option>@endforeach</select></label><label><span class="mb-1 block text-xs font-semibold text-slate-600">Batas konfirmasi</span><input wire:model="confirmationDeadlineAt" type="datetime-local" @disabled(!$editable) class="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm"></label><label class="sm:col-span-2 xl:col-span-4"><span class="mb-1 block text-xs font-semibold text-slate-600">Catatan umum</span><textarea wire:model="generalNotes" rows="2" @disabled(!$editable) class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"></textarea></label></div></section>
 
             @if($plan)

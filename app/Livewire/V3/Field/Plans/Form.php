@@ -7,6 +7,7 @@ use App\Models\FieldDistributionPlan;
 use App\Services\ActiveFieldPlanRouteService;
 use App\Services\FieldDistributionPlanWorkflow;
 use App\Services\FieldPlanActualConfirmationService;
+use App\Services\FieldDistributionPlanCopyService;
 use DomainException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -26,6 +27,8 @@ class Form extends Component
     public string $confirmationDeadlineAt = '';
 
     public string $generalNotes = '';
+
+    public string $copySourceDay = '';
 
     public string $workflowNotes = '';
 
@@ -53,12 +56,28 @@ class Form extends Component
     {
         $this->runAction(function (): string {
             $created = ! $this->planId;
-            $plan = $this->persist();
+            $copied = null;
+            $plan = DB::transaction(function () use ($created, &$copied): FieldDistributionPlan {
+                $plan = $this->persist();
+                if ($created) {
+                    app(FieldPlanActualConfirmationService::class)->synchronize($plan, auth()->user());
+                    if ($this->copySourceDay !== '') {
+                        $copied = app(FieldDistributionPlanCopyService::class)
+                            ->copyToPlan($plan, auth()->user(), $this->copySourceDay);
+                    }
+                }
+
+                return $plan;
+            });
             if ($created) {
-                app(FieldPlanActualConfirmationService::class)->synchronize($plan, auth()->user());
                 $this->planId = $plan->getKey();
             }
             $this->fillFromPlan($plan->refresh());
+
+            if ($copied !== null) {
+                return sprintf('Rencana draft dibuat. %d tujuan disalin; %d tujuan memakai data periode yang berlaku. Periksa jumlah dan rute sebelum mengaktifkan.',
+                    $copied['copied_destinations'], $copied['unmatched_destinations']);
+            }
 
             return $created ? 'Rencana dibuat dan penerima periode otomatis dimuat.' : 'Rencana lapangan berhasil disimpan.';
         });
@@ -166,6 +185,7 @@ class Form extends Component
         $plan = $this->planId ? $this->plan()->load(['processingBatch', 'portioningSession', 'distributionRun', 'distributionRuns']) : null;
         return view('livewire.v3.field.plans.form', [
             ...$this->shellData($unit), 'plan' => $plan, 'cycleDays' => collect(),
+            'copySources' => $plan ? [] : app(FieldDistributionPlanCopyService::class)->availableSources((int) $unit->getKey()),
             'editable' => ! $plan || $plan->isEditable(),
             'canUpdate' => $this->allowed('field_planning.update'),
             'canSubmit' => $this->allowed('field_planning.submit'),
@@ -185,6 +205,7 @@ class Form extends Component
             'distributionDate' => ['required', 'date', 'after_or_equal:today'], 'menuCycleDayId' => ['nullable', 'integer'],
             'confirmationDeadlineAt' => ['nullable', 'date'],
             'generalNotes' => ['nullable', 'string', 'max:5000'],
+            'copySourceDay' => ['nullable', 'in:today,yesterday'],
             'destinations' => ['array'], 'destinations.*.route_name' => ['nullable', 'string', 'max:255'],
             'destinations.*.sequence_order' => ['nullable', 'integer', 'min:1'],
             'destinations.*.planned_arrival_time' => ['nullable', 'date_format:H:i'],
@@ -196,6 +217,11 @@ class Form extends Component
             'destinations.*.groups.*.notes' => ['nullable', 'string', 'max:1000'],
         ]);
         return DB::transaction(function () use ($plan, $data): FieldDistributionPlan {
+            if (! $plan->exists && FieldDistributionPlan::query()
+                ->where('sppg_unit_id', $this->currentUnit()->getKey())
+                ->whereDate('distribution_date', $data['distributionDate'])->exists()) {
+                throw ValidationException::withMessages(['distributionDate' => 'Rencana distribusi untuk tanggal ini sudah tersedia.']);
+            }
             try {
                 $period = app(FieldPlanActualConfirmationService::class)->readyPeriod($this->currentUnit()->getKey(), $data['distributionDate']);
             } catch (DomainException $exception) {

@@ -41,6 +41,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
@@ -1105,11 +1106,12 @@ fun FieldPlanCreateScreen(
     state: FieldPlanUiState,
     onBack: () -> Unit,
     onLoadOptions: () -> Unit,
-    onCreate: (String, Long?, String?) -> Unit,
+    onCreate: (String, Long?, String?, String?) -> Unit,
     onClearFeedback: () -> Unit,
 ) {
     LaunchedEffect(Unit) { onLoadOptions() }
     var selectedDate by remember { mutableStateOf<String?>(null) }
+    var selectedCopyDay by remember { mutableStateOf<String?>(null) }
     var notes by remember { mutableStateOf("") }
     val context = LocalContext.current
 
@@ -1134,6 +1136,10 @@ fun FieldPlanCreateScreen(
                 state.options.filter { it.distributionDate == date }
             }.orEmpty()
             val selectedOption = optionsForDate.firstOrNull()
+            val selectedSource = state.copySources.firstOrNull { it.day == selectedCopyDay }
+            val sourceDate = selectedSource?.date?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            val targetDate = selectedDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            val copyDateIsValid = selectedSource == null || (sourceDate != null && targetDate?.isAfter(sourceDate) == true)
             LazyColumn(
                 modifier = Modifier.fillMaxSize().imePadding(),
                 contentPadding = PaddingValues(SppgPagePadding, padding.calculateTopPadding() + 12.dp, SppgPagePadding, 32.dp),
@@ -1191,7 +1197,44 @@ fun FieldPlanCreateScreen(
                     }
                 }
                 item {
-                    Text("3. Catatan rencana", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("3. Isi rencana", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Buat baru atau salin data rencana hari ini/kemarin. Sekolah dan jumlah terdaftar tetap mengikuti periode penerima pada tanggal tujuan.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(10.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = selectedCopyDay == null,
+                            onClick = { selectedCopyDay = null },
+                            label = { Text("Buat baru") },
+                            enabled = !state.isSubmitting,
+                        )
+                        state.copySources.forEach { source ->
+                            FilterChip(
+                                selected = selectedCopyDay == source.day,
+                                onClick = { selectedCopyDay = source.day },
+                                label = { Text("Salin ${source.label.lowercase()}") },
+                                enabled = !state.isSubmitting,
+                            )
+                        }
+                    }
+                    if (state.copySources.isEmpty()) {
+                        Text("Belum ada rencana hari ini atau kemarin yang dapat disalin.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (selectedSource != null) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "${selectedSource.planNumber} · ${formatDate(selectedSource.date)} · ${selectedSource.destinationCount} tujuan",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (!copyDateIsValid) {
+                            Spacer(Modifier.height(4.dp))
+                            Text("Tanggal tujuan harus setelah tanggal rencana sumber.", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+                item {
+                    Text("4. Catatan rencana", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     SppgTextField(
                         value = notes,
@@ -1206,18 +1249,18 @@ fun FieldPlanCreateScreen(
                     SppgButton(
                         onClick = {
                             selectedDate?.let {
-                                onCreate(it, selectedOption?.id, notes.trim().ifBlank { null })
+                                onCreate(it, selectedOption?.id, notes.trim().ifBlank { null }, selectedCopyDay)
                             }
                         },
-                        enabled = selectedDate != null && selectedOption?.isAvailable == true && !state.isSubmitting,
+                        enabled = selectedDate != null && selectedOption?.isAvailable == true && copyDateIsValid && !state.isSubmitting,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                     ) {
                         if (state.isSubmitting) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        else Text("Buat rencana dan muat penerima", fontWeight = FontWeight.Bold)
+                        else Text(if (selectedCopyDay == null) "Buat rencana dan muat penerima" else "Buat draft dari rencana sebelumnya", fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Setelah rencana dibuat, sekolah/Posyandu dan jumlah penerima dimuat otomatis lalu Anda diarahkan untuk mengonfirmasi rute.",
+                        "Setelah dibuat, periksa kembali jumlah dan rute sebelum mengaktifkan rencana.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

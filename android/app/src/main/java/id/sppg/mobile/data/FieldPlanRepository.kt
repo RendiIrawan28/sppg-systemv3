@@ -5,6 +5,7 @@ import id.sppg.mobile.data.remote.ActivateFieldPlanRequest
 import id.sppg.mobile.data.remote.ApiErrorHandler
 import id.sppg.mobile.data.remote.FieldPlan
 import id.sppg.mobile.data.remote.FieldPlanOption
+import id.sppg.mobile.data.remote.FieldPlanCopySource
 import id.sppg.mobile.data.remote.CreateFieldPlanRequest
 import id.sppg.mobile.data.remote.MobileApi
 import id.sppg.mobile.data.remote.ReadinessResponse
@@ -23,6 +24,11 @@ data class FieldPlanPage(
     val plans: List<FieldPlan>,
     val currentPage: Int,
     val lastPage: Int,
+)
+
+data class FieldPlanCreationOptions(
+    val dates: List<FieldPlanOption>,
+    val copySources: List<FieldPlanCopySource>,
 )
 
 class FieldPlanRepository(
@@ -54,19 +60,21 @@ class FieldPlanRepository(
         response.body()?.data ?: throw IOException("Rincian rencana tidak tersedia.")
     }
 
-    suspend fun getOptions(): Result<List<FieldPlanOption>> = safeApiCall(errorHandler) {
+    suspend fun getOptions(): Result<FieldPlanCreationOptions> = safeApiCall(errorHandler) {
         val response = api.fieldPlanOptions(authorization())
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())
-        response.body()?.data ?: throw IOException("Pilihan tanggal distribusi tidak tersedia.")
+        val body = response.body() ?: throw IOException("Pilihan tanggal distribusi tidak tersedia.")
+        FieldPlanCreationOptions(body.data, body.copySources.orEmpty())
     }
 
-    suspend fun createPlan(distributionDate: String, legacyOptionId: Long?, notes: String?): Result<FieldPlan> = safeApiCall(errorHandler) {
+    suspend fun createPlan(distributionDate: String, legacyOptionId: Long?, notes: String?, copySourceDay: String?): Result<FieldPlan> = safeApiCall(errorHandler) {
         val response = api.createFieldPlan(
             authorization(),
             CreateFieldPlanRequest(
                 distributionDate = distributionDate,
                 menuCycleDayId = legacyOptionId,
                 generalNotes = notes?.trim()?.ifBlank { null },
+                copySourceDay = copySourceDay,
             ),
         )
         if (!response.isSuccessful) throw responseException(response.code(), response.errorBody()?.string())

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import id.sppg.mobile.data.FieldPlanRepository
 import id.sppg.mobile.data.remote.FieldPlan
 import id.sppg.mobile.data.remote.FieldPlanOption
+import id.sppg.mobile.data.remote.FieldPlanCopySource
 import id.sppg.mobile.data.remote.ReadinessResponse
 import id.sppg.mobile.data.remote.ReviseFieldPlanRouteRequest
 import id.sppg.mobile.data.remote.ReviseFieldPlanRoutesRequest
@@ -28,6 +29,7 @@ data class FieldPlanUiState(
     val isLoadingMore: Boolean = false,
     val selectedPlan: FieldPlan? = null,
     val options: List<FieldPlanOption> = emptyList(),
+    val copySources: List<FieldPlanCopySource> = emptyList(),
     val readiness: ReadinessResponse? = null,
     val successMessage: String? = null,
     val errorMessage: String? = null,
@@ -122,23 +124,24 @@ class FieldPlanViewModel(private val repository: FieldPlanRepository) : ViewMode
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, errorMessage = null, successMessage = null) }
             repository.getOptions()
-                .onSuccess { options -> _uiState.update { it.copy(options = options) } }
+                .onSuccess { options -> _uiState.update { it.copy(options = options.dates, copySources = options.copySources) } }
                 .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message) } }
             _uiState.update { it.copy(isLoading = false) }
         }
     }
 
-    fun createPlan(distributionDate: String, legacyOptionId: Long?, notes: String?, onCreated: (Long) -> Unit) {
+    fun createPlan(distributionDate: String, legacyOptionId: Long?, notes: String?, copySourceDay: String?, onCreated: (Long) -> Unit) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, errorMessage = null, successMessage = null) }
-            repository.createPlan(distributionDate, legacyOptionId, notes)
+            repository.createPlan(distributionDate, legacyOptionId, notes, copySourceDay)
                 .onSuccess { plan ->
                     _uiState.update {
                         it.copy(
                             selectedPlan = plan,
                             plans = listOf(plan) + it.plans.filterNot { item -> item.id == plan.id },
                             options = it.options.map { option -> if (option.distributionDate == distributionDate) option.copy(hasPlan = true) else option },
-                            successMessage = "Rencana distribusi berhasil dibuat.",
+                            successMessage = if (copySourceDay == null) "Rencana distribusi berhasil dibuat."
+                                else "Rencana draft berhasil disalin. Periksa jumlah dan rute sebelum mengaktifkan.",
                         )
                     }
                     onCreated(plan.id)

@@ -14,6 +14,7 @@ class MobileFieldPlanCreationService
 {
     public function __construct(
         private readonly FieldPlanActualConfirmationService $confirmationService,
+        private readonly FieldDistributionPlanCopyService $copyService,
     ) {}
 
     /** @return array<int, array<string, mixed>> */
@@ -112,6 +113,9 @@ class MobileFieldPlanCreationService
             ]);
 
             $this->confirmationService->synchronize($plan, $actor);
+            if (filled($data['copy_source_day'] ?? null)) {
+                $this->copyService->copyToPlan($plan, $actor, (string) $data['copy_source_day']);
+            }
 
             return $plan->refresh()->load('destinations.recipientGroups');
         });

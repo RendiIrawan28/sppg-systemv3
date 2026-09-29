@@ -373,9 +373,8 @@ private fun AuthenticatedContent(
             state = fieldPlanState,
             onBack = { screen = AppScreen.FieldPlans },
             onLoadOptions = fieldPlanViewModel::loadOptions,
-            onCreate = { distributionDate, legacyOptionId, notes ->
-                fieldPlanViewModel.createPlan(distributionDate, legacyOptionId, notes) { id ->
-                    fieldPlanViewModel.clearFeedback()
+            onCreate = { distributionDate, legacyOptionId, notes, copySourceDay ->
+                fieldPlanViewModel.createPlan(distributionDate, legacyOptionId, notes, copySourceDay) { id ->
                     screen = AppScreen.FieldPlanEdit(id)
                 }
             },
