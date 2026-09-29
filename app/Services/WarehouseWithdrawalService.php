@@ -11,6 +11,7 @@ use App\Models\PreparationSession;
 use App\Models\ProcessingBatch;
 use App\Models\ProcessingMaterialStock;
 use App\Models\StockMovement;
+use App\Models\SppgUnit;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Models\WarehouseWithdrawal;
@@ -181,7 +182,7 @@ class WarehouseWithdrawalService
         );
         $warehouse = Warehouse::forUnit($unitId, Warehouse::TYPE_FOOD);
 
-        return WarehouseWithdrawal::query()->create([
+        return $this->createWithdrawal([
             'sppg_unit_id' => $unitId,
             'warehouse_id' => $warehouse->getKey(),
             'withdrawal_date' => today(),
@@ -352,7 +353,7 @@ class WarehouseWithdrawalService
 
         $warehouse = Warehouse::forUnit($unitId, Warehouse::TYPE_NON_FOOD);
 
-        return WarehouseWithdrawal::query()->create([
+        return $this->createWithdrawal([
             'sppg_unit_id' => $unitId,
             'warehouse_id' => $warehouse->getKey(),
             'withdrawal_date' => today(),
@@ -475,7 +476,7 @@ class WarehouseWithdrawalService
             }
             $this->assertFefoAllocation($unitId, $lots, $requestedByLot);
 
-            $withdrawal = WarehouseWithdrawal::query()->create([
+            $withdrawal = $this->createWithdrawal([
                 'sppg_unit_id' => $unitId,
                 'warehouse_id' => $warehouse->getKey(),
                 'withdrawal_date' => today(),
@@ -862,6 +863,20 @@ class WarehouseWithdrawalService
             ->sum('warehouse_withdrawal_items.requested_quantity');
 
         return max(0, (float) $lot->balance_quantity - (float) $reserved);
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function createWithdrawal(array $attributes): WarehouseWithdrawal
+    {
+        return DB::transaction(function () use ($attributes): WarehouseWithdrawal {
+            // Serialise numbering per SPPG unit until the withdrawal is inserted.
+            SppgUnit::query()
+                ->whereKey((int) $attributes['sppg_unit_id'])
+                ->lockForUpdate()
+                ->firstOrFail(['id']);
+
+            return WarehouseWithdrawal::query()->create($attributes);
+        });
     }
 
     /** @return array{string, string} */

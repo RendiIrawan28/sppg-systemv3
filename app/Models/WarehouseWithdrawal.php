@@ -33,7 +33,22 @@ class WarehouseWithdrawal extends Model
     {
         static::creating(function (self $model): void {
             $model->uuid ??= (string) Str::uuid();
-            $model->withdrawal_number ??= 'PG/'.now()->format('Ymd').'/'.str_pad((string) (self::where('sppg_unit_id', $model->sppg_unit_id)->whereDate('withdrawal_date', $model->withdrawal_date)->count() + 1), 4, '0', STR_PAD_LEFT);
+            if (blank($model->withdrawal_number)) {
+                $date = $model->withdrawal_date?->format('Ymd') ?? today()->format('Ymd');
+                $prefix = 'PG/'.$date.'/';
+                $lastSequence = self::query()
+                    ->where('sppg_unit_id', $model->sppg_unit_id)
+                    ->where('withdrawal_number', 'like', $prefix.'%')
+                    ->pluck('withdrawal_number')
+                    ->map(static function (string $number) use ($prefix): int {
+                        $suffix = substr($number, strlen($prefix));
+
+                        return ctype_digit($suffix) ? (int) $suffix : 0;
+                    })
+                    ->max() ?? 0;
+
+                $model->withdrawal_number = $prefix.str_pad((string) ($lastSequence + 1), 4, '0', STR_PAD_LEFT);
+            }
         });
     }
 
