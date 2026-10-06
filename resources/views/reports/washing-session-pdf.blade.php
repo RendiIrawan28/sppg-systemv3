@@ -31,7 +31,7 @@
         $totalReceived = (int) $sessions->sum('received_containers');
         $totalClean = (int) $sessions->sum('clean_containers');
         $totalDamaged = (int) $sessions->sum('damaged_containers');
-        $totalMissing = (int) $sessions->sum('missing_containers');
+        $totalDifference = (int) $sessions->sum('receiving_difference');
         $wasteItems = $sessions->flatMap(fn ($washing) => $washing->wasteRecords->map(function ($item) use ($washing) {
             $item->route_label = $washing->containerCollectionRun?->run_number ?: $washing->distributionRun?->route_name ?: $washing->session_number;
             return $item;
@@ -46,13 +46,15 @@
     <table class="summary">
         <tr>
             <td>Jumlah sesi<strong>{{ number_format($sessions->count(), 0, ',', '.') }}</strong></td>
-            <td>Seharusnya diterima<strong>{{ number_format($totalExpected, 0, ',', '.') }}</strong></td>
-            <td>Diterima fisik<strong>{{ number_format($totalReceived, 0, ',', '.') }}</strong></td>
+            <td>Perkiraan pengambilan<strong>{{ number_format($totalExpected, 0, ',', '.') }}</strong></td>
+            <td>Jumlah fisik final<strong>{{ number_format($totalReceived, 0, ',', '.') }}</strong></td>
             <td>Bersih/siap digunakan<strong>{{ number_format($totalClean, 0, ',', '.') }}</strong></td>
             <td>Rusak/tidak layak<strong>{{ number_format($totalDamaged, 0, ',', '.') }}</strong></td>
-            <td>Kurang saat serah-terima<strong>{{ number_format($totalMissing, 0, ',', '.') }}</strong></td>
+            <td>Selisih netto dari perkiraan<strong>{{ $totalDifference > 0 ? '+' : '' }}{{ number_format($totalDifference, 0, ',', '.') }}</strong></td>
         </tr>
     </table>
+
+    <p class="muted">Jumlah fisik final berasal dari hitungan ompreng bersih dan rusak oleh tim Pencucian. Selisih terhadap perkiraan pengambilan tidak otomatis berarti ompreng hilang.</p>
 
     <h2>Rekap per rute</h2>
     <table>
@@ -62,11 +64,11 @@
                 <th>Rute / sesi</th>
                 <th>Driver</th>
                 <th>Petugas Pencucian</th>
-                <th>Seharusnya</th>
-                <th>Diterima</th>
+                <th>Perkiraan</th>
+                <th>Fisik final</th>
                 <th>Bersih</th>
                 <th>Rusak</th>
-                <th>Kurang</th>
+                <th>Selisih</th>
                 <th>Limbah</th>
                 <th>Mulai–selesai</th>
                 <th>Status</th>
@@ -83,7 +85,7 @@
                     <td class="number">{{ number_format($washing->received_containers, 0, ',', '.') }}</td>
                     <td class="number">{{ number_format($washing->clean_containers, 0, ',', '.') }}</td>
                     <td class="number">{{ number_format($washing->damaged_containers, 0, ',', '.') }}</td>
-                    <td class="number">{{ number_format($washing->missing_containers, 0, ',', '.') }}</td>
+                    <td class="number">{{ $washing->receiving_difference > 0 ? '+' : '' }}{{ number_format($washing->receiving_difference, 0, ',', '.') }}</td>
                     <td>{{ $washing->has_food_waste ? $washing->wasteRecords->count().' catatan' : 'Tidak ada' }}</td>
                     <td>{{ $washing->started_at?->format('H:i') ?: '—' }}–{{ $washing->completed_at?->format('H:i') ?: '—' }}<br><span class="muted">{{ number_format($washing->duration_minutes, 0, ',', '.') }} menit</span></td>
                     <td class="good">{{ $washing->state?->label() }}</td>
@@ -122,7 +124,7 @@
 
     <h2>Catatan dan rekonsiliasi</h2>
     <table>
-        <thead><tr><th>Rute</th><th>Selisih penerimaan</th><th>Rekonsiliasi hasil</th><th>Catatan</th></tr></thead>
+        <thead><tr><th>Rute</th><th>Selisih dari perkiraan</th><th>Rekonsiliasi hasil</th><th>Catatan</th></tr></thead>
         <tbody>
             @foreach ($sessions as $washing)
                 <tr>

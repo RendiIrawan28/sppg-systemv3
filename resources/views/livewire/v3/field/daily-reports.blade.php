@@ -18,7 +18,7 @@
                             <div><p class="text-xs font-bold text-sky-700">{{ $report->report_number }}</p><p class="mt-1 font-bold text-slate-900 dark:text-white">{{ $report->report_date?->translatedFormat('l, d F Y') }}</p></div>
                             <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-200">{{ $report->status->label() }}</span>
                         </div>
-                        <p class="mt-2 text-xs text-slate-500">Terkirim {{ number_format($report->delivered_portions) }} porsi · Ompreng kembali {{ number_format($report->containers_returned) }}/{{ number_format($report->containers_sent) }}</p>
+                        <p class="mt-2 text-xs text-slate-500">Terkirim {{ number_format($report->delivered_portions) }} porsi · Ompreng dilaporkan kembali (perkiraan) {{ number_format($report->containers_returned) }}/{{ number_format($report->containers_sent) }}</p>
                     </button>
                 @empty
                     <div class="rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-14 text-center text-sm text-slate-400 dark:border-slate-700 dark:bg-slate-900">Belum ada laporan. Laporan akan dibuat setelah seluruh ompreng pada tanggal pelayanan selesai diambil.</div>
@@ -35,7 +35,7 @@
                     </div>
 
                     <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                        @foreach(['delivered_portions'=>'Porsi terkirim','returned_portions'=>'Porsi kembali','containers_sent'=>'Ompreng dikirim','containers_returned'=>'Ompreng kembali'] as $field=>$label)
+                        @foreach(['delivered_portions'=>'Porsi terkirim','returned_portions'=>'Porsi kembali','containers_sent'=>'Ompreng dikirim','containers_returned'=>'Ompreng kembali (perkiraan)'] as $field=>$label)
                             <div class="rounded-xl bg-slate-50 p-3 dark:bg-slate-800"><p class="text-[10px] text-slate-400">{{ $label }}</p><p class="mt-1 font-bold">{{ number_format($selected->{$field}) }}</p></div>
                         @endforeach
                     </div>

@@ -990,7 +990,13 @@ class MobileOperationalController extends Controller
                     'pengambilan-ompreng' => $this->runContainerCollectionAction(
                         $action, $item, $actor, $fields, $notes, $storedPhoto,
                     ),
-                    'pencucian' => $this->runWashingAction($action, $item, $actor, $data, $notes),
+                    'pencucian' => $this->runWashingAction(
+                        $action,
+                        $item,
+                        $actor,
+                        [...$data, 'reconciliation_notes' => $fields['notes'] ?? $notes],
+                        $notes,
+                    ),
                     'kebersihan' => $this->runCleaningAction($action, $item, $actor, $data, $notes),
                     'ba-limbah-persiapan', 'ba-limbah-pencucian', 'ba-limbah-kebersihan' => $this->runWasteHandoverAction($action, $item, $actor, $notes),
                     'lapangan-laporan' => $this->runFieldDailyReportAction($action, $item, $actor, $notes),
@@ -2206,17 +2212,17 @@ class MobileOperationalController extends Controller
                 ];
                 $actions[] = $this->actionDefinition(
                     'collect_all',
-                    'Ambil seluruh sisa ompreng',
+                    'Ompreng sudah diambil (perkiraan target)',
                     false,
                     $commonFields,
                 );
                 $actions[] = $this->actionDefinition(
                     'collect_partial',
-                    'Ambil sebagian ompreng',
+                    'Ompreng diambil sebagian (perkiraan)',
                     true,
                     [
                         $commonFields[0],
-                        $this->actionField('quantity', 'Jumlah yang berhasil diambil', 'number', true),
+                        $this->actionField('quantity', 'Perkiraan jumlah diambil', 'number', true),
                         $commonFields[1],
                     ],
                 );
@@ -2322,11 +2328,7 @@ class MobileOperationalController extends Controller
                             default => [],
                         },
                 'pencucian' => match ($state) {
-                    'planned' => [$this->actionDefinition('receive', 'Terima ompreng', false, [
-                        $this->actionField('received_containers', 'Jumlah diterima fisik', 'number', true, (string) ($item->received_containers ?: $item->expected_containers)),
-                        $this->actionField('damaged_containers', 'Jumlah rusak/tidak layak', 'number', true, (string) ($item->damaged_containers ?: 0)),
-                        $this->actionField('notes', 'Catatan selisih/kondisi', 'textarea', false, (string) $item->notes),
-                    ])],
+                    'planned' => [$this->actionDefinition('receive', 'Konfirmasi ompreng tiba')],
                     'received' => $item->has_food_waste === null
                         ? [
                             $this->actionDefinition('waste_none', 'Tidak ada sisa makanan'),
@@ -2354,7 +2356,7 @@ class MobileOperationalController extends Controller
                     'washing' => [$this->actionDefinition('complete', 'Selesaikan pencucian', false, [
                         $this->actionField('clean_containers', 'Ompreng bersih dan siap', 'number', true, (string) $item->clean_containers),
                         $this->actionField('damaged_containers', 'Ompreng rusak/tidak layak', 'number', true, (string) $item->damaged_containers),
-                        $this->actionField('notes', 'Catatan hasil pencucian', 'textarea', false, (string) $item->notes),
+                        $this->actionField('notes', 'Catatan selisih dari perkiraan (wajib jika berbeda)', 'textarea'),
                     ])],
                     'completed' => [$this->actionDefinition('ready', 'Tandai siap digunakan')],
                     default => [],

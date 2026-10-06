@@ -43,7 +43,7 @@ class FieldDailyReportExcelController extends Controller
             ['Tujuan Gagal', $fieldDailyReport->failed_destinations],
             ['Tujuan Terlambat', $fieldDailyReport->late_destinations],
             ['Ompreng Dikirim', $fieldDailyReport->containers_sent],
-            ['Ompreng Kembali', $fieldDailyReport->containers_returned],
+            ['Ompreng Dilaporkan Kembali (Perkiraan)', $fieldDailyReport->containers_returned],
             ['Ompreng Rusak', $fieldDailyReport->containers_damaged],
             ['Ompreng Hilang', $fieldDailyReport->containers_lost],
             ['Insiden Terbuka', $fieldDailyReport->open_incidents],

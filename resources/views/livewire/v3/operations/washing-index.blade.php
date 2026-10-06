@@ -72,8 +72,13 @@
                                 </td>
                                 <td class="px-5 py-4 text-slate-600 dark:text-slate-300">{{ $record->washing_date?->translatedFormat('d M Y') ?? '—' }}</td>
                                 <td class="px-5 py-4">
-                                    <p class="font-semibold text-slate-700 dark:text-slate-200">Diterima {{ number_format($record->received_containers, 0, ',', '.') }}</p>
-                                    <p class="mt-1 text-xs text-slate-400 dark:text-slate-500">Bersih {{ number_format($record->clean_containers, 0, ',', '.') }} · Rusak {{ number_format($record->damaged_containers, 0, ',', '.') }}</p>
+                                    @if (in_array($record->state, [App\Enums\WashingSessionState::Ready, App\Enums\WashingSessionState::Completed], true))
+                                        <p class="font-semibold text-slate-700 dark:text-slate-200">Hasil fisik {{ number_format($record->received_containers, 0, ',', '.') }}</p>
+                                        <p class="mt-1 text-xs text-slate-400 dark:text-slate-500">Bersih {{ number_format($record->clean_containers, 0, ',', '.') }} · Rusak {{ number_format($record->damaged_containers, 0, ',', '.') }}</p>
+                                    @else
+                                        <p class="font-semibold text-slate-700 dark:text-slate-200">Perkiraan {{ number_format($record->expected_containers, 0, ',', '.') }}</p>
+                                        <p class="mt-1 text-xs text-slate-400 dark:text-slate-500">Hasil fisik dihitung setelah pencucian.</p>
+                                    @endif
                                 </td>
                                 <td class="px-5 py-4">
                                     <p class="font-semibold text-slate-700 dark:text-slate-200">{{ $wasteLabel }}</p>

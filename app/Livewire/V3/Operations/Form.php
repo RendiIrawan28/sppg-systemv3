@@ -232,7 +232,7 @@ class Form extends Component
                     'receive' => $service->receive($record, $actor, [...$this->data, 'notes' => $notes]),
                     'waste' => $service->recordWaste($record, $actor, [...$this->data, 'notes' => $notes]),
                     'start' => $service->start($record, $actor, ['notes' => $notes]),
-                    'complete' => $service->complete($record, $actor, [...$this->data, 'notes' => $notes]),
+                    'complete' => $service->complete($record, $actor, [...$this->data, 'reconciliation_notes' => $notes]),
                     'ready' => $service->markReady($record, $actor, $notes), 'submit' => $service->submit($record, $actor, $notes),
                     'verify' => $service->verify($record, $actor, $notes), 'revision' => $service->requestRevision($record, $actor, $notes),
                 },

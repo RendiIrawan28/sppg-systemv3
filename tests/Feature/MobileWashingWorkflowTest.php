@@ -79,9 +79,9 @@ it('locks automatic session data and exposes only the action for the current was
         ->toContain('receive')
         ->not->toContain('start', 'complete');
 
-    $this->postJson("/api/mobile/operational-modules/pencucian/records/{$session->id}/actions/receive", [
-        'fields' => ['received_containers' => 30, 'damaged_containers' => 0],
-    ])->assertOk();
+    $this->postJson("/api/mobile/operational-modules/pencucian/records/{$session->id}/actions/receive")
+        ->assertOk();
+    expect($session->refresh()->received_containers)->toBe(0);
 
     $received = $this->getJson("/api/mobile/operational-modules/pencucian/records/{$session->id}")
         ->assertOk();
@@ -94,9 +94,7 @@ it('finishes a no-waste washing session through checklist and result photo', fun
     $session = mobileWashingSession($this->unit);
     $baseUrl = "/api/mobile/operational-modules/pencucian/records/{$session->id}";
 
-    $this->postJson("{$baseUrl}/actions/receive", [
-        'fields' => ['received_containers' => 30, 'damaged_containers' => 0],
-    ])->assertOk();
+    $this->postJson("{$baseUrl}/actions/receive")->assertOk();
     $this->postJson("{$baseUrl}/actions/waste_none")->assertOk();
     $this->postJson("{$baseUrl}/actions/start")->assertOk();
 
@@ -120,17 +118,57 @@ it('finishes a no-waste washing session through checklist and result photo', fun
     $session->refresh();
     expect($session->state->value)->toBe('ready')
         ->and($session->ready_at)->not->toBeNull()
+        ->and($session->received_containers)->toBe(30)
         ->and($session->clean_containers)->toBe(30)
         ->and($session->documentations()->value('phase'))->toBe('after');
+});
+
+it('uses the washing result as final count and requires an explanation for a difference', function (): void {
+    $session = mobileWashingSession($this->unit);
+    $baseUrl = "/api/mobile/operational-modules/pencucian/records/{$session->id}";
+
+    $this->postJson("{$baseUrl}/actions/receive")->assertOk();
+    $this->postJson("{$baseUrl}/actions/waste_none")->assertOk();
+    $this->postJson("{$baseUrl}/actions/start")->assertOk();
+    foreach ($session->checklistItems()->get() as $checklist) {
+        $this->postJson("{$baseUrl}/relations/checklistItems/{$checklist->id}/actions/check")
+            ->assertOk();
+    }
+    $photo = 'data:image/png;base64,'.base64_encode(base64_decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+    ));
+    $this->postJson("{$baseUrl}/relations/documentations", [
+        'fields' => ['caption' => 'Hasil hitung akhir'],
+        'files' => ['photo_path' => $photo],
+    ])->assertCreated();
+
+    $this->postJson("{$baseUrl}/actions/complete", [
+        'fields' => ['clean_containers' => 28, 'damaged_containers' => 1],
+    ])->assertUnprocessable()->assertJsonValidationErrors('reconciliation_notes');
+
+    $this->postJson("{$baseUrl}/actions/complete", [
+        'fields' => [
+            'clean_containers' => 28,
+            'damaged_containers' => 1,
+            'notes' => 'Perkiraan driver lebih satu; hitungan akhir setelah pencucian 29.',
+        ],
+    ])->assertOk();
+
+    $session->refresh();
+    expect($session->state->value)->toBe('ready')
+        ->and($session->received_containers)->toBe(29)
+        ->and($session->clean_containers)->toBe(28)
+        ->and($session->damaged_containers)->toBe(1)
+        ->and($session->receiving_difference)->toBe(-1)
+        ->and($session->missing_containers)->toBe(0)
+        ->and($session->notes)->toContain('Rekonsiliasi:');
 });
 
 it('requires all washing evidence before completion', function (): void {
     $session = mobileWashingSession($this->unit);
     $baseUrl = "/api/mobile/operational-modules/pencucian/records/{$session->id}";
 
-    $this->postJson("{$baseUrl}/actions/receive", [
-        'fields' => ['received_containers' => 30, 'damaged_containers' => 0],
-    ])->assertOk();
+    $this->postJson("{$baseUrl}/actions/receive")->assertOk();
     $this->postJson("{$baseUrl}/actions/waste_none")->assertOk();
     $this->postJson("{$baseUrl}/actions/start")->assertOk();
 

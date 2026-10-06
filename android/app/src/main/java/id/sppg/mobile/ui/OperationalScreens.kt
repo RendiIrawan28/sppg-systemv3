@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -71,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
@@ -915,11 +917,11 @@ private fun WashingNextStepCard(
 }
 
 private fun washingActionHint(action: String): String = when (action) {
-    "receive" -> "Hitung ompreng yang benar-benar diterima. Catatan wajib jika jumlah atau kondisi berbeda."
+    "receive" -> "Konfirmasi ompreng telah tiba. Jumlah pasti dihitung oleh tim Pencucian setelah proses selesai."
     "waste_none", "waste_present" -> "Pilih kondisi sisa makanan pada ompreng sebelum pencucian dimulai."
     "waste" -> "Tambahkan rincian limbah dan fotonya, lalu lengkapi identitas kedua pihak untuk berita acara."
     "start" -> "Pencatatan sisa makanan sudah selesai. Mulai proses untuk membuka checklist dan dokumentasi hasil."
-    "complete" -> "Pastikan seluruh checklist wajib selesai dan minimal satu foto hasil sudah tersedia."
+    "complete" -> "Isi jumlah ompreng bersih dan rusak hasil hitung akhir, lengkapi checklist dan foto. Jelaskan jika berbeda dari perkiraan pengambilan."
     "submit" -> "Seluruh sesi Pencucian tanggal ini sudah siap untuk diajukan."
     else -> "Periksa seluruh data sebelum melanjutkan tahap Pencucian."
 }
@@ -944,6 +946,11 @@ private fun OperationalDetailContent(
     onRelationAction: (OperationalSection, OperationalSectionItem, OperationalRelationAction) -> Unit,
 ) {
     val capabilities = record.capabilities
+    val visibleRecordFields = if (module == "pencucian" && record.state !in setOf("ready", "completed")) {
+        record.fields.orEmpty().filterNot {
+            it.key in setOf("received_containers", "washed_containers", "clean_containers", "damaged_containers", "receiving_difference")
+        }
+    } else record.fields.orEmpty()
     val preparationReturnSection = record.sections.orEmpty()
         .firstOrNull { module == "persiapan" && it.key == "returns" }
     val portioningReturnSection = record.sections.orEmpty()
@@ -1030,7 +1037,7 @@ private fun OperationalDetailContent(
         if (module == "kebersihan") {
             item { CleaningOverviewCard(record, cleaningReadinessState ?: cleaningReadiness(record)) }
         }
-        if (!record.fields.isNullOrEmpty()) {
+        if (visibleRecordFields.isNotEmpty()) {
             if (module == "pemorsian") {
                 item { PortioningProgressCard(record.fields) }
             }
@@ -1041,7 +1048,7 @@ private fun OperationalDetailContent(
                         "kebersihan" -> "Ringkasan pekerjaan"
                         else -> "Informasi pekerjaan"
                     },
-                    record.fields,
+                    visibleRecordFields,
                 )
             }
         }
@@ -1185,24 +1192,40 @@ private fun OperationalDetailContent(
                 )
             }
         } else {
-            items(sections, key = { it.key }) { section ->
-                if (module == "kebersihan" && section.key == "checklistItems") {
-                    CleaningChecklistSectionCard(
-                        section = section,
-                        onEdit = { onRelationEdit(section, it) },
-                    )
+            sections.forEach { section ->
+                if (module == "distribusi" && section.key == "stops") {
+                    item(key = "section-${section.key}") {
+                        DistributionStopsHeader(section, onCreate = { onRelationCreate(section) })
+                    }
+                    items(section.items, key = { "stop-${it.id}" }) { stop ->
+                        DistributionDestinationCard(
+                            stop = stop,
+                            onEdit = { onRelationEdit(section, stop) },
+                            onDelete = { onRelationDelete(section, stop) },
+                            onAction = { action -> onRelationAction(section, stop, action) },
+                        )
+                    }
                 } else {
-                    OperationalSectionCard(
-                        section = if (section.key == "returns" && module in setOf("persiapan", "pemorsian")) {
-                            section.copy(canCreate = false)
-                        } else section,
-                        subtitle = if (module == "kebersihan") cleaningSectionHint(section.key) else null,
-                        emptyMessage = if (module == "kebersihan") cleaningSectionEmptyMessage(section.key) else "Belum ada data.",
-                        onCreate = { onRelationCreate(section) },
-                        onEdit = { onRelationEdit(section, it) },
-                        onDelete = { onRelationDelete(section, it) },
-                        onAction = { item, action -> onRelationAction(section, item, action) },
-                    )
+                    item(key = "section-${section.key}") {
+                        if (module == "kebersihan" && section.key == "checklistItems") {
+                            CleaningChecklistSectionCard(
+                                section = section,
+                                onEdit = { onRelationEdit(section, it) },
+                            )
+                        } else {
+                            OperationalSectionCard(
+                                section = if (section.key == "returns" && module in setOf("persiapan", "pemorsian")) {
+                                    section.copy(canCreate = false)
+                                } else section,
+                                subtitle = if (module == "kebersihan") cleaningSectionHint(section.key) else null,
+                                emptyMessage = if (module == "kebersihan") cleaningSectionEmptyMessage(section.key) else "Belum ada data.",
+                                onCreate = { onRelationCreate(section) },
+                                onEdit = { onRelationEdit(section, it) },
+                                onDelete = { onRelationDelete(section, it) },
+                                onAction = { item, action -> onRelationAction(section, item, action) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -2809,6 +2832,223 @@ private fun OperationalFieldCard(title: String, fields: List<OperationalField>) 
                     Spacer(Modifier.height(9.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                     Spacer(Modifier.height(9.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DistributionStopsHeader(section: OperationalSection, onCreate: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                section.title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            if (section.canCreate) {
+                TextButton(onClick = onCreate) {
+                    Icon(Icons.Outlined.Add, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Tambah")
+                }
+            }
+        }
+        if (section.items.isEmpty()) {
+            Text("Belum ada tujuan distribusi.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private fun distributionPortionNumber(value: String?): Double? = value
+    ?.trim()
+    ?.replace(".", "")
+    ?.replace(",", ".")
+    ?.toDoubleOrNull()
+
+@Composable
+private fun DistributionPortionValue(label: String, actual: String?, planned: String?, modifier: Modifier = Modifier) {
+    val actualNumber = distributionPortionNumber(actual)
+    val plannedNumber = distributionPortionNumber(planned)
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            actual?.let { "$it porsi" } ?: "–",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+        )
+        if (actualNumber == null && planned != null) {
+            Text(
+                "Rencana $planned porsi",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else if (actualNumber != null && plannedNumber != null && actualNumber != plannedNumber) {
+            val difference = (actualNumber - plannedNumber).toInt()
+            Text(
+                "Rencana $planned · Selisih ${if (difference > 0) "+" else ""}$difference",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DistributionDestinationCard(
+    stop: OperationalSectionItem,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onAction: (OperationalRelationAction) -> Unit,
+) {
+    val fields = stop.fields.associateBy { it.key }
+    val mainKeys = setOf(
+        "route_name", "destination_name", "sequence_order", "status",
+        "small_portions", "large_portions", "delivered_small_portions", "delivered_large_portions",
+        "containers_sent", "recipient_name", "recipient_position", "handover_photo_path",
+    )
+    val extraFields = stop.fields.filterNot { it.key in mainKeys }
+    val photo = fields["handover_photo_path"]
+    val photoUrl = photo?.fileUrl
+    val containerCount = fields["containers_sent"]?.value
+        ?.takeIf { (distributionPortionNumber(it) ?: 0.0) > 0.0 }
+    var showDetails by remember(stop.id) { mutableStateOf(false) }
+
+    SppgCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        fields["sequence_order"]?.value ?: "–",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        fields["route_name"]?.value ?: "Rute belum ditentukan",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        fields["destination_name"]?.value ?: stop.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                SppgStatusPill(
+                    fields["status"]?.value ?: "–",
+                    modifier = Modifier.widthIn(max = 112.dp),
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Porsi diserahkan", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DistributionPortionValue(
+                        "Kecil",
+                        fields["delivered_small_portions"]?.value,
+                        fields["small_portions"]?.value,
+                        modifier = Modifier.weight(1f),
+                    )
+                    DistributionPortionValue(
+                        "Besar",
+                        fields["delivered_large_portions"]?.value,
+                        fields["large_portions"]?.value,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (containerCount != null) {
+                    Text(
+                        "Ompreng/wadah: $containerCount",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Penerima", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(fields["recipient_name"]?.value ?: "–", style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Jabatan", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(fields["recipient_position"]?.value ?: "–", style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Foto serah-terima",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!photoUrl.isNullOrBlank()) {
+                    InAppImageButton(
+                        url = photoUrl,
+                        title = photo?.label ?: "Foto serah-terima",
+                        label = "Lihat foto",
+                        modifier = Modifier.widthIn(min = 120.dp),
+                    )
+                } else {
+                    Text("Belum ada foto", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            if (extraFields.isNotEmpty()) {
+                TextButton(onClick = { showDetails = !showDetails }) {
+                    Text(if (showDetails) "Sembunyikan detail" else "Detail lainnya")
+                }
+                if (showDetails) {
+                    extraFields.forEach { field -> OperationalFieldRow(field) }
+                }
+            }
+            if (stop.canUpdate || stop.canDelete) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    if (stop.canUpdate) {
+                        TextButton(onClick = onEdit) {
+                            Icon(Icons.Outlined.Edit, contentDescription = null)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Ubah")
+                        }
+                    }
+                    if (stop.canDelete) {
+                        TextButton(onClick = onDelete) {
+                            Icon(Icons.Outlined.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Hapus", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+            stop.actions.orEmpty().forEach { action ->
+                SppgOutlinedButton(onClick = { onAction(action) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(action.label, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

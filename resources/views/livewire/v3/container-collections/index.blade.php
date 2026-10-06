@@ -113,7 +113,7 @@
                             </div>
 
                             <div class="rounded-xl bg-slate-100 px-4 py-3 text-right dark:bg-slate-800">
-                                <p class="text-[10px] font-bold uppercase text-slate-500">Sisa target</p>
+                                <p class="text-[10px] font-bold uppercase text-slate-500">Sisa target perkiraan</p>
                                 <p class="mt-1 text-xl font-bold">{{ number_format($task->remaining_containers, 0, ',', '.') }}</p>
                                 <p class="text-[10px] text-slate-500">
                                     dari {{ number_format($task->target_containers, 0, ',', '.') }} ompreng
@@ -128,7 +128,7 @@
                                        min="1"
                                        max="{{ $task->remaining_containers }}"
                                        class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
-                                       placeholder="Jumlah sebagian">
+                                       placeholder="Perkiraan sebagian">
 
                                 <input wire:model="partialNotes.{{ $task->id }}"
                                        class="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-950"
@@ -147,11 +147,12 @@
 
                                 <button type="button"
                                         wire:click="collectAll({{ $task->id }})"
-                                        wire:confirm="Tandai seluruh ompreng tujuan ini sudah diambil?"
+                                        wire:confirm="Tandai ompreng tujuan ini sudah diambil? Jumlah target hanya perkiraan; tim Pencucian akan mencatat jumlah fisik final."
                                         class="h-10 rounded-xl bg-emerald-600 px-4 text-xs font-bold text-white hover:bg-emerald-700">
                                     Ompreng sudah diambil
                                 </button>
                             </div>
+                            <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Jumlah saat pengambilan merupakan perkiraan. Hitungan ompreng bersih dan rusak ditetapkan oleh tim Pencucian setelah proses selesai.</p>
                         @endif
                     </article>
                 @empty

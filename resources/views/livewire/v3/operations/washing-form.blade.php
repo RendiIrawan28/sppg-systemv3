@@ -48,8 +48,8 @@
 
             <div class="mt-5 grid gap-3 sm:grid-cols-2">
                 @foreach ([
-                    ['Total hasil pengambilan', $record->distribution_expected_containers],
-                    ['Dilaporkan dibawa kembali', $record->distribution_returned_containers],
+                    ['Target distribusi (perkiraan)', $record->distribution_expected_containers],
+                    ['Dilaporkan dibawa kembali (perkiraan)', $record->distribution_returned_containers],
                 ] as [$label, $value])
                     <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-950/70">
                         <p class="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500 dark:text-slate-400">{{ $label }}</p>
@@ -64,28 +64,17 @@
                 <div>
                     <p class="text-[10px] font-bold uppercase tracking-[.14em] text-sky-700 dark:text-sky-300">Tahap 1</p>
                     <h3 class="mt-1 text-lg font-bold text-slate-950 dark:text-white">Penerimaan fisik ompreng</h3>
-                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Hitung fisik ompreng yang benar-benar diterima dari driver.</p>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Konfirmasi ompreng telah tiba. Tidak perlu menghitung satu per satu saat serah-terima; jumlah pasti dicatat setelah pencucian.</p>
                 </div>
 
-                <div class="mt-5 grid gap-4 sm:grid-cols-3">
-                    <label>
-                        <span class="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Seharusnya diserahkan</span>
-                        <input value="{{ $record->expected_containers }}" disabled class="{{ $inputClass }}">
-                    </label>
-                    <label>
-                        <span class="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Diterima fisik</span>
-                        <input wire:model="data.received_containers" type="number" min="0" @disabled(!$isPlanned || !$canUpdate) class="{{ $inputClass }}">
-                        @error('data.received_containers')<span class="mt-1 block text-xs text-rose-600 dark:text-rose-300">{{ $message }}</span>@enderror
-                    </label>
-                    <label>
-                        <span class="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Rusak/tidak layak saat diterima</span>
-                        <input wire:model="data.damaged_containers" type="number" min="0" @disabled(!$isPlanned || !$canUpdate) class="{{ $inputClass }}">
-                    </label>
+                <div class="mt-5 rounded-xl bg-slate-50 p-4 text-sm dark:bg-slate-950/70">
+                    <span class="text-slate-500 dark:text-slate-400">Perkiraan dari pengambilan:</span>
+                    <strong class="ml-1 text-slate-900 dark:text-slate-100">{{ number_format($record->expected_containers, 0, ',', '.') }} ompreng</strong>
                 </div>
 
                 <label class="mt-4 block">
-                    <span class="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Catatan penerimaan atau selisih</span>
-                    <textarea wire:model="data.notes" rows="3" @disabled(!$editable || !$canUpdate) class="{{ $textareaClass }}" placeholder="Wajib diisi jika jumlah atau kondisi berbeda dari jumlah yang dibawa kembali oleh driver."></textarea>
+                    <span class="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Catatan kondisi saat tiba (opsional)</span>
+                    <textarea wire:model="data.notes" rows="3" @disabled(!$editable || !$canUpdate) class="{{ $textareaClass }}" placeholder="Contoh: wadah tiba dalam beberapa tumpukan; jumlah pasti akan dihitung setelah dicuci."></textarea>
                 </label>
 
                 @if ($isPlanned && isset($actions['receive']))
@@ -94,8 +83,8 @@
                     </div>
                 @else
                     <div class="mt-4 grid gap-3 sm:grid-cols-3">
-                        <div class="rounded-xl bg-slate-50 p-3 dark:bg-slate-950/70"><p class="text-[10px] font-bold uppercase text-slate-400">Diterima</p><p class="mt-1 font-bold">{{ number_format($record->received_containers, 0, ',', '.') }}</p></div>
-                        <div class="rounded-xl bg-slate-50 p-3 dark:bg-slate-950/70"><p class="text-[10px] font-bold uppercase text-slate-400">Selisih</p><p class="mt-1 font-bold {{ $record->receiving_difference === 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300' }}">{{ $record->receiving_difference > 0 ? '+' : '' }}{{ number_format($record->receiving_difference, 0, ',', '.') }}</p></div>
+                        <div class="rounded-xl bg-slate-50 p-3 dark:bg-slate-950/70"><p class="text-[10px] font-bold uppercase text-slate-400">Jumlah fisik final</p><p class="mt-1 font-bold">{{ ($isReady || $state === App\Enums\WashingSessionState::Completed) ? number_format($record->received_containers, 0, ',', '.') : 'Dihitung setelah dicuci' }}</p></div>
+                        <div class="rounded-xl bg-slate-50 p-3 dark:bg-slate-950/70"><p class="text-[10px] font-bold uppercase text-slate-400">Selisih perkiraan</p><p class="mt-1 font-bold {{ $record->receiving_difference === 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300' }}">{{ ($isReady || $state === App\Enums\WashingSessionState::Completed) ? (($record->receiving_difference > 0 ? '+' : '').number_format($record->receiving_difference, 0, ',', '.')) : 'Belum dihitung' }}</p></div>
                         <div class="rounded-xl bg-slate-50 p-3 dark:bg-slate-950/70"><p class="text-[10px] font-bold uppercase text-slate-400">Diterima pada</p><p class="mt-1 font-bold">{{ $record->received_at?->format('H:i') ?: '—' }}</p></div>
                     </div>
                 @endif
@@ -201,6 +190,14 @@
                         <label><span class="mb-1 block text-xs font-semibold">Ompreng bersih dan siap digunakan</span><input wire:model="data.clean_containers" type="number" min="0" @disabled(!$isWashing || !$canUpdate) class="{{ $inputClass }}"></label>
                         <label><span class="mb-1 block text-xs font-semibold">Ompreng rusak/tidak layak</span><input wire:model="data.damaged_containers" type="number" min="0" @disabled(!$isWashing || !$canUpdate) class="{{ $inputClass }}"></label>
                     </div>
+                    <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Jumlah fisik final = bersih + rusak. Inilah hasil hitung tim Pencucian, bukan angka perkiraan driver.</p>
+                    @if ($isWashing && $canUpdate)
+                        <label class="mt-4 block">
+                            <span class="mb-1 block text-xs font-semibold">Catatan selisih dengan perkiraan pengambilan</span>
+                            <textarea wire:model="workflowNotes" rows="2" class="{{ $textareaClass }}" placeholder="Wajib jika jumlah akhir berbeda dari perkiraan pengambilan."></textarea>
+                            @error('reconciliation_notes')<span class="mt-1 block text-xs text-rose-600 dark:text-rose-300">{{ $message }}</span>@enderror
+                        </label>
+                    @endif
 
                     <div class="mt-5 space-y-3">
                         <div class="flex flex-wrap items-center justify-between gap-3">

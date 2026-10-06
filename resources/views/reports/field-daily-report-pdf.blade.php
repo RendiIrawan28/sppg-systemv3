@@ -70,7 +70,7 @@
 
     <h3>Rekonsiliasi Ompreng</h3>
     <table class="data">
-        <thead><tr><th>Dikirim</th><th>Kembali</th><th>Rusak</th><th>Hilang</th><th>Selisih Belum Terjelaskan</th></tr></thead>
+        <thead><tr><th>Dikirim</th><th>Dilaporkan kembali (perkiraan)</th><th>Rusak tercatat</th><th>Hilang tercatat</th><th>Selisih perkiraan belum terjelaskan</th></tr></thead>
         <tbody>
             <tr class="text-center">
                 <td>{{ number_format($report->containers_sent) }}</td>
@@ -81,6 +81,7 @@
             </tr>
         </tbody>
     </table>
+    <p class="muted">Jumlah ompreng bersih yang benar-benar siap digunakan mengikuti hasil akhir tim Pencucian, bukan perkiraan pengambilan ini.</p>
 
     <h3>Kelengkapan Enam Divisi</h3>
     <table class="data">

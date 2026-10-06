@@ -29,10 +29,6 @@ class WashingWorkflow
             }
 
             $expected = max(0, (int) $session->expected_containers);
-            $received = max(0, (int) ($data['received_containers'] ?? 0));
-            $damaged = max(0, (int) ($data['damaged_containers'] ?? 0));
-            $difference = $received - $expected;
-            $missing = max(0, $expected - $received);
             $notes = trim((string) ($data['notes'] ?? $session->notes ?? ''));
 
             if ($expected <= 0) {
@@ -41,30 +37,13 @@ class WashingWorkflow
                 ]);
             }
 
-            if ($received <= 0) {
-                throw ValidationException::withMessages([
-                    'received_containers' => 'Jumlah ompreng yang diterima harus lebih dari nol.',
-                ]);
-            }
-
-            if ($damaged > $received) {
-                throw ValidationException::withMessages([
-                    'damaged_containers' => 'Jumlah ompreng rusak tidak boleh melebihi jumlah yang diterima.',
-                ]);
-            }
-
-            if (($difference !== 0 || $damaged !== (int) $session->distribution_damaged_containers) && $notes === '') {
-                throw ValidationException::withMessages([
-                    'notes' => 'Catatan selisih wajib diisi karena hasil pemeriksaan berbeda dari jumlah yang dibawa kembali driver.',
-                ]);
-            }
-
             $previousState = $session->state->value;
             $session->update([
-                'received_containers' => $received,
-                'damaged_containers' => $damaged,
-                'missing_containers' => $missing,
-                'receiving_difference' => $difference,
+                // Jumlah dari driver masih perkiraan; angka fisik baru dipastikan saat pencucian selesai.
+                'received_containers' => 0,
+                'damaged_containers' => 0,
+                'missing_containers' => 0,
+                'receiving_difference' => 0,
                 'received_at' => now(),
                 'state' => WashingSessionState::Received,
                 'petugas_id' => $actor->getKey(),
@@ -217,12 +196,6 @@ class WashingWorkflow
                 ]);
             }
 
-            if ((int) $session->received_containers <= 0) {
-                throw ValidationException::withMessages([
-                    'received_containers' => 'Tidak ada ompreng yang dapat dicuci.',
-                ]);
-            }
-
             $previousState = $session->state->value;
             $session->update([
                 'started_at' => now(),
@@ -261,13 +234,27 @@ class WashingWorkflow
                 ]);
             }
 
-            $clean = max(0, (int) ($data['clean_containers'] ?? $session->clean_containers));
-            $damaged = max(0, (int) ($data['damaged_containers'] ?? $session->damaged_containers));
-            $received = (int) $session->received_containers;
-
-            if ($received !== $clean + $damaged) {
+            $counts = validator($data, [
+                'clean_containers' => ['required', 'integer', 'min:0', 'max:1000000'],
+                'damaged_containers' => ['required', 'integer', 'min:0', 'max:1000000'],
+            ], [
+                'clean_containers.required' => 'Isi jumlah ompreng bersih yang dihitung setelah pencucian.',
+                'damaged_containers.required' => 'Isi jumlah ompreng rusak/tidak layak yang dihitung setelah pencucian.',
+            ])->validate();
+            $clean = (int) $counts['clean_containers'];
+            $damaged = (int) $counts['damaged_containers'];
+            if (($clean + $damaged) <= 0) {
                 throw ValidationException::withMessages([
-                    'clean_containers' => 'Jumlah ompreng bersih + rusak/tidak layak harus sama dengan jumlah yang diterima.',
+                    'clean_containers' => 'Isi jumlah ompreng bersih dan rusak/tidak layak yang benar-benar dihitung. Totalnya harus lebih dari nol.',
+                ]);
+            }
+
+            $received = $clean + $damaged;
+            $difference = $received - (int) $session->expected_containers;
+            $reconciliationNote = trim((string) ($data['reconciliation_notes'] ?? ''));
+            if ($difference !== 0 && $reconciliationNote === '') {
+                throw ValidationException::withMessages([
+                    'reconciliation_notes' => 'Jumlah akhir berbeda dari perkiraan pengambilan. Jelaskan selisihnya sebelum menyelesaikan pencucian.',
                 ]);
             }
 
@@ -291,16 +278,24 @@ class WashingWorkflow
 
             $previousState = $session->state->value;
             $completedAt = now();
+            $existingNotes = trim((string) $session->notes);
+            $finalNotes = $reconciliationNote === ''
+                ? $existingNotes
+                : trim($existingNotes."\nRekonsiliasi: ".$reconciliationNote);
             $session->update([
+                'received_containers' => $received,
                 'washed_containers' => $received,
                 'clean_containers' => $clean,
                 'damaged_containers' => $damaged,
                 'rejected_containers' => 0,
+                // Selisih perkiraan bukan bukti ompreng hilang.
+                'missing_containers' => 0,
+                'receiving_difference' => $difference,
                 'completed_at' => $completedAt,
                 'ready_at' => $completedAt,
                 'state' => WashingSessionState::Ready,
                 'updated_by' => $actor->getKey(),
-                'notes' => trim((string) ($data['notes'] ?? '')) ?: $session->notes,
+                'notes' => $finalNotes !== '' ? $finalNotes : null,
             ]);
 
             $this->writeHistory(
@@ -309,7 +304,7 @@ class WashingWorkflow
                 'completed_and_ready',
                 $previousState,
                 $session->state->value,
-                $data['notes'] ?? null,
+                $reconciliationNote !== '' ? $reconciliationNote : null,
             );
 
             return $session->refresh();
