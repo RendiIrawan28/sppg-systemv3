@@ -48,6 +48,7 @@ Route::prefix('mobile')->group(function (): void {
         Route::post('/field-plans/{plan}/activate', [FieldPlanController::class, 'activate']);
         Route::get('/field-plans/{fieldDistributionPlan}/document', [MobileDocumentController::class, 'fieldPlan']);
         Route::get('/operational-modules', [MobileOperationalController::class, 'modules']);
+        Route::get('/operational-modules/kebersihan/period-export/{scope}', [MobileDocumentController::class, 'cleaningPeriod']);
         Route::get('/operational-modules/{module}/records', [MobileOperationalController::class, 'index']);
         Route::post('/operational-modules/{module}/bulk-review', MobileBulkOperationalReviewController::class);
         Route::post('/operational-modules/{module}/records', [MobileOperationalController::class, 'store']);

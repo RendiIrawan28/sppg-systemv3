@@ -9,6 +9,7 @@ use App\Enums\OperationalReportStatus;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\CleaningSession;
+use App\Models\CleaningArea;
 use App\Models\ContainerCollectionRun;
 use App\Models\ContainerCollectionTask;
 use App\Models\DistributionRun;
@@ -60,6 +61,7 @@ use App\Services\WarehouseWithdrawalService;
 use App\Services\WashingWorkflow;
 use App\Services\WasteHandoverWorkflow;
 use App\Support\DivisionRole;
+use App\Support\CleaningChecklistTemplate;
 use App\Support\FileNaming;
 use App\Support\Mobile\MobileOperationalRecordTransformer;
 use App\Support\Mobile\MobileStockCardPresenter;
@@ -305,6 +307,20 @@ class MobileOperationalController extends Controller
             'data' => collect($records->items())->map(
                 fn ($record): array => $transformer->summary($module, $definition, $record),
             ),
+            'period_exports' => $module === 'kebersihan' ? [
+                'can_export' => $request->user()->can('cleaning.export'),
+                'areas' => $request->user()->can('cleaning.export')
+                    ? CleaningArea::query()->where('sppg_unit_id', $systemUnit->id())
+                        ->where('is_active', true)->orderBy('name')->get()
+                        ->filter(fn (CleaningArea $area): bool => CleaningChecklistTemplate::supportsPeriodExport($area))
+                        ->map(fn (CleaningArea $area): array => ['scope' => (string) $area->getKey(), 'label' => $area->name])
+                        ->values()
+                    : [],
+                'has_warehouses' => $request->user()->can('cleaning.export')
+                    && CleaningArea::query()->where('sppg_unit_id', $systemUnit->id())
+                        ->where('is_active', true)
+                        ->where('template_type', CleaningChecklistTemplate::WAREHOUSE)->exists(),
+            ] : null,
             'bulk_review' => app(MobileBulkOperationalReviewController::class)->capability(
                 $request, $module, $definition, (int) $systemUnit->id(),
                 ($filters['date_from'] ?? null) && ($filters['date_from'] ?? null) === ($filters['date_to'] ?? null)

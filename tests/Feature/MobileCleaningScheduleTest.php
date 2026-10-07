@@ -110,3 +110,57 @@ it('prepares todays cleaning sessions when the cleaning records are opened direc
 
     expect($session->refresh()->state->value)->toBe('in_progress');
 });
+
+it('exposes and downloads the same cleaning period exports as the website', function (): void {
+    $this->cleaningActor->givePermissionTo(Permission::findOrCreate('cleaning.export', 'web'));
+    $production = mobileCleaningArea($this->unit, 'PRODUCTION-EXPORT', false);
+    $warehouse = mobileCleaningArea($this->unit, 'GUDANG-EXPORT', false);
+    $warehouse->update(['template_type' => 'warehouse']);
+    $unsupported = mobileCleaningArea($this->unit, 'CUSTOM-EXPORT', false);
+    $unsupported->update(['template_type' => 'custom']);
+
+    $list = $this->getJson('/api/mobile/operational-modules/kebersihan/records?date_from=2026-08-25&date_to=2026-08-25')
+        ->assertOk()
+        ->assertJsonPath('period_exports.can_export', true)
+        ->assertJsonPath('period_exports.has_warehouses', true);
+
+    expect(collect($list->json('period_exports.areas'))->pluck('scope')->all())
+        ->toContain((string) $production->id, (string) $warehouse->id)
+        ->not->toContain((string) $unsupported->id);
+
+    $query = '?start_date=2026-08-24&end_date=2026-09-04';
+    $areaPdf = $this->get("/api/mobile/operational-modules/kebersihan/period-export/{$production->id}{$query}")
+        ->assertOk();
+    expect($areaPdf->headers->get('content-type'))->toContain('application/pdf');
+
+    $warehousePdf = $this->get("/api/mobile/operational-modules/kebersihan/period-export/warehouses{$query}")
+        ->assertOk();
+    expect($warehousePdf->headers->get('content-type'))->toContain('application/pdf');
+
+    $this->get("/api/mobile/operational-modules/kebersihan/period-export/{$unsupported->id}{$query}")
+        ->assertStatus(422);
+    $this->get("/api/mobile/operational-modules/kebersihan/period-export/{$production->id}?start_date=2026-08-24&end_date=2026-10-01")
+        ->assertStatus(422);
+
+    $otherUnit = SppgUnit::query()->create([
+        'code' => 'SPPG-OTHER-CLN',
+        'name' => 'SPPG Lain',
+        'slug' => 'sppg-lain-cleaning',
+        'is_active' => true,
+    ]);
+    $otherArea = mobileCleaningArea($otherUnit, 'OTHER-AREA', false);
+    $this->get("/api/mobile/operational-modules/kebersihan/period-export/{$otherArea->id}{$query}")
+        ->assertNotFound();
+});
+
+it('rejects cleaning period export without export permission', function (): void {
+    $area = mobileCleaningArea($this->unit, 'NO-EXPORT', false);
+    $this->cleaningActor->roles->each(fn (Role $role) => $role->revokePermissionTo('cleaning.export'));
+
+    $this->getJson('/api/mobile/operational-modules/kebersihan/records?date_from=2026-08-25&date_to=2026-08-25')
+        ->assertOk()
+        ->assertJsonPath('period_exports.can_export', false);
+
+    $this->get("/api/mobile/operational-modules/kebersihan/period-export/{$area->id}?start_date=2026-08-24&end_date=2026-09-04")
+        ->assertForbidden();
+});

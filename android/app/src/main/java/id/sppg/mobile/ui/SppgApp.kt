@@ -472,6 +472,30 @@ private fun AuthenticatedContent(
             onSearchChange = operationalViewModel::searchRecords,
             onLoadMore = operationalViewModel::loadMoreRecords,
             onBulkReview = operationalViewModel::bulkReviewReports,
+            onOpenCleaningPeriod = { scope, startDate, endDate ->
+                operationalViewModel.downloadCleaningPeriod(scope, startDate, endDate) { file ->
+                    runCatching {
+                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/pdf")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Buka checklist kebersihan"))
+                    }.onFailure {
+                        Toast.makeText(context, "Tidak ada aplikasi pembaca PDF pada perangkat ini.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+            onShareCleaningPeriod = { scope, startDate, endDate ->
+                operationalViewModel.downloadCleaningPeriod(scope, startDate, endDate) { file ->
+                    shareDocument(
+                        context = context,
+                        file = file,
+                        mimeType = "application/pdf",
+                        chooserTitle = "Bagikan checklist kebersihan",
+                    )
+                }
+            },
             onRecordClick = {
                 screen = AppScreen.OperationalDetail(current.slug, current.label, it)
             },

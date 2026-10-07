@@ -4,6 +4,7 @@ import android.content.Context
 import id.sppg.mobile.data.remote.ApiErrorHandler
 import id.sppg.mobile.data.remote.BulkReviewCapability
 import id.sppg.mobile.data.remote.BulkReviewRequest
+import id.sppg.mobile.data.remote.CleaningPeriodExports
 import id.sppg.mobile.data.remote.MobileApi
 import id.sppg.mobile.data.remote.OperationalActionRequest
 import id.sppg.mobile.data.remote.OperationalModule
@@ -24,6 +25,7 @@ data class OperationalPage(
     val currentPage: Int,
     val lastPage: Int,
     val bulkReview: BulkReviewCapability? = null,
+    val periodExports: CleaningPeriodExports? = null,
 )
 
 data class OperationalWorkspace(
@@ -68,6 +70,7 @@ class OperationalRepository(
             currentPage = body.meta?.currentPage ?: page,
             lastPage = body.meta?.lastPage ?: page,
             bulkReview = body.bulkReview,
+            periodExports = body.periodExports,
         )
     }
 
@@ -212,6 +215,39 @@ class OperationalRepository(
                     }
                     if (temporaryFile.length() <= 0L) throw IOException("Dokumen dari server kosong.")
                     if (file.exists() && !file.delete()) throw IOException("Dokumen lama tidak dapat diganti.")
+                    if (!temporaryFile.renameTo(file)) {
+                        temporaryFile.copyTo(file, overwrite = true)
+                        temporaryFile.delete()
+                    }
+                    file
+                } catch (error: Throwable) {
+                    temporaryFile.delete()
+                    throw error
+                }
+            }
+        }
+
+    suspend fun downloadCleaningPeriod(scope: String, startDate: String, endDate: String): Result<File> =
+        withContext(Dispatchers.IO) {
+            safeApiCall(errorHandler) {
+                val response = api.cleaningPeriodDocument(authorization(), scope, startDate, endDate)
+                if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
+                val body = response.body() ?: throw IOException("Laporan periode tidak tersedia.")
+                val directory = File(context.cacheDir, "documents").apply { mkdirs() }
+                val filename = response.headers()["Content-Disposition"]
+                    ?.substringAfter("filename=", "")
+                    ?.trim('"', '\'', ' ')
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "checklist-kebersihan-$scope-$startDate-$endDate.pdf"
+                val file = File(directory, filename.replace(Regex("[^A-Za-z0-9._-]"), "-"))
+                val temporaryFile = File(directory, "${file.name}.part")
+
+                try {
+                    body.byteStream().use { input ->
+                        temporaryFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    if (temporaryFile.length() <= 0L) throw IOException("Laporan dari server kosong.")
+                    if (file.exists() && !file.delete()) throw IOException("Laporan lama tidak dapat diganti.")
                     if (!temporaryFile.renameTo(file)) {
                         temporaryFile.copyTo(file, overwrite = true)
                         temporaryFile.delete()

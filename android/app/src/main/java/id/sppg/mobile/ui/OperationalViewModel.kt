@@ -9,6 +9,7 @@ import id.sppg.mobile.data.remote.OperationalModule
 import id.sppg.mobile.data.remote.OperationalFormField
 import id.sppg.mobile.data.remote.OperationalRecord
 import id.sppg.mobile.data.remote.BulkReviewCapability
+import id.sppg.mobile.data.remote.CleaningPeriodExports
 import id.sppg.mobile.data.remote.MobileDailySummary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +27,7 @@ data class OperationalUiState(
     val dailySummary: MobileDailySummary? = null,
     val records: List<OperationalRecord> = emptyList(),
     val bulkReview: BulkReviewCapability? = null,
+    val cleaningPeriodExports: CleaningPeriodExports? = null,
     val currentPage: Int = 1,
     val lastPage: Int = 1,
     val statusFilter: String? = null,
@@ -83,6 +85,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                     activeModule = module,
                     records = if (it.activeModule == module && !force) it.records else emptyList(),
                     bulkReview = null,
+                    cleaningPeriodExports = if (it.activeModule == module) it.cleaningPeriodExports else null,
                     currentPage = 1,
                     lastPage = 1,
                     statusFilter = status,
@@ -101,6 +104,7 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                         it.copy(
                             records = page.records,
                             bulkReview = page.bulkReview,
+                            cleaningPeriodExports = page.periodExports,
                             currentPage = page.currentPage,
                             lastPage = page.lastPage,
                         )
@@ -481,6 +485,20 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
                 .onFailure { error ->
                     Log.e("SppgDocument", "Gagal mengunduh dokumen $module/$id", error)
                     _uiState.update { it.copy(errorMessage = error.message ?: "Dokumen gagal diunduh.") }
+                }
+            _uiState.update { it.copy(isSaving = false) }
+        }
+    }
+
+    fun downloadCleaningPeriod(scope: String, startDate: String, endDate: String, onReady: (java.io.File) -> Unit) {
+        if (_uiState.value.isSaving) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, errorMessage = null, successMessage = null) }
+            repository.downloadCleaningPeriod(scope, startDate, endDate)
+                .onSuccess { file -> onReady(file) }
+                .onFailure { error ->
+                    Log.e("SppgDocument", "Gagal mengunduh checklist kebersihan periode $startDate - $endDate", error)
+                    _uiState.update { it.copy(errorMessage = error.message ?: "Laporan periode gagal diunduh.") }
                 }
             _uiState.update { it.copy(isSaving = false) }
         }

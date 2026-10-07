@@ -198,6 +198,15 @@ interface MobileApi {
         @Query("type") type: String? = null,
     ): Response<ResponseBody>
 
+    @Streaming
+    @GET("operational-modules/kebersihan/period-export/{scope}")
+    suspend fun cleaningPeriodDocument(
+        @Header("Authorization") authorization: String,
+        @Path("scope") scope: String,
+        @Query("start_date") startDate: String,
+        @Query("end_date") endDate: String,
+    ): Response<ResponseBody>
+
     @POST("operational-modules/{module}/records/{id}/relations/{relation}/{item}/actions/{action}")
     suspend fun runOperationalRelationAction(
         @Header("Authorization") authorization: String,
@@ -500,7 +509,16 @@ data class OperationalRecordsResponse(
     val data: List<OperationalRecord>,
     val meta: PaginationMeta?,
     @SerializedName("bulk_review") val bulkReview: BulkReviewCapability? = null,
+    @SerializedName("period_exports") val periodExports: CleaningPeriodExports? = null,
 )
+
+data class CleaningPeriodExports(
+    @SerializedName("can_export") val canExport: Boolean = false,
+    val areas: List<CleaningPeriodExportArea> = emptyList(),
+    @SerializedName("has_warehouses") val hasWarehouses: Boolean = false,
+)
+
+data class CleaningPeriodExportArea(val scope: String, val label: String)
 
 data class BulkReviewCapability(val date: String, val count: Int)
 

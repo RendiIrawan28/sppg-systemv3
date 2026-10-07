@@ -78,6 +78,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import id.sppg.mobile.data.remote.OperationalField
+import id.sppg.mobile.data.remote.CleaningPeriodExports
 import id.sppg.mobile.data.remote.OperationalAction
 import id.sppg.mobile.data.remote.OperationalRelationAction
 import id.sppg.mobile.data.remote.OperationalRecord
@@ -86,9 +87,12 @@ import id.sppg.mobile.data.remote.OperationalSectionItem
 import com.google.gson.Gson
 import java.io.File
 import java.time.LocalDate
+import java.time.DayOfWeek
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.delay
 
 private val activeAcrossDatesModules = setOf(
@@ -115,6 +119,8 @@ fun OperationalRecordListScreen(
     onRecordClick: (Long) -> Unit,
     onCreate: () -> Unit,
     onBulkReview: (String, String) -> Unit,
+    onOpenCleaningPeriod: (String, String, String) -> Unit,
+    onShareCleaningPeriod: (String, String, String) -> Unit,
 ) {
     LaunchedEffect(module) {
         // Keep the selected cleaning date when returning from a checklist.
@@ -139,6 +145,7 @@ fun OperationalRecordListScreen(
         "date",
     )
     val bulkReview = state.bulkReview?.takeIf { state.activeModule == module && it.count > 0 }
+    val cleaningPeriodExports = state.cleaningPeriodExports?.takeIf { module == "kebersihan" && it.canExport }
 
     if (showBulkReviewConfirmation && bulkReview != null) {
         AlertDialog(
@@ -300,6 +307,16 @@ fun OperationalRecordListScreen(
                         })
                     }
                 }
+                if (cleaningPeriodExports != null) {
+                    item {
+                        CleaningPeriodExportCard(
+                            exports = cleaningPeriodExports,
+                            isSaving = state.isSaving,
+                            onOpen = onOpenCleaningPeriod,
+                            onShare = onShareCleaningPeriod,
+                        )
+                    }
+                }
                 if (isStockCard) {
                     item {
                         SppgTextField(
@@ -391,6 +408,82 @@ fun OperationalRecordListScreen(
                             Text("Muat data berikutnya")
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CleaningPeriodExportCard(
+    exports: CleaningPeriodExports,
+    isSaving: Boolean,
+    onOpen: (String, String, String) -> Unit,
+    onShare: (String, String, String) -> Unit,
+) {
+    val context = LocalContext.current
+    val weekStart = remember { LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)) }
+    var startDate by remember { mutableStateOf(weekStart) }
+    var endDate by remember { mutableStateOf(weekStart.plusDays(11)) }
+    var selectedScope by remember { mutableStateOf<String?>(null) }
+    val options = exports.areas.associate { it.scope to it.label }.toMutableMap().apply {
+        if (exports.hasWarehouses) put("warehouses", "Gabungkan 3 Gudang")
+    }
+    val scope = selectedScope?.takeIf { it in options } ?: options.keys.firstOrNull()
+    val rangeDays = ChronoUnit.DAYS.between(startDate, endDate)
+    val rangeError = when {
+        rangeDays < 0 -> "Tanggal selesai tidak boleh sebelum tanggal mulai."
+        rangeDays > 31 -> "Rentang ekspor maksimal 31 hari."
+        else -> null
+    }
+
+    fun chooseDate(current: LocalDate, onSelected: (LocalDate) -> Unit) {
+        DatePickerDialog(
+            context,
+            { _, year, month, day -> onSelected(LocalDate.of(year, month + 1, day)) },
+            current.year,
+            current.monthValue - 1,
+            current.dayOfMonth,
+        ).show()
+    }
+
+    SppgCard(shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Ekspor checklist periode", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Pilih tanggal dan area. PDF mengikuti format website, maksimal 10 hari kerja dalam satu formulir.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SppgOutlinedButton(
+                    onClick = { chooseDate(startDate) { startDate = it } },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                ) { Text("Mulai: ${startDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}") }
+                SppgOutlinedButton(
+                    onClick = { chooseDate(endDate) { endDate = it } },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                ) { Text("Selesai: ${endDate.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))}") }
+            }
+            if (rangeError != null) {
+                Text(rangeError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+            if (options.isEmpty()) {
+                Text("Belum ada area yang mendukung ekspor periode.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                OpeningStockDropdown("Area checklist", scope, options) { selectedScope = it }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SppgPrimaryButton(
+                        label = if (isSaving) "Mengunduh..." else "Buka PDF",
+                        onClick = { scope?.let { onOpen(it, startDate.toString(), endDate.toString()) } },
+                        enabled = !isSaving && rangeError == null && scope != null,
+                        modifier = Modifier.weight(1f),
+                    )
+                    SppgOutlinedButton(
+                        onClick = { scope?.let { onShare(it, startDate.toString(), endDate.toString()) } },
+                        enabled = !isSaving && rangeError == null && scope != null,
+                        modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                    ) { Text("Bagikan PDF") }
                 }
             }
         }
@@ -1039,7 +1132,7 @@ private fun OperationalDetailContent(
         }
         if (visibleRecordFields.isNotEmpty()) {
             if (module == "pemorsian") {
-                item { PortioningProgressCard(record.fields) }
+                item { PortioningProgressCard(visibleRecordFields) }
             }
             item {
                 OperationalFieldCard(
