@@ -74,17 +74,17 @@
                             <p class="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-800">Catatan pemeriksa: {{ $selected->review_notes }}</p>
                         @endif
 
-                        @if($canExport && $selected->status === \App\Enums\OperationalReportStatus::Verified)
+                        @if($canExport && $selected->state === \App\Enums\ProcessingBatchState::Completed && $selected->status === \App\Enums\OperationalReportStatus::Verified)
                             <div class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                                 <p class="text-xs font-bold text-slate-700">Ekspor laporan harian {{ $selected->production_date?->format('d-m-Y') }}</p>
                                 <div class="mt-3 flex flex-wrap gap-2">
                                     <a href="{{ route('processing-batches.production-pdf', $selected) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700">Monitoring Produksi Harian</a>
                                     <a href="{{ route('processing-batches.temperature-pdf', $selected) }}" class="inline-flex h-10 items-center rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700">Pemantauan Suhu Harian</a>
                                 </div>
-                                <p class="mt-2 text-[11px] text-slate-500">PDF menggabungkan seluruh batch pada tanggal produksi yang sama.</p>
+                                <p class="mt-2 text-[11px] text-slate-500">PDF menggabungkan batch selesai yang sudah disetujui Kepala SPPG pada tanggal produksi yang sama. Batch draf tidak ikut diekspor.</p>
                             </div>
                         @elseif($canExport && $selected->state === \App\Enums\ProcessingBatchState::Completed)
-                            <p class="mt-3 text-xs font-semibold text-slate-500">Ekspor harian tersedia setelah seluruh batch tanggal ini disetujui Kepala SPPG.</p>
+                            <p class="mt-3 text-xs font-semibold text-slate-500">Batch ini dapat diekspor setelah disetujui Kepala SPPG; batch lain yang masih draf tidak menghalangi.</p>
                         @endif
 
                         @if($canEdit && $selected->state === \App\Enums\ProcessingBatchState::Planned)

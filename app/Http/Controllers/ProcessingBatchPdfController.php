@@ -22,14 +22,13 @@ class ProcessingBatchPdfController extends Controller
      * Export Monitoring Produksi HARIAN.
      *
      * ProcessingBatch tetap menjadi unit operasional per batch, tetapi dokumen resmi
-     * menggabungkan seluruh batch pada tanggal produksi yang sama.
+     * menggabungkan batch selesai dan terverifikasi pada tanggal produksi yang sama.
      */
     public function production(Request $request, ProcessingBatch $processingBatch): Response
     {
         $this->authorizeExport($processingBatch);
 
         $batches = $this->dailyBatches($processingBatch);
-        $this->assertDailyReportReady($batches);
 
         $reportDate = $processingBatch->production_date;
         $filename = FileNaming::report('laporan-monitoring-produksi', null, $reportDate, 'pdf');
@@ -43,14 +42,13 @@ class ProcessingBatchPdfController extends Controller
 
     /**
      * Export Pemantauan Suhu Pengolahan & Penyajian HARIAN.
-     * Semua temperature log final dari seluruh batch pada tanggal yang sama digabung.
+     * Semua temperature log final dari batch yang terverifikasi pada tanggal yang sama digabung.
      */
     public function temperature(Request $request, ProcessingBatch $processingBatch): Response
     {
         $this->authorizeExport($processingBatch);
 
         $batches = $this->dailyBatches($processingBatch);
-        $this->assertDailyReportReady($batches);
 
         $logs = $batches
             ->flatMap(fn (ProcessingBatch $batch) => $batch->temperatureLogs)
@@ -79,8 +77,14 @@ class ProcessingBatchPdfController extends Controller
     {
         $date = $anchor->production_date?->toDateString();
         abort_unless($date, 422, 'Tanggal produksi batch belum tersedia.');
+        abort_unless(
+            $anchor->state === ProcessingBatchState::Completed
+                && $anchor->status === OperationalReportStatus::Verified,
+            403,
+            'Pilih batch yang sudah selesai dan disetujui Kepala SPPG untuk mengekspor laporan harian.',
+        );
 
-        return ProcessingBatch::query()
+        $batches = ProcessingBatch::query()
             ->with([
                 'sppgUnit',
                 'materialUsages',
@@ -92,36 +96,14 @@ class ProcessingBatchPdfController extends Controller
             ])
             ->where('sppg_unit_id', $anchor->sppg_unit_id)
             ->whereDate('production_date', $date)
-            ->where('state', '!=', ProcessingBatchState::Cancelled->value)
+            ->where('state', ProcessingBatchState::Completed->value)
+            ->where('status', OperationalReportStatus::Verified->value)
             ->orderByRaw('CASE WHEN started_at IS NULL THEN 1 ELSE 0 END')
             ->orderBy('started_at')
             ->orderBy('id')
             ->get();
-    }
+        abort_if($batches->isEmpty(), 404, 'Belum ada batch Pengolahan yang disetujui pada tanggal tersebut.');
 
-    /** @param Collection<int, ProcessingBatch> $batches */
-    private function assertDailyReportReady(Collection $batches): void
-    {
-        abort_if($batches->isEmpty(), 404, 'Belum ada batch Pengolahan pada tanggal tersebut.');
-
-        $unfinished = $batches->first(
-            fn (ProcessingBatch $batch): bool => $batch->state !== ProcessingBatchState::Completed,
-        );
-
-        abort_if(
-            $unfinished !== null,
-            403,
-            'Laporan harian belum dapat diekspor karena masih ada batch yang belum selesai.',
-        );
-
-        $unverified = $batches->first(
-            fn (ProcessingBatch $batch): bool => $batch->status !== OperationalReportStatus::Verified,
-        );
-
-        abort_if(
-            $unverified !== null,
-            403,
-            'Laporan harian hanya dapat diekspor setelah seluruh batch tanggal tersebut disetujui Kepala SPPG.',
-        );
+        return $batches;
     }
 }

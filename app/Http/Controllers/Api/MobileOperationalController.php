@@ -6,6 +6,7 @@ use App\Enums\DistributionIncidentStatus;
 use App\Enums\FieldIncidentStatus;
 use App\Enums\NutritionRecordStatus;
 use App\Enums\OperationalReportStatus;
+use App\Enums\ProcessingBatchState;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\CleaningSession;
@@ -1997,6 +1998,11 @@ class MobileOperationalController extends Controller
 
         if (in_array($module, ['persiapan', 'pengolahan', 'pencucian'], true)
             && $this->scalarValue($item->getAttribute('status')) !== OperationalReportStatus::Verified->value) {
+            return false;
+        }
+
+        if ($module === 'pengolahan'
+            && $this->scalarValue($item->getAttribute('state')) !== ProcessingBatchState::Completed->value) {
             return false;
         }
 
