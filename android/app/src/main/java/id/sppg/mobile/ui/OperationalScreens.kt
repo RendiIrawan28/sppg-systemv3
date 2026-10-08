@@ -101,7 +101,6 @@ private val activeAcrossDatesModules = setOf(
     "pemorsian",
     "distribusi",
     "pencucian",
-    "kebersihan",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -128,7 +127,10 @@ fun OperationalRecordListScreen(
     }
     val context = LocalContext.current
     var showHistory by remember(module) {
-        mutableStateOf(module == "kebersihan" && state.activeModule == module && state.dateFilter != null)
+        mutableStateOf(
+            module == "kebersihan" && state.activeModule == module &&
+                state.dateFilter != null && state.dateFilter != LocalDate.now().format(apiDateFormatter)
+        )
     }
     var historyDate by remember(module) {
         mutableStateOf(

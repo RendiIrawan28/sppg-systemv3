@@ -111,6 +111,50 @@ it('prepares todays cleaning sessions when the cleaning records are opened direc
     expect($session->refresh()->state->value)->toBe('in_progress');
 });
 
+it('shows only todays unfinished cleaning work as active while keeping older work in dated history', function (): void {
+    $todayArea = mobileCleaningArea($this->unit, 'TODAY');
+    $oldPlannedArea = mobileCleaningArea($this->unit, 'OLD-PLANNED', false);
+    $oldStartedArea = mobileCleaningArea($this->unit, 'OLD-STARTED', false);
+
+    $oldPlanned = CleaningSession::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'cleaning_area_id' => $oldPlannedArea->id,
+        'scheduled_date' => '2026-08-23',
+        'state' => 'planned',
+    ]);
+    $oldStarted = CleaningSession::query()->create([
+        'sppg_unit_id' => $this->unit->id,
+        'cleaning_area_id' => $oldStartedArea->id,
+        'scheduled_date' => '2026-08-23',
+        'state' => 'in_progress',
+    ]);
+
+    $this->getJson('/api/mobile/operational-modules')
+        ->assertOk()
+        ->assertJsonFragment(['slug' => 'kebersihan', 'today_count' => 1]);
+
+    $todaySession = CleaningSession::query()
+        ->where('cleaning_area_id', $todayArea->id)
+        ->whereDate('scheduled_date', today())
+        ->firstOrFail();
+
+    $active = $this->getJson('/api/mobile/operational-modules/kebersihan/records?view=active')
+        ->assertOk()
+        ->assertJsonPath('meta.total', 1);
+    expect(collect($active->json('data'))->pluck('id')->all())->toBe([$todaySession->id]);
+
+    $this->getJson('/api/mobile/operational-modules/kebersihan/records?date_from=2026-08-24&date_to=2026-08-24')
+        ->assertOk()
+        ->assertJsonPath('meta.total', 1);
+
+    $history = $this->getJson('/api/mobile/operational-modules/kebersihan/records?date_from=2026-08-23&date_to=2026-08-23')
+        ->assertOk()
+        ->assertJsonPath('meta.total', 2);
+    expect(collect($history->json('data'))->pluck('id')->all())
+        ->toContain($oldPlanned->id, $oldStarted->id)
+        ->not->toContain($todaySession->id);
+});
+
 it('exposes and downloads the same cleaning period exports as the website', function (): void {
     $this->cleaningActor->givePermissionTo(Permission::findOrCreate('cleaning.export', 'web'));
     $production = mobileCleaningArea($this->unit, 'PRODUCTION-EXPORT', false);

@@ -1761,9 +1761,11 @@ class MobileOperationalController extends Controller
     /** @param array<string, mixed> $definition */
     private function applyActiveWorkflowScope(Builder $query, string $module, array $definition): void
     {
-        // Unstarted cleaning work can still be completed on a later day.
+        // Mobile active work only contains cleaning sessions scheduled for today.
+        // Earlier unfinished sessions remain available through the dated history view.
         if ($module === 'kebersihan') {
-            $query->whereIn('state', ['planned', 'in_progress']);
+            $query->whereDate($definition['date'], now()->toDateString())
+                ->whereIn('state', ['planned', 'in_progress']);
 
             return;
         }
@@ -1772,7 +1774,6 @@ class MobileOperationalController extends Controller
             'persiapan', 'pengolahan', 'pemorsian' => ['planned', 'in_progress'],
             'distribusi' => ['planned', 'assigned', 'loaded', 'departed', 'destinations_completed'],
             'pencucian' => ['planned', 'received', 'washing'],
-            'kebersihan' => ['planned', 'in_progress'],
             default => null,
         };
 
@@ -1781,7 +1782,7 @@ class MobileOperationalController extends Controller
         }
 
         $ongoingStates = match ($module) {
-            'persiapan', 'pengolahan', 'pemorsian', 'kebersihan' => ['in_progress'],
+            'persiapan', 'pengolahan', 'pemorsian' => ['in_progress'],
             'distribusi' => ['assigned', 'loaded', 'departed', 'destinations_completed'],
             'pencucian' => ['received', 'washing'],
             default => [],
