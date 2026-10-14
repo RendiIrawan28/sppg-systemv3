@@ -207,6 +207,14 @@ interface MobileApi {
         @Query("end_date") endDate: String,
     ): Response<ResponseBody>
 
+    @Streaming
+    @GET("warehouse-reports/{report}")
+    suspend fun warehouseDailyReport(
+        @Header("Authorization") authorization: String,
+        @Path("report") report: String,
+        @Query("date") date: String,
+    ): Response<ResponseBody>
+
     @POST("operational-modules/{module}/records/{id}/relations/{relation}/{item}/actions/{action}")
     suspend fun runOperationalRelationAction(
         @Header("Authorization") authorization: String,

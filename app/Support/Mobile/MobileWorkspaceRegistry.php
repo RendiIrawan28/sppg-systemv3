@@ -283,6 +283,7 @@ class MobileWorkspaceRegistry
             if ($slug === 'pencucian') {
                 // Sesi dibuat otomatis saat pengambilan ompreng kembali. Mobile hanya
                 // menjalankan tahapan yang sama dengan halaman Pencucian website.
+                // Koreksi laporan yang dikembalikan memakai aksi khusus, bukan edit master.
                 $definition['allow_update'] = false;
                 $definition['fields'] = collect($definition['fields'])
                     ->map(fn (array $field): array => [
@@ -290,6 +291,11 @@ class MobileWorkspaceRegistry
                         'editable' => false,
                         'detail_only' => true,
                     ])->all();
+                $definition['fields'][] = [
+                    ...$this->field('review_notes', 'Catatan pemeriksa'),
+                    'editable' => false,
+                    'detail_only' => true,
+                ];
                 $definition['relations']['checklistItems']['fields'] = collect(
                     $definition['relations']['checklistItems']['fields'],
                 )->map(fn (array $field): array => [

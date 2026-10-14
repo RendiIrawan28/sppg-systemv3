@@ -2,6 +2,9 @@
     <div class="mx-auto max-w-[1450px] space-y-5">
         <x-v3.flash-alert />
         <x-v3.date-filter label="Tanggal pengambilan Gudang" />
+        @if($warehouseType === \App\Models\Warehouse::TYPE_FOOD && (auth()->user()->is_super_admin || auth()->user()->can('stock.view')))
+            <a href="{{ route('v3.warehouse.daily-report', ['report' => 'withdrawals-returns', 'date' => $workDate]) }}" class="inline-flex h-10 items-center rounded-xl bg-sky-700 px-4 text-xs font-bold text-white">Ekspor pengambilan &amp; retur bahan baku (PDF)</a>
+        @endif
         @if($pendingOtherDates->isNotEmpty())
             <section class="rounded-2xl border border-amber-200 bg-amber-50 p-4"><h3 class="font-bold text-amber-900">Pengambilan tanggal lain menunggu verifikasi</h3><p class="mt-1 text-xs text-amber-700">{{ $pendingOtherDates->count() }} dokumen tetap perlu diperiksa Gudang.</p><div class="mt-3 flex flex-wrap gap-2">@foreach($pendingOtherDates->groupBy(fn($item) => $item->withdrawal_date?->toDateString()) as $date => $items)<button wire:click="$set('workDate', '{{ $date }}')" type="button" class="rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-bold text-amber-800">{{ optional($items->first()->withdrawal_date)->format('d/m/Y') }} · {{ $items->count() }} dokumen</button>@endforeach</div></section>
         @endif

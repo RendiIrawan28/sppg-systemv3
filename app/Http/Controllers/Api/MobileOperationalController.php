@@ -2382,6 +2382,12 @@ class MobileOperationalController extends Controller
                         $this->actionField('notes', 'Catatan selisih dari perkiraan (wajib jika berbeda)', 'textarea'),
                     ])],
                     'completed' => [$this->actionDefinition('ready', 'Tandai siap digunakan')],
+                    'ready' => $status === 'revision_required'
+                        ? [$this->actionDefinition('revise_result', 'Perbaiki hasil pencucian', false, [
+                            $this->actionField('clean_containers', 'Ompreng bersih dan siap', 'number', true, (string) $item->clean_containers),
+                            $this->actionField('damaged_containers', 'Ompreng rusak/tidak layak', 'number', true, (string) $item->damaged_containers),
+                            $this->actionField('notes', 'Catatan koreksi / selisih', 'textarea', false, (string) $item->notes),
+                        ])] : [],
                     default => [],
                 },
                 'kebersihan' => match ($state) {
@@ -2928,6 +2934,7 @@ class MobileOperationalController extends Controller
             'start' => $service->start($item, $actor, $data),
             'complete' => $service->complete($item, $actor, $data),
             'ready' => $service->markReady($item, $actor, $notes),
+            'revise_result' => $service->reviseResult($item, $actor, $data),
             'submit' => $service->submit($item, $actor, $notes),
             'verify' => $service->verify($item, $actor, $notes),
             'revision' => $service->requestRevision($item, $actor, (string) $notes),
@@ -3147,6 +3154,20 @@ class MobileOperationalController extends Controller
         return [$definition, $parent, $definition['relations'][$relation]];
     }
 
+    private function washingRevisionEditable(?Model $session): bool
+    {
+        return $session instanceof WashingSession
+            && $session->state === \App\Enums\WashingSessionState::Ready
+            && $session->status === OperationalReportStatus::RevisionRequired;
+    }
+
+    private function washingResultEditable(?Model $session): bool
+    {
+        return $session instanceof WashingSession
+            && ($session->state === \App\Enums\WashingSessionState::Washing
+                || $this->washingRevisionEditable($session));
+    }
+
     /** @return array<int, string> */
     private function relationOperations(string $module, string $relation, ?Model $parent = null): array
     {
@@ -3212,12 +3233,16 @@ class MobileOperationalController extends Controller
                 default => [],
             },
             'pencucian' => match ($relation) {
-                'checklistItems' => $this->scalarValue($parent?->getAttribute('state')) === 'washing'
+                'checklistItems' => $this->washingResultEditable($parent)
                     ? ['action'] : [],
-                'wasteRecords' => $this->scalarValue($parent?->getAttribute('state')) === 'received'
+                'wasteRecords' => ($this->scalarValue($parent?->getAttribute('state')) === 'received'
+                    || $this->washingRevisionEditable($parent))
                     && (bool) $parent?->getAttribute('has_food_waste')
+                    && (! $this->washingRevisionEditable($parent)
+                        || ! $parent->wasteHandoverReport
+                        || $parent->wasteHandoverReport->isEditable())
                         ? ['create', 'update', 'delete'] : [],
-                'documentations' => $this->scalarValue($parent?->getAttribute('state')) === 'washing'
+                'documentations' => $this->washingResultEditable($parent)
                     ? ['create', 'update', 'delete'] : [],
                 default => [],
             },
@@ -3855,7 +3880,7 @@ class MobileOperationalController extends Controller
         if ($module === 'pencucian'
             && $relation === 'checklistItems'
             && $request->user()?->can('washing.update')
-            && $this->scalarValue($parent->getAttribute('state')) === 'washing') {
+            && $this->washingResultEditable($parent)) {
             $passed = (bool) $item->getAttribute('is_passed');
 
             return [$this->actionDefinition(

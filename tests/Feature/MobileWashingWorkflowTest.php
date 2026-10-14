@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Livewire\V3\Operations\Form as WashingForm;
 use App\Models\SppgUnit;
 use App\Models\User;
 use App\Models\WashingSession;
@@ -8,6 +9,7 @@ use App\Support\Mobile\MobileWorkspaceRegistry;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Laravel\Sanctum\Sanctum;
+use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -178,4 +180,117 @@ it('requires all washing evidence before completion', function (): void {
         ->assertJsonValidationErrors('checklist');
 
     expect($session->refresh()->state->value)->toBe('washing');
+});
+
+it('lets staff correct a returned washing report without reopening operational stages', function (): void {
+    $session = mobileWashingSession($this->unit, [
+        'state' => 'ready',
+        'status' => 'revision_required',
+    ]);
+    $session->update([
+        'clean_containers' => 30,
+        'damaged_containers' => 0,
+        'received_containers' => 30,
+        'washed_containers' => 30,
+        'has_food_waste' => false,
+        'no_waste_confirmed' => true,
+        'waste_recorded_at' => now(),
+        'review_notes' => 'Perbaiki jumlah ompreng dan dokumentasi.',
+    ]);
+    $session->checklistItems()->update(['is_passed' => true]);
+    $session->documentations()->create([
+        'phase' => 'after',
+        'photo_path' => 'washing-test/old-result.png',
+        'caption' => 'Foto awal',
+    ]);
+    $baseUrl = "/api/mobile/operational-modules/pencucian/records/{$session->id}";
+
+    $detail = $this->getJson($baseUrl)->assertOk();
+    expect(collect($detail->json('data.capabilities.actions'))->pluck('key')->all())
+        ->toContain('revise_result', 'submit')
+        ->not->toContain('receive', 'start', 'complete');
+    expect(collect($detail->json('data.fields'))->firstWhere('key', 'review_notes')['value'])
+        ->toBe('Perbaiki jumlah ompreng dan dokumentasi.');
+
+    $this->postJson("{$baseUrl}/actions/revise_result", [
+        'fields' => ['clean_containers' => 28, 'damaged_containers' => 1],
+    ])->assertUnprocessable()->assertJsonValidationErrors('notes');
+
+    $this->postJson("{$baseUrl}/actions/revise_result", [
+        'fields' => [
+            'clean_containers' => 28,
+            'damaged_containers' => 1,
+            'notes' => 'Satu ompreng belum kembali dari perkiraan pengambilan.',
+        ],
+    ])->assertOk();
+
+    $checklist = $session->checklistItems()->firstOrFail();
+    $this->postJson("{$baseUrl}/relations/checklistItems/{$checklist->id}/actions/uncheck")
+        ->assertOk();
+    $photo = 'data:image/png;base64,'.base64_encode(base64_decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+    ));
+    $this->postJson("{$baseUrl}/relations/documentations", [
+        'fields' => ['caption' => 'Foto koreksi pencucian'],
+        'files' => ['photo_path' => $photo],
+    ])->assertCreated();
+    $this->postJson("{$baseUrl}/actions/submit")
+        ->assertUnprocessable();
+    $this->postJson("{$baseUrl}/relations/checklistItems/{$checklist->id}/actions/check")
+        ->assertOk();
+
+    $session->refresh();
+    expect($session->state->value)->toBe('ready')
+        ->and($session->status->value)->toBe('revision_required')
+        ->and($session->received_containers)->toBe(29)
+        ->and($session->washed_containers)->toBe(29)
+        ->and($session->receiving_difference)->toBe(-1);
+
+    $this->postJson("{$baseUrl}/actions/submit")->assertOk();
+    expect($session->refresh()->status->value)->toBe('submitted');
+    $this->postJson("{$baseUrl}/actions/revise_result", [
+        'fields' => ['clean_containers' => 30, 'damaged_containers' => 0],
+    ])->assertUnprocessable();
+});
+
+it('lets staff save web washing corrections while the session stays ready', function (): void {
+    $session = mobileWashingSession($this->unit, [
+        'state' => 'ready',
+        'status' => 'revision_required',
+    ]);
+    $session->update([
+        'clean_containers' => 30,
+        'damaged_containers' => 0,
+        'received_containers' => 30,
+        'washed_containers' => 30,
+        'has_food_waste' => false,
+        'no_waste_confirmed' => true,
+        'waste_recorded_at' => now(),
+        'review_notes' => 'Perbaiki jumlah ompreng.',
+    ]);
+    $session->checklistItems()->get()->each(fn ($item) => $item->update([
+        'category' => 'Pencucian',
+        'item_name' => $item->label ?: 'Pemeriksaan ompreng',
+        'is_passed' => true,
+    ]));
+    $session->documentations()->create([
+        'phase' => 'after',
+        'photo_path' => 'washing-test/result.png',
+        'caption' => 'Hasil pencucian',
+    ]);
+
+    Livewire::test(WashingForm::class, ['module' => 'pencucian', 'record' => $session->id])
+        ->assertSee('Laporan perlu diperbaiki')
+        ->assertSee('Perbaiki jumlah ompreng.')
+        ->set('data.clean_containers', 29)
+        ->set('data.notes', 'Satu ompreng rusak setelah pemeriksaan ulang.')
+        ->set('relations.checklistItems.0.notes', 'Diperiksa ulang saat revisi.')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($session->refresh()->state->value)->toBe('ready')
+        ->and($session->status->value)->toBe('revision_required')
+        ->and($session->received_containers)->toBe(29)
+        ->and($session->receiving_difference)->toBe(-1);
+    expect($session->checklistItems()->first()->notes)->toBe('Diperiksa ulang saat revisi.');
 });

@@ -344,6 +344,62 @@ class WashingWorkflow
         });
     }
 
+    public function reviseResult(WashingSession $session, User $actor, array $data): WashingSession
+    {
+        abort_unless($actor->can('washing.update'), 403);
+
+        return DB::transaction(function () use ($session, $actor, $data): WashingSession {
+            $session = $this->lockedSession($session);
+            if ($session->state !== WashingSessionState::Ready
+                || $session->status !== OperationalReportStatus::RevisionRequired) {
+                throw ValidationException::withMessages([
+                    'status' => 'Hasil pencucian hanya dapat dikoreksi setelah laporan dikembalikan untuk revisi.',
+                ]);
+            }
+
+            $values = validator($data, [
+                'clean_containers' => ['required', 'integer', 'min:0', 'max:1000000'],
+                'damaged_containers' => ['required', 'integer', 'min:0', 'max:1000000'],
+                'notes' => ['nullable', 'string', 'max:2000'],
+            ])->validate();
+            $clean = (int) $values['clean_containers'];
+            $damaged = (int) $values['damaged_containers'];
+            $received = $clean + $damaged;
+            $notes = trim((string) ($values['notes'] ?? ''));
+            if ($received === 0) {
+                throw ValidationException::withMessages([
+                    'clean_containers' => 'Jumlah ompreng bersih dan rusak harus lebih dari nol.',
+                ]);
+            }
+            if ($received !== (int) $session->expected_containers && $notes === '') {
+                throw ValidationException::withMessages([
+                    'notes' => 'Jelaskan selisih jumlah akhir dari perkiraan pengambilan.',
+                ]);
+            }
+
+            $session->fill([
+                'clean_containers' => $clean,
+                'damaged_containers' => $damaged,
+                'received_containers' => $received,
+                'washed_containers' => $received,
+                'receiving_difference' => $received - (int) $session->expected_containers,
+                'rejected_containers' => 0,
+                'missing_containers' => 0,
+                'notes' => $notes !== '' ? $notes : null,
+                'updated_by' => $actor->getKey(),
+            ]);
+            if ($session->isDirty()) {
+                $session->save();
+                $this->writeHistory(
+                    $session, $actor, 'result_revised',
+                    $session->state->value, $session->state->value, $notes ?: null,
+                );
+            }
+
+            return $session->refresh();
+        });
+    }
+
     /** @return array<int, string> */
     public function submissionIssues(WashingSession $session): array
     {

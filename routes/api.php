@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\MobileOperationalController;
 use App\Http\Controllers\Api\MobileSecurityController;
 use App\Http\Controllers\Api\MobileTaskController;
 use App\Http\Middleware\EnsureMobileAccessToken;
+use App\Http\Controllers\WarehouseDailyReportController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('iot/attendance')->middleware('throttle:120,1')->group(function (): void {
@@ -48,6 +49,8 @@ Route::prefix('mobile')->group(function (): void {
         Route::post('/field-plans/{plan}/activate', [FieldPlanController::class, 'activate']);
         Route::get('/field-plans/{fieldDistributionPlan}/document', [MobileDocumentController::class, 'fieldPlan']);
         Route::get('/operational-modules', [MobileOperationalController::class, 'modules']);
+        Route::get('/warehouse-reports/{report}', WarehouseDailyReportController::class)
+            ->whereIn('report', ['receipts', 'withdrawals-returns']);
         Route::get('/operational-modules/kebersihan/period-export/{scope}', [MobileDocumentController::class, 'cleaningPeriod']);
         Route::get('/operational-modules/{module}/records', [MobileOperationalController::class, 'index']);
         Route::post('/operational-modules/{module}/bulk-review', MobileBulkOperationalReviewController::class);

@@ -504,6 +504,20 @@ class OperationalViewModel(private val repository: OperationalRepository) : View
         }
     }
 
+    fun downloadWarehouseDailyReport(report: String, date: String, onReady: (java.io.File) -> Unit) {
+        if (_uiState.value.isSaving) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, errorMessage = null, successMessage = null) }
+            repository.downloadWarehouseDailyReport(report, date)
+                .onSuccess { file -> onReady(file) }
+                .onFailure { error ->
+                    Log.e("SppgDocument", "Gagal mengunduh laporan Gudang $report tanggal $date", error)
+                    _uiState.update { it.copy(errorMessage = error.message ?: "Laporan Gudang gagal diunduh.") }
+                }
+            _uiState.update { it.copy(isSaving = false) }
+        }
+    }
+
     fun clearFeedback() {
         _uiState.update { it.copy(errorMessage = null, successMessage = null) }
     }

@@ -120,6 +120,8 @@ fun OperationalRecordListScreen(
     onBulkReview: (String, String) -> Unit,
     onOpenCleaningPeriod: (String, String, String) -> Unit,
     onShareCleaningPeriod: (String, String, String) -> Unit,
+    onOpenWarehouseReport: (String, String) -> Unit,
+    onShareWarehouseReport: (String, String) -> Unit,
 ) {
     LaunchedEffect(module) {
         // Keep the selected cleaning date when returning from a checklist.
@@ -148,6 +150,11 @@ fun OperationalRecordListScreen(
     )
     val bulkReview = state.bulkReview?.takeIf { state.activeModule == module && it.count > 0 }
     val cleaningPeriodExports = state.cleaningPeriodExports?.takeIf { module == "kebersihan" && it.canExport }
+    val warehouseReport = when (module) {
+        "gudang" -> "receipts"
+        "gudang-pengambilan", "gudang-retur", "gudang-retur-pengolahan", "gudang-retur-pemorsian" -> "withdrawals-returns"
+        else -> null
+    }
 
     if (showBulkReviewConfirmation && bulkReview != null) {
         AlertDialog(
@@ -317,6 +324,34 @@ fun OperationalRecordListScreen(
                             onOpen = onOpenCleaningPeriod,
                             onShare = onShareCleaningPeriod,
                         )
+                    }
+                }
+                if (warehouseReport != null) {
+                    item {
+                        SppgCard(shape = RoundedCornerShape(16.dp)) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("Ekspor laporan Gudang", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (warehouseReport == "receipts") "Penerimaan bahan baku tanggal $selectedDateLabel."
+                                    else "Pengambilan dan retur bahan baku tanggal $selectedDateLabel.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    SppgPrimaryButton(
+                                        label = if (state.isSaving) "Mengunduh..." else "Buka PDF",
+                                        onClick = { onOpenWarehouseReport(warehouseReport, state.dateFilter ?: LocalDate.now().toString()) },
+                                        enabled = !state.isSaving,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    SppgOutlinedButton(
+                                        onClick = { onShareWarehouseReport(warehouseReport, state.dateFilter ?: LocalDate.now().toString()) },
+                                        enabled = !state.isSaving,
+                                        modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                                    ) { Text("Bagikan PDF") }
+                                }
+                            }
+                        }
                     }
                 }
                 if (isStockCard) {
@@ -1017,6 +1052,7 @@ private fun washingActionHint(action: String): String = when (action) {
     "waste" -> "Tambahkan rincian limbah dan fotonya, lalu lengkapi identitas kedua pihak untuk berita acara."
     "start" -> "Pencatatan sisa makanan sudah selesai. Mulai proses untuk membuka checklist dan dokumentasi hasil."
     "complete" -> "Isi jumlah ompreng bersih dan rusak hasil hitung akhir, lengkapi checklist dan foto. Jelaskan jika berbeda dari perkiraan pengambilan."
+    "revise_result" -> "Perbaiki jumlah hasil akhir dan catatan, lalu periksa checklist serta foto sebelum mengajukan ulang."
     "submit" -> "Seluruh sesi Pencucian tanggal ini sudah siap untuk diajukan."
     else -> "Periksa seluruh data sebelum melanjutkan tahap Pencucian."
 }
@@ -1128,6 +1164,26 @@ private fun OperationalDetailContent(
         }
         if (module == "pencucian") {
             item { WashingProgressCard(record) }
+            if (record.status == "revision_required") {
+                item {
+                    SppgCard(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(18.dp)) {
+                            Text("LAPORAN PERLU REVISI", fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                record.fields.orEmpty().firstOrNull { it.key == "review_notes" }?.value
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: "Periksa kembali laporan sesuai arahan pemeriksa.",
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text("Simpan koreksi, lalu ajukan kembali laporan harian.")
+                        }
+                    }
+                }
+            }
         }
         if (module == "kebersihan") {
             item { CleaningOverviewCard(record, cleaningReadinessState ?: cleaningReadiness(record)) }

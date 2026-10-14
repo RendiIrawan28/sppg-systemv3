@@ -105,10 +105,13 @@ class Form extends Component
 
     public function addWashingResultPhoto(): void
     {
+        $record = $this->record();
         abort_unless(
             $this->module === 'pencucian'
             && $this->allowed('washing.update')
-            && $this->record()->state === WashingSessionState::Washing,
+            && ($record->state === WashingSessionState::Washing
+                || ($record->state === WashingSessionState::Ready
+                    && $record->status === OperationalReportStatus::RevisionRequired)),
             403,
         );
 
@@ -486,9 +489,27 @@ class Form extends Component
             if (array_key_exists('supervisor_id', $values)) {
                 $values['supervisor_name_snapshot'] = User::query()->whereKey($values['supervisor_id'])->value('name');
             }
-            $record->fill($values)->save();
+            if ($this->module === 'pencucian'
+                && $record->exists
+                && $record->state === WashingSessionState::Ready
+                && $record->status === OperationalReportStatus::RevisionRequired) {
+                $record = app(WashingWorkflow::class)->reviseResult($record, $actor, [
+                    'clean_containers' => $values['clean_containers'] ?? null,
+                    'damaged_containers' => $values['damaged_containers'] ?? null,
+                    'notes' => $values['notes'] ?? null,
+                ]);
+            } else {
+                $record->fill($values)->save();
+            }
 
             foreach ($definition['relations'] as $name => $relationDefinition) {
+                if ($this->module === 'pencucian' && $name === 'wasteRecords'
+                    && $record->state === WashingSessionState::Ready
+                    && $record->status === OperationalReportStatus::RevisionRequired
+                    && $record->wasteHandoverReport
+                    && ! $record->wasteHandoverReport->isEditable()) {
+                    continue;
+                }
                 $relation = $record->{$name}();
                 $kept = [];
                 foreach ($this->relations[$name] ?? [] as $index => $row) {

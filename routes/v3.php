@@ -7,6 +7,7 @@ use App\Http\Controllers\SecurityShiftReportController;
 use App\Http\Controllers\V3\EntryController;
 use App\Http\Controllers\V3\LogoutController;
 use App\Http\Controllers\WarehouseStockCardExportController;
+use App\Http\Controllers\WarehouseDailyReportController;
 use App\Http\Controllers\WasteHandoverPdfController;
 use App\Http\Middleware\SetV3UnitContext;
 use App\Livewire\V3\Administration\ModuleDataReset;
@@ -102,6 +103,8 @@ Route::middleware('auth')->prefix('v3')->name('v3.')->group(function (): void {
             Route::get('/pengadaan', ProcurementIndex::class)->name('procurement.index');
             Route::get('/pengadaan/{procurement}', ProcurementShow::class)->name('procurement.show');
             Route::get('/gudang/penerimaan', StockReceiptIndex::class)->name('warehouse.receipts.index');
+            Route::get('/gudang/ekspor/{report}', WarehouseDailyReportController::class)
+                ->whereIn('report', ['receipts', 'withdrawals-returns'])->name('warehouse.daily-report');
             Route::get('/gudang/penerimaan/manual', StockReceiptCreateManual::class)->name('warehouse.receipts.manual');
             Route::get('/gudang/penerimaan/{receipt}', StockReceiptShow::class)->name('warehouse.receipts.show');
             Route::get('/gudang/stok', StockIndex::class)->name('warehouse.stock.index');

@@ -260,6 +260,39 @@ class OperationalRepository(
             }
         }
 
+    suspend fun downloadWarehouseDailyReport(report: String, date: String): Result<File> =
+        withContext(Dispatchers.IO) {
+            safeApiCall(errorHandler) {
+                val response = api.warehouseDailyReport(authorization(), report, date)
+                if (!response.isSuccessful) throw apiException(response.code(), response.errorBody()?.string())
+                val body = response.body() ?: throw IOException("Laporan Gudang tidak tersedia.")
+                val directory = File(context.cacheDir, "documents").apply { mkdirs() }
+                val filename = response.headers()["Content-Disposition"]
+                    ?.substringAfter("filename=", "")
+                    ?.trim('"', '\'', ' ')
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "laporan-gudang-$report-$date.pdf"
+                val file = File(directory, filename.replace(Regex("[^A-Za-z0-9._-]"), "-"))
+                val temporaryFile = File(directory, "${file.name}.part")
+
+                try {
+                    body.byteStream().use { input ->
+                        temporaryFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    if (temporaryFile.length() <= 0L) throw IOException("Laporan Gudang dari server kosong.")
+                    if (file.exists() && !file.delete()) throw IOException("Laporan lama tidak dapat diganti.")
+                    if (!temporaryFile.renameTo(file)) {
+                        temporaryFile.copyTo(file, overwrite = true)
+                        temporaryFile.delete()
+                    }
+                    file
+                } catch (error: Throwable) {
+                    temporaryFile.delete()
+                    throw error
+                }
+            }
+        }
+
     private suspend fun authorization(): String {
         val token = sessionStore.current()?.token ?: throw SessionExpiredException()
         return "Bearer $token"

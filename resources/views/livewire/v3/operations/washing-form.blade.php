@@ -5,6 +5,9 @@
     $isReceived = $state === App\Enums\WashingSessionState::Received;
     $isWashing = $state === App\Enums\WashingSessionState::Washing;
     $isReady = $state === App\Enums\WashingSessionState::Ready;
+    $revisionMode = $isReady && $status === App\Enums\OperationalReportStatus::RevisionRequired && $editable && $canUpdate;
+    $canEditWaste = ($isReceived || ($revisionMode && (!$record->wasteHandoverReport || $record->wasteHandoverReport->isEditable()))) && $editable && $canUpdate;
+    $canEditResult = ($isWashing || $revisionMode) && $editable && $canUpdate;
     $rawWaste = $data['has_food_waste'] ?? null;
     $hasWaste = in_array($rawWaste, [true, 1, '1'], true)
         ? true
@@ -36,6 +39,14 @@
         @error('action')
             <div class="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 dark:border-rose-400/30 dark:bg-rose-500/10 dark:text-rose-300">{{ $message }}</div>
         @enderror
+
+        @if ($revisionMode)
+            <section class="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-100">
+                <p class="font-bold">Laporan perlu diperbaiki</p>
+                <p class="mt-1">{{ $record->review_notes ?: 'Periksa kembali data laporan sesuai arahan pemeriksa.' }}</p>
+                <p class="mt-2 text-xs">Perbaiki isian di bawah, simpan koreksi, lalu ajukan kembali laporan harian. Status ompreng siap digunakan tidak berubah.</p>
+            </section>
+        @endif
 
         <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:shadow-none">
             <div class="flex items-center justify-between gap-3">
@@ -96,6 +107,9 @@
                         <p class="text-[10px] font-bold uppercase tracking-[.14em] text-amber-700 dark:text-amber-300">Tahap 2</p>
                         <h3 class="mt-1 text-lg font-bold text-slate-950 dark:text-white">Pencatatan limbah makanan</h3>
                         <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Bagian ini wajib diselesaikan sebelum proses pencucian dimulai.</p>
+                        @if ($revisionMode && $record->has_food_waste && $record->wasteHandoverReport)
+                            <p class="mt-2 text-xs font-semibold text-amber-800 dark:text-amber-200">Berita acara limbah merupakan dokumen terpisah. Jika data limbah berubah, perbarui juga berita acara tersebut. Bila sudah disetujui, minta revisi berita acara terlebih dahulu.</p>
+                        @endif
                     </div>
 
                     <div class="mt-5 grid gap-3 sm:grid-cols-2">
@@ -115,23 +129,23 @@
                                 <div wire:key="washing-waste-{{ $row['_id'] ?? 'new-'.$index }}" class="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 dark:border-amber-400/25 dark:bg-amber-500/5">
                                     <div class="flex items-center justify-between gap-3">
                                         <p class="text-xs font-bold text-amber-800 dark:text-amber-200">Limbah {{ $index + 1 }}</p>
-                                        @if ($isReceived && $canUpdate)
+                                        @if ($canEditWaste)
                                             <button type="button" wire:click="removeRelationRow('wasteRecords', {{ $index }})" class="text-xs font-bold text-rose-600 hover:text-rose-700 dark:text-rose-300">Hapus</button>
                                         @endif
                                     </div>
                                     <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                                        <label class="lg:col-span-2"><span class="mb-1 block text-xs font-semibold">Jenis limbah</span><input wire:model="relations.wasteRecords.{{ $index }}.waste_type" @disabled(!$isReceived || !$canUpdate) class="{{ $inputClass }}" placeholder="Contoh: sisa makanan campuran"></label>
-                                        <label><span class="mb-1 block text-xs font-semibold">Jumlah</span><input wire:model="relations.wasteRecords.{{ $index }}.quantity" type="number" min="0" step="0.001" @disabled(!$isReceived || !$canUpdate) class="{{ $inputClass }}"></label>
-                                        <label><span class="mb-1 block text-xs font-semibold">Satuan</span><select wire:model="relations.wasteRecords.{{ $index }}.unit" @disabled(!$isReceived || !$canUpdate) class="{{ $inputClass }}"><option value="">Pilih</option><option value="kg">kg</option><option value="gram">gram</option><option value="liter">liter</option><option value="wadah">wadah</option><option value="karung">karung</option></select></label>
-                                        <label class="lg:col-span-2"><span class="mb-1 block text-xs font-semibold">Metode penanganan</span><select wire:model="relations.wasteRecords.{{ $index }}.disposal_method" @disabled(!$isReceived || !$canUpdate) class="{{ $inputClass }}"><option value="">Pilih metode</option><option value="diserahkan">Diserahkan ke pengelola limbah</option><option value="kompos">Diolah menjadi kompos</option><option value="pakan">Diserahkan untuk pakan</option><option value="dibuang">Dibuang sesuai prosedur</option><option value="lainnya">Metode lainnya</option></select></label>
-                                        <label class="lg:col-span-2"><span class="mb-1 block text-xs font-semibold">Diserahkan kepada</span><input wire:model="relations.wasteRecords.{{ $index }}.handed_over_to" @disabled(!$isReceived || !$canUpdate) class="{{ $inputClass }}" placeholder="Nama penerima/pengelola limbah"></label>
-<label class="lg:col-span-2"><span class="mb-1 block text-xs font-semibold">Foto limbah</span><input wire:model="uploads.wasteRecords.{{ $index }}.photo_path" type="file" accept="image/*" @disabled(!$isReceived || !$canUpdate) class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-950">@if (!empty($row['photo_path']))<x-v3.documentation-button :url="\Illuminate\Support\Facades\Storage::disk('public')->url($row['photo_path'])" :title="'Foto limbah pencucian · '.($row['waste_type'] ?: 'Item '.($index + 1))" label="Lihat foto tersimpan" class="mt-2" />@endif</label>
-                                        <label class="lg:col-span-2"><span class="mb-1 block text-xs font-semibold">Catatan</span><textarea wire:model="relations.wasteRecords.{{ $index }}.notes" rows="2" @disabled(!$isReceived || !$canUpdate) class="{{ $textareaClass }}"></textarea></label>
+                                        <label class="lg:col-span-2"><span class="mb-1 block text-xs font-semibold">Jenis limbah</span><input wire:model="relations.wasteRecords.{{ $index }}.waste_type" @disabled(!$canEditWaste) class="{{ $inputClass }}" placeholder="Contoh: sisa makanan campuran"></label>
+                                        <label><span class="mb-1 block text-xs font-semibold">Jumlah</span><input wire:model="relations.wasteRecords.{{ $index }}.quantity" type="number" min="0" step="0.001" @disabled(!$canEditWaste) class="{{ $inputClass }}"></label>
+                                        <label><span class="mb-1 block text-xs font-semibold">Satuan</span><select wire:model="relations.wasteRecords.{{ $index }}.unit" @disabled(!$canEditWaste) class="{{ $inputClass }}"><option value="">Pilih</option><option value="kg">kg</option><option value="gram">gram</option><option value="liter">liter</option><option value="wadah">wadah</option><option value="karung">karung</option></select></label>
+                                        <label class="lg:col-span-2"><span class="mb-1 block text-xs font-semibold">Metode penanganan</span><select wire:model="relations.wasteRecords.{{ $index }}.disposal_method" @disabled(!$canEditWaste) class="{{ $inputClass }}"><option value="">Pilih metode</option><option value="diserahkan">Diserahkan ke pengelola limbah</option><option value="kompos">Diolah menjadi kompos</option><option value="pakan">Diserahkan untuk pakan</option><option value="dibuang">Dibuang sesuai prosedur</option><option value="lainnya">Metode lainnya</option></select></label>
+                                        <label class="lg:col-span-2"><span class="mb-1 block text-xs font-semibold">Diserahkan kepada</span><input wire:model="relations.wasteRecords.{{ $index }}.handed_over_to" @disabled(!$canEditWaste) class="{{ $inputClass }}" placeholder="Nama penerima/pengelola limbah"></label>
+<label class="lg:col-span-2"><span class="mb-1 block text-xs font-semibold">Foto limbah</span><input wire:model="uploads.wasteRecords.{{ $index }}.photo_path" type="file" accept="image/*" @disabled(!$canEditWaste) class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-950">@if (!empty($row['photo_path']))<x-v3.documentation-button :url="\Illuminate\Support\Facades\Storage::disk('public')->url($row['photo_path'])" :title="'Foto limbah pencucian · '.($row['waste_type'] ?: 'Item '.($index + 1))" label="Lihat foto tersimpan" class="mt-2" />@endif</label>
+                                        <label class="lg:col-span-2"><span class="mb-1 block text-xs font-semibold">Catatan</span><textarea wire:model="relations.wasteRecords.{{ $index }}.notes" rows="2" @disabled(!$canEditWaste) class="{{ $textareaClass }}"></textarea></label>
                                     </div>
                                 </div>
                             @endforeach
 
-                            @if ($isReceived && $canUpdate)
+                            @if ($canEditWaste)
                                 <button type="button" wire:click="addRelationRow('wasteRecords')" class="inline-flex h-10 items-center rounded-xl border border-amber-300 px-4 text-xs font-bold text-amber-700 hover:bg-amber-50 dark:border-amber-400/40 dark:text-amber-300 dark:hover:bg-amber-500/10">+ Tambah jenis limbah</button>
                             @endif
                         </div>
@@ -180,15 +194,15 @@
                     <div class="mt-5 space-y-3">
                         @foreach ($relations['checklistItems'] ?? [] as $index => $row)
                             <label wire:key="washing-check-{{ $row['_id'] }}" class="flex items-start gap-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700 dark:bg-slate-950/50">
-                                <input wire:model="relations.checklistItems.{{ $index }}.is_passed" type="checkbox" @disabled(!$isWashing || !$canUpdate) class="mt-0.5 size-4 rounded">
-                                <span class="min-w-0 flex-1"><strong class="block text-sm text-slate-800 dark:text-slate-100">{{ $row['item_name'] }}</strong><input wire:model="relations.checklistItems.{{ $index }}.notes" @disabled(!$isWashing || !$canUpdate) class="mt-2 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs dark:border-slate-700 dark:bg-slate-900" placeholder="Catatan opsional"></span>
+                                <input wire:model="relations.checklistItems.{{ $index }}.is_passed" type="checkbox" @disabled(!$canEditResult) class="mt-0.5 size-4 rounded">
+                                <span class="min-w-0 flex-1"><strong class="block text-sm text-slate-800 dark:text-slate-100">{{ $row['item_name'] }}</strong><input wire:model="relations.checklistItems.{{ $index }}.notes" @disabled(!$canEditResult) class="mt-2 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs dark:border-slate-700 dark:bg-slate-900" placeholder="Catatan opsional"></span>
                             </label>
                         @endforeach
                     </div>
 
                     <div class="mt-5 grid gap-4 sm:grid-cols-2">
-                        <label><span class="mb-1 block text-xs font-semibold">Ompreng bersih dan siap digunakan</span><input wire:model="data.clean_containers" type="number" min="0" @disabled(!$isWashing || !$canUpdate) class="{{ $inputClass }}"></label>
-                        <label><span class="mb-1 block text-xs font-semibold">Ompreng rusak/tidak layak</span><input wire:model="data.damaged_containers" type="number" min="0" @disabled(!$isWashing || !$canUpdate) class="{{ $inputClass }}"></label>
+                        <label><span class="mb-1 block text-xs font-semibold">Ompreng bersih dan siap digunakan</span><input wire:model="data.clean_containers" type="number" min="0" @disabled(!$canEditResult) class="{{ $inputClass }}"></label>
+                        <label><span class="mb-1 block text-xs font-semibold">Ompreng rusak/tidak layak</span><input wire:model="data.damaged_containers" type="number" min="0" @disabled(!$canEditResult) class="{{ $inputClass }}"></label>
                     </div>
                     <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">Jumlah fisik final = bersih + rusak. Inilah hasil hitung tim Pencucian, bukan angka perkiraan driver.</p>
                     @if ($isWashing && $canUpdate)
@@ -205,7 +219,7 @@
                                 <p class="text-xs font-bold uppercase tracking-[.12em] text-slate-500 dark:text-slate-400">Foto hasil pencucian</p>
                                 <p class="mt-1 text-xs text-slate-400">Minimal satu foto wajib diunggah sebelum pencucian diselesaikan.</p>
                             </div>
-                            @if ($isWashing && $canUpdate)
+                            @if ($canEditResult)
                                 <button type="button" wire:click="addWashingResultPhoto" wire:loading.attr="disabled" wire:target="addWashingResultPhoto" class="inline-flex h-10 items-center rounded-xl bg-sky-600 px-4 text-xs font-bold text-white transition hover:bg-sky-700 disabled:opacity-60 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400">
                                     + Tambah foto hasil
                                 </button>
@@ -214,7 +228,7 @@
                         @if (($relations['documentations'] ?? []) === [])
                             <div class="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center dark:border-slate-700 dark:bg-slate-950/60">
                                 <p class="text-sm font-semibold text-slate-600 dark:text-slate-300">Belum ada foto hasil pencucian.</p>
-                                @if ($isWashing && $canUpdate)
+                                @if ($canEditResult)
                                     <button type="button" wire:click="addWashingResultPhoto" wire:loading.attr="disabled" wire:target="addWashingResultPhoto" class="mt-3 inline-flex h-10 items-center rounded-xl bg-sky-600 px-4 text-xs font-bold text-white transition hover:bg-sky-700 disabled:opacity-60 dark:bg-sky-500 dark:text-slate-950 dark:hover:bg-sky-400">
                                         + Tambah foto sekarang
                                     </button>
@@ -224,11 +238,11 @@
                         @foreach ($relations['documentations'] ?? [] as $index => $row)
                             <div wire:key="washing-photo-{{ $row['_id'] ?? 'new-'.$index }}" class="grid gap-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700 sm:grid-cols-[1fr_auto]">
                                 <div>
-                                    <input wire:model="uploads.documentations.{{ $index }}.photo_path" type="file" accept="image/*" @disabled(!$isWashing || !$canUpdate) class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-950">
-                                    <input wire:model="relations.documentations.{{ $index }}.caption" @disabled(!$isWashing || !$canUpdate) class="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs dark:border-slate-700 dark:bg-slate-950" placeholder="Keterangan foto">
+                                    <input wire:model="uploads.documentations.{{ $index }}.photo_path" type="file" accept="image/*" @disabled(!$canEditResult) class="block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-950">
+                                    <input wire:model="relations.documentations.{{ $index }}.caption" @disabled(!$canEditResult) class="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs dark:border-slate-700 dark:bg-slate-950" placeholder="Keterangan foto">
 @if (!empty($row['photo_path']))<x-v3.documentation-button :url="\Illuminate\Support\Facades\Storage::disk('public')->url($row['photo_path'])" :title="'Dokumentasi hasil pencucian · '.($row['caption'] ?: 'Foto '.($index + 1))" label="Lihat foto tersimpan" class="mt-2" />@endif
                                 </div>
-                                @if ($isWashing && $canUpdate)<button type="button" wire:click="removeRelationRow('documentations', {{ $index }})" class="self-start text-xs font-bold text-rose-600 dark:text-rose-300">Hapus</button>@endif
+                                @if ($canEditResult)<button type="button" wire:click="removeRelationRow('documentations', {{ $index }})" class="self-start text-xs font-bold text-rose-600 dark:text-rose-300">Hapus</button>@endif
                             </div>
                         @endforeach
                     </div>
@@ -237,6 +251,10 @@
                         <div class="mt-5 flex justify-end">
                             <button type="button" wire:click="workflow('complete')" wire:confirm="Selesaikan pencucian dan tandai ompreng siap digunakan?" class="inline-flex h-11 items-center rounded-xl bg-emerald-600 px-5 text-xs font-bold text-white transition hover:bg-emerald-700 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400">Selesaikan pencucian</button>
                         </div>
+                    @endif
+                    @if ($revisionMode)
+                        <label class="mt-5 block"><span class="mb-1 block text-xs font-semibold">Catatan koreksi / penjelasan selisih</span><textarea wire:model="data.notes" rows="2" class="{{ $textareaClass }}" placeholder="Jelaskan koreksi, terutama bila jumlah akhir berbeda dari perkiraan pengambilan."></textarea></label>
+                        <div class="mt-4 flex justify-end"><button type="submit" class="h-11 rounded-xl bg-sky-600 px-5 text-xs font-bold text-white hover:bg-sky-700">Simpan koreksi Pencucian</button></div>
                     @endif
                 </section>
             @endif

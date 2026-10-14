@@ -496,6 +496,25 @@ private fun AuthenticatedContent(
                     )
                 }
             },
+            onOpenWarehouseReport = { report, date ->
+                operationalViewModel.downloadWarehouseDailyReport(report, date) { file ->
+                    runCatching {
+                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, "application/pdf")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Buka laporan Gudang"))
+                    }.onFailure {
+                        Toast.makeText(context, "Tidak ada aplikasi pembaca PDF pada perangkat ini.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
+            onShareWarehouseReport = { report, date ->
+                operationalViewModel.downloadWarehouseDailyReport(report, date) { file ->
+                    shareDocument(context, file, "application/pdf", "Bagikan laporan Gudang")
+                }
+            },
             onRecordClick = {
                 screen = AppScreen.OperationalDetail(current.slug, current.label, it)
             },
