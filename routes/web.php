@@ -6,6 +6,7 @@ use App\Http\Controllers\CleaningSessionPdfController;
 use App\Http\Controllers\DistributionRunPdfController;
 use App\Http\Controllers\FieldDailyReportExcelController;
 use App\Http\Controllers\FieldDailyReportPdfController;
+use App\Http\Controllers\FieldWeeklyReportPdfController;
 use App\Http\Controllers\FieldDistributionPlanExcelController;
 use App\Http\Controllers\FieldDistributionPlanPdfController;
 use App\Http\Controllers\NutritionExportController;
@@ -46,6 +47,8 @@ Route::middleware('auth')->group(function (): void {
         ->name('field-distribution-plans.pdf');
     Route::get('/field-assistant/distribution-plans/{fieldDistributionPlan}/excel', FieldDistributionPlanExcelController::class)
         ->name('field-distribution-plans.excel');
+    Route::get('/field-assistant/weekly-reports/pdf', FieldWeeklyReportPdfController::class)
+        ->name('field-weekly-reports.pdf');
     Route::get('/field-assistant/daily-reports/{fieldDailyReport}/pdf', FieldDailyReportPdfController::class)
         ->name('field-daily-reports.pdf');
     Route::get('/field-assistant/daily-reports/{fieldDailyReport}/excel', FieldDailyReportExcelController::class)

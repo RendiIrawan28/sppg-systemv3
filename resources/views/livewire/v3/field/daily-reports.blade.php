@@ -8,6 +8,55 @@
             <p class="mt-1 text-sm text-slate-500">Rekap dibuat sebagai Draft setelah seluruh pengantaran dan pengambilan ompreng selesai. Asisten Lapangan melengkapi evaluasi lalu mengajukan kepada Kepala SPPG.</p>
         </div>
 
+        <section class="rounded-2xl border border-sky-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <p class="text-xs font-bold uppercase tracking-[.18em] text-sky-700">Laporan Mingguan Otomatis</p>
+                    <h3 class="mt-1 text-lg font-bold text-slate-950 dark:text-white">Ekspor laporan MBG Senin-Jumat</h3>
+                    <p class="mt-1 text-xs text-slate-500">BAB I-IV, menu sekolah dan 3B, foto kegiatan, serta ringkasan surat jalan. Data diambil dari laporan harian yang sudah tersimpan.</p>
+                </div>
+                @if(auth()->user()->can('field_daily_reports.export') || auth()->user()->is_super_admin)
+                    <a target="_blank" rel="noopener" href="{{ route('field-weekly-reports.pdf', ['start' => $weekStart, 'menu_photos' => (int) $includeMenuPhotos, 'activity_photos' => (int) $includeActivityPhotos, 'waybills' => (int) $includeWaybills]) }}" class="rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-sky-800">Unduh PDF Mingguan</a>
+                @endif
+            </div>
+            <div class="mt-4 grid gap-3 sm:grid-cols-[210px_1fr]">
+                <label class="text-xs font-bold text-slate-600 dark:text-slate-300">Tanggal awal minggu (otomatis Senin)
+                    <input type="date" wire:model.change="weekStart" class="mt-1 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950">
+                </label>
+                <div class="flex flex-wrap items-center gap-4 text-xs text-slate-700 dark:text-slate-200">
+                    <label><input type="checkbox" wire:model.live="includeMenuPhotos" class="rounded"> Poster menu</label>
+                    <label><input type="checkbox" wire:model.live="includeActivityPhotos" class="rounded"> Dokumentasi kegiatan</label>
+                    <label><input type="checkbox" wire:model.live="includeWaybills" class="rounded"> Ringkasan surat jalan</label>
+                </div>
+            </div>
+            @if($canUpdate)
+                <div class="mt-4 border-t border-slate-100 pt-4 dark:border-slate-700">
+                    <p class="text-xs font-semibold text-slate-700 dark:text-slate-200">Tambahkan poster menu / foto kegiatan bila belum tersedia dalam sistem</p>
+                    <form wire:submit="uploadWeeklyPhoto" class="mt-3 grid gap-3 md:grid-cols-[150px_180px_1fr_1fr_auto] md:items-end">
+                        <label class="text-xs">Tanggal <input type="date" wire:model="uploadDate" min="{{ $weekStart }}" max="{{ $weekEnd }}" class="mt-1 w-full rounded-lg border bg-white px-2 py-2 dark:bg-slate-950"></label>
+                        <label class="text-xs">Jenis <select wire:model="uploadType" class="mt-1 w-full rounded-lg border bg-white px-2 py-2 dark:bg-slate-950"><option value="menu_school">Poster menu sekolah</option><option value="menu_3b">Poster menu 3B</option><option value="activity">Foto kegiatan</option></select></label>
+                        <label class="text-xs">Keterangan <input wire:model="uploadCaption" maxlength="255" placeholder="Opsional" class="mt-1 w-full rounded-lg border bg-white px-2 py-2 dark:bg-slate-950"></label>
+                        <label class="text-xs">Foto (maks. 4 MB) <input type="file" accept="image/jpeg,image/png,image/webp" wire:model="uploadImage" class="mt-1 w-full text-xs"></label>
+                        <button type="submit" wire:loading.attr="disabled" class="rounded-lg bg-slate-800 px-4 py-2 text-xs font-bold text-white disabled:opacity-50">Unggah</button>
+                    </form>
+                    @foreach(['weekStart','uploadDate','uploadType','uploadCaption','uploadImage'] as $uploadField)
+                        @error($uploadField)<p class="mt-1 text-xs text-rose-600">{{ $message }}</p>@enderror
+                    @endforeach
+                    @if($weeklyPhotos->isNotEmpty())
+                        <div class="mt-3 flex flex-wrap gap-2">
+                            @foreach($weeklyPhotos as $weeklyPhoto)
+                                <div class="flex items-center gap-2 rounded-lg border px-2.5 py-2 text-[11px] dark:border-slate-700">
+                                    <span>{{ $weeklyPhoto->photo_date?->format('d/m') }} · {{ match($weeklyPhoto->photo_type) {'menu_school' => 'Menu sekolah', 'menu_3b' => 'Menu 3B', default => 'Kegiatan'} }} · {{ \Illuminate\Support\Str::limit($weeklyPhoto->caption ?: 'Foto', 20) }}</span>
+                                    <button type="button" wire:click="deleteWeeklyPhoto({{ $weeklyPhoto->id }})" wire:confirm="Hapus foto ini dari laporan mingguan?" class="font-bold text-rose-600">Hapus</button>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+                </div>
+            @endif
+            <p class="mt-3 text-[11px] text-slate-500">Hari tanpa data ditandai “Belum tersedia”; status belum disetujui akan tampil sebagai draf laporan mingguan. Foto asli tidak otomatis menjadi bukti pengesahan.</p>
+        </section>
+
         @error('workflow')<div class="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{!! $message !!}</div>@enderror
 
         <div class="grid gap-5 xl:grid-cols-[.9fr_1.4fr]">
