@@ -30,12 +30,15 @@ final class FieldDistributionPlanGroupExport
             return 'Rincian kelompok belum tersedia';
         }
 
+        // The destination summary mirrors the compact "Kelompok Penerima" column
+        // on the master-beneficiary report: one category and portion count per line.
+        // Use the plan snapshot, not master beneficiary counts, so this reflects
+        // confirmed distribution quantities (including zero-count categories).
         return $groups->map(fn (FieldDistributionPlanRecipientGroup $group): string => sprintf(
-            '%s (%s): %s',
+            '%s: %s',
             self::name($group),
-            self::portionLabel($group),
             number_format((int) $group->total_portions, 0, ',', '.'),
-        ))->implode('; ');
+        ))->implode("\n");
     }
 
     /**

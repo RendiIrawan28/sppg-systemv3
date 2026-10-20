@@ -47,9 +47,9 @@ class FieldDistributionPlanExcelController extends Controller
             ['Status', $plan->status?->label()],
             [],
             [
-                'No', 'Jenis', 'Kode', 'Tujuan', 'Alamat', 'PIC', 'Telepon', 'Rute',
+                'No', 'Jenis', 'Kode', 'Tujuan', 'Kelompok Penerima', 'Rute',
                 'Terdaftar', 'Terkonfirmasi', 'Porsi Kecil', 'Porsi Besar', 'Total',
-                'Status Konfirmasi', 'Catatan', 'Rincian per Kelompok',
+                'Status Konfirmasi', 'Catatan',
             ],
         ], null, 'A1');
 
@@ -60,9 +60,7 @@ class FieldDistributionPlanExcelController extends Controller
                 $destination->destination_type,
                 $destination->destination_code_snapshot,
                 $destination->destination_name_snapshot,
-                $destination->address_snapshot,
-                $destination->contact_name_snapshot,
-                $destination->contact_phone_snapshot,
+                FieldDistributionPlanGroupExport::destinationSummary($destination->recipientGroups),
                 $destination->route_name,
                 $destination->registered_beneficiaries,
                 $destination->confirmed_beneficiaries,
@@ -71,27 +69,33 @@ class FieldDistributionPlanExcelController extends Controller
                 $destination->total_portions,
                 $destination->confirmation_status,
                 $destination->special_notes,
-                FieldDistributionPlanGroupExport::destinationSummary($destination->recipientGroups),
             ]], null, "A{$row}");
             $row++;
         }
 
-        $sheet->mergeCells('A1:P1');
+        $sheet->mergeCells('A1:M1');
         $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
         $sheet->getStyle('A1')->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-        $sheet->getStyle('A10:P10')->getFont()->setBold(true);
-        $sheet->getStyle('A10:P'.max(10, $row - 1))->getBorders()->getAllBorders()
+        $sheet->getStyle('A10:M10')->getFont()->setBold(true);
+        $sheet->getStyle('A10:M'.max(10, $row - 1))->getBorders()->getAllBorders()
             ->setBorderStyle(Border::BORDER_THIN);
         $sheet->freezePane('A11');
-        $sheet->setAutoFilter('A10:P'.max(10, $row - 1));
+        $sheet->setAutoFilter('A10:M'.max(10, $row - 1));
 
-        foreach (range('A', 'O') as $column) {
-            $sheet->getColumnDimension($column)->setAutoSize(true);
+        foreach (['A' => 6, 'B' => 12, 'C' => 13, 'D' => 34,
+            'E' => 35, 'F' => 16, 'G' => 13, 'H' => 16,
+            'I' => 13, 'J' => 13, 'K' => 12, 'L' => 20, 'M' => 35] as $column => $width) {
+            $sheet->getColumnDimension($column)->setWidth($width);
         }
-        $sheet->getColumnDimension('P')->setWidth(55);
         if ($row > 11) {
-            $sheet->getStyle('P11:P'.($row - 1))->getAlignment()
+            $sheet->getStyle('E11:E'.($row - 1))->getAlignment()
                 ->setWrapText(true)->setVertical(Alignment::VERTICAL_TOP);
+            $sheet->getStyle('D11:M'.($row - 1))->getAlignment()
+                ->setVertical(Alignment::VERTICAL_TOP);
+            foreach ($plan->destinations as $index => $destination) {
+                $groupCount = max(1, $destination->recipientGroups->count());
+                $sheet->getRowDimension(11 + $index)->setRowHeight(max(22, $groupCount * 15));
+            }
         }
 
         $this->addGroupDetailSheet($spreadsheet, $plan);

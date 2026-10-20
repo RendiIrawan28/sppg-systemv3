@@ -11,7 +11,10 @@
         .meta { width: 100%; margin-bottom: 12px; border-collapse: collapse; }
         .meta td { padding: 3px 5px; vertical-align: top; }
         .meta .label { width: 125px; font-weight: bold; }
-        table.data { width: 100%; border-collapse: collapse; }
+        table.data { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        table.data thead { display: table-header-group; }
+        table.data tr { page-break-inside: avoid; }
+        table.data td { overflow-wrap: break-word; word-wrap: break-word; }
         table.data th, table.data td { border: 1px solid #9ca3af; padding: 4px; vertical-align: top; }
         table.data th { background: #e5e7eb; font-size: 8px; }
         .text-center { text-align: center; }
@@ -24,9 +27,10 @@
         .space { height: 55px; }
         .notes { margin-top: 12px; padding: 8px; border: 1px solid #d1d5db; }
         .muted { color: #6b7280; }
-        .group-row td { background: #f8fafc; font-size: 8px; padding-top: 3px; padding-bottom: 3px; }
-        .group-row .group-name { padding-left: 12px; }
-        .group-missing td { background: #f9fafb; color: #6b7280; font-style: italic; }
+        .destination-groups { font-size: 8px; line-height: 1.4; }
+        .destination-group { margin: 0 0 2px; }
+        .destination-group:last-child { margin-bottom: 0; }
+        .group-missing { color: #6b7280; font-style: italic; }
         .group-summary { width: 100%; margin-top: 12px; border-collapse: collapse; }
         .group-summary th, .group-summary td { border: 1px solid #9ca3af; padding: 4px 6px; }
         .group-summary th { background: #e5e7eb; font-size: 8px; }
@@ -60,18 +64,18 @@
     <table class="data">
         <thead>
             <tr>
-                <th>No</th>
-                <th>Jenis</th>
-                <th>Tujuan</th>
-                <th>Alamat / PIC</th>
-                <th>Rute</th>
-                <th>Terdaftar</th>
-                <th>Terkonfirmasi</th>
-                <th>Porsi Kecil</th>
-                <th>Porsi Besar</th>
-                <th>Total</th>
-                <th>Konfirmasi</th>
-                <th>Catatan</th>
+                <th style="width: 3%">No</th>
+                <th style="width: 7%">Jenis</th>
+                <th style="width: 14%">Tujuan</th>
+                <th style="width: 21%">Kelompok Penerima</th>
+                <th style="width: 7%">Rute</th>
+                <th style="width: 7%">Terdaftar</th>
+                <th style="width: 8%">Terkonfirmasi</th>
+                <th style="width: 6%">Porsi Kecil</th>
+                <th style="width: 6%">Porsi Besar</th>
+                <th style="width: 5%">Total</th>
+                <th style="width: 7%">Konfirmasi</th>
+                <th style="width: 9%">Catatan</th>
             </tr>
         </thead>
         <tbody>
@@ -83,9 +87,17 @@
                         <strong>{{ $destination->destination_name_snapshot }}</strong><br>
                         <span class="muted">{{ $destination->destination_code_snapshot }}</span>
                     </td>
-                    <td>
-                        {{ $destination->address_snapshot ?: '-' }}<br>
-                        <span class="muted">PIC: {{ $destination->contact_name_snapshot ?: '-' }} / {{ $destination->contact_phone_snapshot ?: '-' }}</span>
+                    <td class="destination-groups">
+                        @if ($destination->recipientGroups->isNotEmpty())
+                            @foreach ($destination->recipientGroups as $group)
+                                <div class="destination-group">
+                                    {{ \App\Support\FieldDistributionPlanGroupExport::name($group) }}:
+                                    {{ number_format((int) $group->total_portions, 0, ',', '.') }}
+                                </div>
+                            @endforeach
+                        @else
+                            <span class="group-missing">Rincian kelompok belum tersedia</span>
+                        @endif
                     </td>
                     <td>{{ $destination->route_name }}</td>
                     <td class="text-right">{{ number_format((int) $destination->registered_beneficiaries) }}</td>
@@ -96,27 +108,6 @@
                     <td>{{ ucfirst(str_replace('_', ' ', (string) $destination->confirmation_status)) }}</td>
                     <td>{{ $destination->special_notes ?: '-' }}</td>
                 </tr>
-                @forelse ($destination->recipientGroups as $group)
-                    <tr class="group-row">
-                        <td></td>
-                        <td></td>
-                        <td colspan="3" class="group-name">
-                            <strong>{{ \App\Support\FieldDistributionPlanGroupExport::name($group) }}</strong>
-                            <span class="muted">(Porsi {{ \App\Support\FieldDistributionPlanGroupExport::portionLabel($group) }})</span>
-                        </td>
-                        <td class="text-right">{{ number_format((int) $group->registered_beneficiaries) }}</td>
-                        <td class="text-right">{{ number_format((int) $group->confirmed_beneficiaries) }}</td>
-                        <td class="text-right">{{ number_format((int) $group->small_portions) }}</td>
-                        <td class="text-right">{{ number_format((int) $group->large_portions) }}</td>
-                        <td class="text-right">{{ number_format((int) $group->total_portions) }}</td>
-                        <td class="muted">Per kelompok</td>
-                        <td>{{ $group->notes ?: '-' }}</td>
-                    </tr>
-                @empty
-                    <tr class="group-missing">
-                        <td colspan="12">Rincian kelompok untuk {{ $destination->destination_name_snapshot }} belum tersedia pada rencana ini.</td>
-                    </tr>
-                @endforelse
             @empty
                 <tr><td colspan="12" class="text-center">Belum ada tujuan distribusi.</td></tr>
             @endforelse
