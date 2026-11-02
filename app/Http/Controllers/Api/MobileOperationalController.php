@@ -1994,10 +1994,26 @@ class MobileOperationalController extends Controller
         }
 
         if (str_starts_with($module, 'ba-limbah-')) {
+            if ($module === 'ba-limbah-persiapan'
+                && ! in_array($this->scalarValue($item->getAttribute('status')), [
+                    OperationalReportStatus::DivisionApproved->value,
+                    OperationalReportStatus::Verified->value,
+                ], true)) {
+                return false;
+            }
+
             return $request->user()->can($definition['permission'].'.view');
         }
 
-        if (in_array($module, ['persiapan', 'pengolahan', 'pencucian'], true)
+        if ($module === 'persiapan'
+            && ! in_array($this->scalarValue($item->getAttribute('status')), [
+                OperationalReportStatus::DivisionApproved->value,
+                OperationalReportStatus::Verified->value,
+            ], true)) {
+            return false;
+        }
+
+        if (in_array($module, ['pengolahan', 'pencucian'], true)
             && $this->scalarValue($item->getAttribute('status')) !== OperationalReportStatus::Verified->value) {
             return false;
         }

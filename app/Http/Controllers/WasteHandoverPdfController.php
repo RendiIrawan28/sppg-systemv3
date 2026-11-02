@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\OperationalReportStatus;
 use App\Models\WasteHandoverReport;
 use App\Support\FileNaming;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -14,6 +15,12 @@ class WasteHandoverPdfController extends Controller
     {
         abort_unless($request->user()?->can($wasteHandoverReport->division_type->permissionPrefix().'.view'), 403);
         abort_unless((int) $wasteHandoverReport->sppg_unit_id === (int) $request->attributes->get('v3Unit')?->getKey(), 404);
+        if ($wasteHandoverReport->division_type->value === 'preparation') {
+            abort_unless(in_array($wasteHandoverReport->status, [
+                OperationalReportStatus::DivisionApproved,
+                OperationalReportStatus::Verified,
+            ], true), 409, 'Berita acara limbah Persiapan hanya dapat diekspor setelah diverifikasi Kepala Divisi Persiapan.');
+        }
         $wasteHandoverReport->load(['sppgUnit', 'items', 'petugas', 'divisionApprover', 'verifier']);
 
         $pdf = Pdf::loadView('reports.waste-handover-pdf', [

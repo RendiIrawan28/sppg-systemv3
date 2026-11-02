@@ -45,9 +45,12 @@ class PreparationSessionCalculationPdfController extends Controller
             'Laporan harian belum dapat diekspor karena masih ada pekerjaan Persiapan yang belum selesai.',
         );
         abort_if(
-            $sessions->contains(fn (PreparationSession $item): bool => $item->status !== OperationalReportStatus::Verified),
+            $sessions->contains(fn (PreparationSession $item): bool => ! in_array($item->status, [
+                OperationalReportStatus::DivisionApproved,
+                OperationalReportStatus::Verified,
+            ], true)),
             403,
-            'Laporan harian hanya dapat diekspor setelah seluruh pekerjaan tanggal tersebut disetujui Kepala SPPG.',
+            'Laporan harian hanya dapat diekspor setelah seluruh pekerjaan tanggal tersebut diverifikasi Kepala Divisi Persiapan.',
         );
     }
 }

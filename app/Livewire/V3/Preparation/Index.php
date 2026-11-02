@@ -232,6 +232,8 @@ class Index extends Component
     {
         $unit = $this->currentUnit();
         $bulk = app(BulkOperationalReportReviewService::class);
+        $statusLabels = OperationalReportStatus::options();
+        $statusLabels[OperationalReportStatus::DivisionApproved->value] = 'Diverifikasi Kepala Divisi Persiapan';
         $records = PreparationSession::with(['items.returns', 'items.resultDocumentation', 'items.outputs', 'withdrawal.taker', 'wasteHandoverReport'])
             ->where('sppg_unit_id', $unit->id)
             ->whereDate('preparation_date', $this->selectedWorkDate())
@@ -261,7 +263,7 @@ class Index extends Component
                 auth()->user(), 'preparation.approve',
             ),
             'canExport' => $this->allowed('preparation.export'),
-            'statusLabels' => OperationalReportStatus::options(),
+            'statusLabels' => $statusLabels,
             'preparationUnits' => app(PreparationUnitConversionService::class)->selectableUnits(),
             'processingTargets' => ProcessingBatch::query()->where('sppg_unit_id', $unit->id)->where('state', 'in_progress')->whereDate('production_date', $this->selectedWorkDate())->pluck('batch_number', 'id'),
             'portioningTargets' => PortioningSession::query()->where('sppg_unit_id', $unit->id)->where('state', 'in_progress')->whereDate('portioning_date', $this->selectedWorkDate())->pluck('session_number', 'id'),

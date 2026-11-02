@@ -20,6 +20,12 @@ class MobileOperationalRecordTransformer
      */
     public function summary(string $slug, array $definition, Model $record): array
     {
+        $status = $this->rawValue($record->getAttribute('status'));
+        $statusLabel = $this->displayValue($record->getAttribute('status'));
+        if ($slug === 'persiapan' && $status === 'division_approved') {
+            $statusLabel = 'Diverifikasi Kepala Divisi Persiapan';
+        }
+
         return [
             'id' => $record->getKey(),
             'number' => (string) $record->getAttribute($definition['number']),
@@ -28,8 +34,8 @@ class MobileOperationalRecordTransformer
             'subtitle' => $this->subtitle($slug, $record),
             'state' => $this->rawValue($record->getAttribute('state')),
             'state_label' => $this->displayValue($record->getAttribute('state')),
-            'status' => $this->rawValue($record->getAttribute('status')),
-            'status_label' => $this->displayValue($record->getAttribute('status')),
+            'status' => $status,
+            'status_label' => $statusLabel,
             'is_history' => $this->isHistory($slug, $record),
             'assignee' => $this->assignee($slug, $record),
             'metrics' => $this->metrics($slug, $record),

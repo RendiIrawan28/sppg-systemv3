@@ -14,7 +14,10 @@ class PreparationSessionWastePdfController extends Controller
     public function __invoke(Request $request, PreparationSession $session): Response
     {
         $this->authorizeSystemRecord($session, 'preparation.export');
-        abort_unless($session->status === OperationalReportStatus::Verified, 409, 'Laporan hanya dapat diunduh setelah disetujui Kepala SPPG.');
+        abort_unless(in_array($session->status, [
+            OperationalReportStatus::DivisionApproved,
+            OperationalReportStatus::Verified,
+        ], true), 409, 'Laporan hanya dapat diunduh setelah diverifikasi Kepala Divisi Persiapan.');
 
         $session->load(['sppgUnit', 'petugas', 'items.returns']);
 
