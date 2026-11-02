@@ -69,12 +69,17 @@ class Index extends Component
     }
 
     public function save(
+        PreparationSessionService $service,
         PreparationOutputService $outputs,
         PreparationWasteReportSyncService $wasteReports,
         PreparationUnitConversionService $unitConversion,
     ): void {
         abort_unless($this->allowed('preparation.update'), 403);
         $session = $this->record($this->selectedId);
+        if ($session->status === OperationalReportStatus::RevisionRequired) {
+            $service->reopenForRevision($session, auth()->user());
+            $session = $this->record($this->selectedId);
+        }
         abort_unless($session->state === 'in_progress', 422);
         $this->validate([
             'items.*.received_weight_kg' => ['nullable', 'numeric', 'gte:0'],
@@ -174,7 +179,7 @@ class Index extends Component
 
     public function complete(PreparationSessionService $service): void
     {
-        $this->save(app(PreparationOutputService::class), app(PreparationWasteReportSyncService::class), app(PreparationUnitConversionService::class));
+        $this->save($service, app(PreparationOutputService::class), app(PreparationWasteReportSyncService::class), app(PreparationUnitConversionService::class));
         $service->complete($this->record($this->selectedId), auth()->user());
         $this->select($this->selectedId);
     }

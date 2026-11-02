@@ -132,6 +132,44 @@ class PreparationSessionService
         });
     }
 
+    public function reopenForRevision(PreparationSession $session, User $actor): PreparationSession
+    {
+        abort_unless($actor->can('preparation.update'), 403);
+
+        return DB::transaction(function () use ($session, $actor): PreparationSession {
+            $session = PreparationSession::query()->lockForUpdate()->findOrFail($session->getKey());
+
+            if ($session->status !== OperationalReportStatus::RevisionRequired
+                || $session->state !== 'completed') {
+                return $session->refresh();
+            }
+
+            $session->update([
+                'state' => 'in_progress',
+                'status' => OperationalReportStatus::Draft,
+                'completed_at' => null,
+                'submitted_by' => null,
+                'submitted_at' => null,
+                'division_approved_by' => null,
+                'division_approved_at' => null,
+                'verified_by' => null,
+                'verified_at' => null,
+            ]);
+            $this->history(
+                $session,
+                $actor,
+                'revision_reopened',
+                'completed',
+                'in_progress',
+                OperationalReportStatus::RevisionRequired->value,
+                OperationalReportStatus::Draft->value,
+                $session->review_notes,
+            );
+
+            return $session->refresh();
+        });
+    }
+
     public function submit(PreparationSession $session, User $actor): void
     {
         abort_unless($actor->can('preparation.submit'), 403);

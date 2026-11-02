@@ -833,6 +833,11 @@ class MobileOperationalController extends Controller
         $item = $this->findRecord($definition, $record, (int) $systemUnit->id());
         $this->assertDistributionRecordAccess($module, $item, $request->user());
         abort_unless($this->isEditable($item), 422, 'Data sudah dikunci dan tidak dapat diubah.');
+        if ($item instanceof PreparationSession
+            && $item->status === OperationalReportStatus::RevisionRequired
+            && $item->state === 'completed') {
+            $item = app(PreparationSessionService::class)->reopenForRevision($item, $request->user());
+        }
 
         DB::transaction(function () use ($request, $module, $definition, $item, $systemUnit): void {
             if ($module === 'lapangan-konfirmasi') {
@@ -3165,6 +3170,12 @@ class MobileOperationalController extends Controller
                 && $relation === 'items'
                 && $this->scalarValue($parent->getAttribute('status')) === WarehouseWithdrawal::WAITING);
         abort_unless($relationEditable, 422, 'Data sudah dikunci dan tidak dapat diubah.');
+        if ($operation !== 'delete'
+            && $parent instanceof PreparationSession
+            && $parent->status === OperationalReportStatus::RevisionRequired
+            && $parent->state === 'completed') {
+            $parent = app(PreparationSessionService::class)->reopenForRevision($parent, $request->user());
+        }
         abort_unless(method_exists($parent, $relation), 404);
 
         return [$definition, $parent, $definition['relations'][$relation]];
